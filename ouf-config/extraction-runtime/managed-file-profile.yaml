@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: ExtractionRuntimeProfile
+metadata: {id: onboarding-managed-file-profile, version: 1.0.0, status: ACTIVE}
+spec:
+  sourceRef: onboarding-managed-files@1.0.0
+  mode: MANAGED
+  fieldProjection: [id]
+  paging: {pageSize: 500}
+  incrementalStrategy: FULL_SNAPSHOT

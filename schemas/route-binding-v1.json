@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "ouf.trieste.it/v1"}, "kind": {"const": "RouteBinding"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["id", "version", "status"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "status": {"const": "ACTIVE"}}},
+    "spec": {"type": "object", "additionalProperties": false, "required": ["direction", "exposure", "capabilityRef", "sourceRef", "match", "backendBinding", "policy"], "properties": {
+      "direction": {"enum": ["northbound", "southbound"]}, "exposure": {"enum": ["public", "internal"]},
+      "capabilityRef": {"type": "string"}, "sourceRef": {"type": "string"}, "extractionProfileRef": {"type": "string"},
+      "match": {"type": "object", "additionalProperties": false, "required": ["method", "path"], "properties": {"method": {"enum": ["GET", "POST", "PUT", "DELETE"]}, "path": {"type": "string", "pattern": "^/"}, "query": {"type": "object"}}},
+      "backendBinding": {"type": "object", "additionalProperties": false, "required": ["service", "port", "path"], "properties": {"service": {"type": "string", "pattern": "^[a-z0-9-]+$"}, "port": {"type": "integer", "minimum": 1, "maximum": 65535}, "path": {"type": "string", "pattern": "^/"}}},
+      "policy": {"type": "object", "additionalProperties": false, "required": ["identity", "maxRequestBytes", "timeoutSeconds"], "properties": {"identity": {"enum": ["OIDC", "M2M", "MTLS_SERVICE"]}, "allowedServiceIdentities": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 10485760}, "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 60}}}
+    }}
+  }
+}

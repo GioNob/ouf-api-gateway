@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "ouf.trieste.it/v1"},
+    "kind": {"const": "Capability"},
+    "metadata": {"$ref": "#/$defs/metadata"},
+    "spec": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operationType", "scope", "classification", "mcp"],
+      "properties": {
+        "operationType": {"enum": ["READ", "SEARCH", "STATUS", "COMMAND"]},
+        "scope": {"type": "string", "minLength": 1},
+        "classification": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["OPEN", "ANONYMOUS"]}},
+        "mcp": {"type": "object", "additionalProperties": false, "required": ["toolEligible"], "properties": {"toolEligible": {"type": "boolean"}}}
+      }
+    }
+  },
+  "$defs": {"metadata": {"type": "object", "additionalProperties": false, "required": ["id", "version", "status"], "properties": {"id": {"type": "string", "pattern": "^[a-z0-9._-]+$"}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "status": {"const": "ACTIVE"}}}}
+}
+

@@ -1,0 +1,24 @@
+name: Gateway 1A configuration foundation
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  config-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: bash scripts/verify.sh
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-1a-evidence-${{ github.run_id }}
+          path: |
+            generated/
+            docs/GATEWAY_1A_TRACEABILITY.md
+          retention-days: 30
