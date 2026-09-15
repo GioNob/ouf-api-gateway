@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "ouf.trieste.it/v1"}, "kind": {"const": "SourceRuntimeProfile"},
+    "metadata": {"type": "object", "additionalProperties": false, "required": ["id", "version", "status"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "status": {"const": "ACTIVE"}}},
+    "spec": {"type": "object", "additionalProperties": false, "required": ["protocol", "endpointRef"], "properties": {"protocol": {"enum": ["HTTP", "FILE", "WFS", "WMS"]}, "endpointRef": {"type": "string", "pattern": "^[a-z][a-z0-9+.-]*://[^/\\s]+(?:/[^\\s]*)?$"}, "credentialRef": {"type": "string", "pattern": "^(vault|openbao)://"}, "sourceSchemaRef": {"type": "string"}}}
+  }
+}
+
