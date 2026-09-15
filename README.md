@@ -1,6 +1,6 @@
 # OUF Urban API Gateway
 
-Gateway 1A establishes the PET v1.3 configuration boundary for Apache APISIX 3.18.x. It validates versioned runtime projections, resolves their references fail-closed and deterministically compiles APISIX routes. It contains no ETL, semantic mapping, object resolution or direct database access.
+Gateway 1A/1B establishes the PET v1.3 configuration and controlled-publication boundary for Apache APISIX 3.18.x. It validates versioned runtime projections, resolves their references fail-closed and deterministically compiles APISIX routes. Publication is serialized, hash-pinned and can become ACTIVE only after all verification gates pass; failures preserve the last-known-good revision. It contains no ETL, semantic mapping, object resolution or direct database access.
 
 The first micro-pairwise fixture preserves the existing Onboarding contract:
 
@@ -10,3 +10,4 @@ Only an authenticated internal service identity may use that route. The caller c
 
 Run `scripts/verify.sh`. Generated artifacts are evidence and are not committed.
 
+Gateway 1B provides the publication state machine and a test control-plane adapter. A real APISIX/etcd adapter, infrastructure fault injection and production activation evidence are deliberately not claimed by this increment.
