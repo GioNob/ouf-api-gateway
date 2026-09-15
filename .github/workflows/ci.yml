@@ -1,4 +1,4 @@
-name: Gateway 1A configuration foundation
+name: Gateway 1B controlled publication
 on: [push, pull_request]
 permissions: {contents: read}
 jobs:
@@ -17,8 +17,10 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1a-evidence-${{ github.run_id }}
+          name: gateway-1b-evidence-${{ github.run_id }}
           path: |
             generated/
             docs/GATEWAY_1A_TRACEABILITY.md
+            docs/GATEWAY_1B_TRACEABILITY.md
+            schemas/gateway-publication-manifest-v1.json
           retention-days: 30
