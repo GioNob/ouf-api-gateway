@@ -1,4 +1,4 @@
-name: Gateway 1B controlled publication
+name: Gateway 1C MCP capability binding
 on: [push, pull_request]
 permissions: {contents: read}
 jobs:
@@ -17,10 +17,13 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1b-evidence-${{ github.run_id }}
+          name: gateway-1c-evidence-${{ github.run_id }}
           path: |
             generated/
             docs/GATEWAY_1A_TRACEABILITY.md
             docs/GATEWAY_1B_TRACEABILITY.md
+            docs/GATEWAY_1C_TRACEABILITY.md
             schemas/gateway-publication-manifest-v1.json
+            schemas/mcp-gateway-dispatch-v1.json
+            tests/fixtures/mcp-related-search-dispatch.json
           retention-days: 30

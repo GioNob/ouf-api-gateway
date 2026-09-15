@@ -61,7 +61,8 @@ def compile_config(config_root):
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
           "plugins": {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "proxy-rewrite": {"uri": spec["backendBinding"]["path"]}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}},
-          "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"]},
+          "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
+          "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{})
         })
     output={"formatVersion":"1.0","apisixVersion":"3.18.x","routes":sorted(routes,key=lambda r:r["id"])}

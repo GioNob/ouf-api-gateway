@@ -11,7 +11,7 @@ def isolated(tmp_path):
 
 def test_compiles_onboarding_micro_pairwise_contract():
     contract=json.loads((ROOT/"tests/fixtures/onboarding-managed-file-contract.json").read_text())
-    result=compile_config(ROOT/"ouf-config"); route=result["routes"][0]
+    result=compile_config(ROOT/"ouf-config"); route=next(item for item in result["routes"] if item["id"]=="onboarding-managed-file-read")
     assert route["uri"]==contract["path"]
     assert route["methods"]==[contract["method"]]
     assert route["x-ouf-query-contract"][contract["queryParameter"]]=={"required":True,"pattern":contract["referencePattern"]}
