@@ -56,6 +56,7 @@ class MCPDispatcher:
                 self.routes[capability_id] = route
 
     def dispatch(self, raw_body: bytes, request_headers: dict[str, str], identity: TrustedIdentity) -> BackendResponse:
+        headers = {name.lower(): value for name, value in request_headers.items()}
         try:
             envelope = json.loads(raw_body)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -93,9 +94,9 @@ class MCPDispatcher:
         if envelope["AuthorizationDecisionRef"] != identity.authorization_decision_ref:
             raise DispatchError(403, "AUTHORIZATION_CONTEXT_MISMATCH", "decision reference differs from authenticated context")
         for name in self.REQUIRED_HEADERS:
-            if not request_headers.get(name):
+            if not headers.get(name.lower()):
                 raise DispatchError(400, "MISSING_GOVERNANCE_HEADER", name)
-        if request_headers["X-Correlation-ID"] != envelope["CorrelationID"] or request_headers["Idempotency-Key"] != envelope["IdempotencyKey"] or request_headers["X-Tool-Attempt-ID"] != envelope["AttemptID"]:
+        if headers["x-correlation-id"] != envelope["CorrelationID"] or headers["idempotency-key"] != envelope["IdempotencyKey"] or headers["x-tool-attempt-id"] != envelope["AttemptID"]:
             raise DispatchError(409, "GOVERNANCE_CONTEXT_MISMATCH", "headers and admitted attempt differ")
         downstream_headers = {
             "Content-Type": "application/json",

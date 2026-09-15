@@ -13,3 +13,5 @@ Normative baseline: Urban API Gateway PET v1.3 §§20–23 and T29.1–T29.5, MC
 | Gateway→Onboarding regression | original managed-file micro-pairwise remains green with route selected by stable ID | VERIFIED regression |
 
 Real APISIX/etcd convergence, IAM token cryptography, CNI/NetworkPolicy egress enforcement and deployed UDP end-to-end execution are deliberately not claimed by this increment.
+
+The coordinated pairwise 1D harness exposes this same dispatcher over loopback HTTP and calls a separate UDP stub. It is test-only, requires an explicit synthetic workload token and refuses every service/path except the governed UDP binding.
