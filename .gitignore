@@ -1,0 +1,7 @@
+__pycache__/
+.pytest_cache/
+.venv/
+generated/
+pip-metadata-*/
+pip-unpack-*/
+pytest-of-root/
