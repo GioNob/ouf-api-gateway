@@ -13,3 +13,5 @@ Run `scripts/verify.sh`. Generated artifacts are evidence and are not committed.
 Gateway 1B provides the publication state machine and a test control-plane adapter. A real APISIX/etcd adapter, infrastructure fault injection and production activation evidence are deliberately not claimed by this increment.
 
 Gateway 1C adds the governed MCP dispatch adapter and exact MCP→Gateway→UDP contract fixture. Authenticated identity and authorization references must match the admitted envelope; backend destinations remain registry-owned and backend governance errors are returned without retry or reinterpretation.
+
+Gateway 1D adds deterministic MCP attempt-recovery mediation. The owner service and outcome path are compiled from registry configuration; callers cannot supply a physical target. See `docs/GATEWAY_1D_TRACEABILITY.md`.

@@ -5,3 +5,4 @@ spec:
   protocol: HTTP
   endpointRef: service://ouf-udp-object-resolution
   sourceSchemaRef: capability-contract://urban.object.related_search/v1
+  ownerOutcomePath: /internal/v1/attempt-outcomes/{backendRequestId}
