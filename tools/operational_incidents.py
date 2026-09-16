@@ -82,7 +82,7 @@ class SQLiteOperationalIncidentStore:
         correlation_id: str | None = None,
         endpoint_ref: str | None = None,
         action_required: bool = True,
-        visibility_class: str = "PLATFORM_OPERATIONAL",
+        visibility_class: str = "RESTRICTED_OPERATIONAL",
     ) -> OperationalIncident:
         if severity not in {"INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("invalid severity")
