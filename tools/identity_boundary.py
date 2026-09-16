@@ -13,12 +13,17 @@ class VerifiedCredential:
     scopes: frozenset[str]
     credential_id: str
     authentication_context_ref: str
+    tenant_id: str = ""
 
 
 @dataclass(frozen=True)
 class NormalizedIdentity:
     service_principal_id: str
+    principal_id: str
+    tenant_id: str
     actor_type: str
+    issuer: str
+    audience: frozenset[str]
     scopes: frozenset[str]
     credential_id: str
     authentication_context_ref: str
@@ -35,6 +40,7 @@ class TrustBinding:
     service_principal_id: str
     actor_type: str
     required_audience: str
+    tenant_id: str = ""
 
 
 class IdentityBoundary:
@@ -51,4 +57,17 @@ class IdentityBoundary:
         if binding is None: raise IdentityRejected("IDENTITY_UNBOUND")
         if binding.required_audience not in verified.audience: raise IdentityRejected("AUDIENCE_MISMATCH")
         if not verified.credential_id or not verified.authentication_context_ref: raise IdentityRejected("VERIFICATION_EVIDENCE_MISSING")
-        return NormalizedIdentity(binding.service_principal_id,binding.actor_type,verified.scopes,verified.credential_id,verified.authentication_context_ref)
+        tenant_id=verified.tenant_id or binding.tenant_id
+        if not tenant_id: raise IdentityRejected("TENANT_CONTEXT_MISSING")
+        if binding.actor_type not in {"HUMAN","SERVICE","AI_AGENT"}: raise IdentityRejected("ACTOR_TYPE_INVALID")
+        return NormalizedIdentity(
+            service_principal_id=binding.service_principal_id,
+            principal_id=verified.subject,
+            tenant_id=tenant_id,
+            actor_type=binding.actor_type,
+            issuer=verified.issuer,
+            audience=verified.audience,
+            scopes=verified.scopes,
+            credential_id=verified.credential_id,
+            authentication_context_ref=verified.authentication_context_ref,
+        )
