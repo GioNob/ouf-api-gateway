@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apisix-southbound-default-deny
+  namespace: ouf-gateway
+spec:
+  podSelector:
+    matchLabels:
+      ouf.component: apisix-southbound
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apisix-southbound-ingress-from-authorized-workloads
+  namespace: ouf-gateway
+spec:
+  podSelector:
+    matchLabels:
+      ouf.component: apisix-southbound
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              ouf.southbound-client: "true"
+      ports:
+        - protocol: TCP
+          port: 9443
+# Egress openings are intentionally environment-specific. Kubernetes
+# NetworkPolicy is used only for stable pod/namespace selectors or CIDRs.
+# Dynamic-FQDN source destinations require the PET-mandated FQDN-aware CNI
+# policy/equivalent and MUST NOT be approximated by broad Internet CIDRs.
