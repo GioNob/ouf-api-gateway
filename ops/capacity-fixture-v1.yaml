@@ -1,0 +1,33 @@
+apiVersion: ouf.trieste.it/v1
+kind: GatewayCapacityFixture
+version: "1.0"
+profile:
+  routes: 500
+  capabilities: 250
+  sources: 100
+  requestMix:
+    northboundReadPercent: 70
+    northboundWritePercent: 10
+    southboundPercent: 20
+  payloadBytes:
+    p50: 4096
+    p95: 262144
+    p99: 1048576
+  concurrentStreams:
+    sse: 200
+    websocket: 100
+  backendLatencyMs:
+    p50: 50
+    p95: 250
+    p99: 1000
+requiredMeasurements:
+  - requestLatencyP50
+  - requestLatencyP95
+  - requestLatencyP99
+  - throughputRps
+  - saturation
+  - publicationLatency
+  - convergenceLatency
+  - autoscalingBehavior
+status:
+  deployedPerformanceEvidence: EVIDENCE_PENDING
