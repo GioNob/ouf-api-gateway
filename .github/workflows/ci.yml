@@ -18,7 +18,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - run: AUTHORIZATION_PAIRWISE_ROOT="$PWD/.pairwise/authorization" pytest -q tests/test_authorization_gateway_pairwise.py
+      - run: PYTHONPATH="$PWD" AUTHORIZATION_PAIRWISE_ROOT="$PWD/.pairwise/authorization" pytest -q tests/test_authorization_gateway_pairwise.py
       - run: bash scripts/verify.sh
       - if: always()
         uses: actions/upload-artifact@v4
