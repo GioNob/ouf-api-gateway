@@ -1,16 +1,15 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
-metadata: {id: mcp-operations-incidents, version: 1.0.0, status: ACTIVE}
+metadata: {id: api-operations-incidents, version: 1.0.0, status: ACTIVE}
 spec:
   direction: northbound
-  exposure: internal
+  exposure: public
   capabilityRef: ouf.operations.incidents@1.0.0
   sourceRef: mcp-server-operations@1.0.0
-  match: {method: POST, path: /internal/capabilities/v1/execute/ouf.operations.incidents}
+  match: {method: POST, path: /api/v1/operations/incidents}
   backendBinding: {service: ouf-mcp-server, port: 8080, path: /api/internal/v1/mcp/operations/incidents}
   policy:
-    identity: M2M
-    allowedServiceIdentities: [ouf-mcp-server]
-    allowedActorTypes: [HUMAN_USER, MCP_SERVER]
+    identity: OIDC
+    allowedActorTypes: [HUMAN_USER]
     maxRequestBytes: 65536
     timeoutSeconds: 5
