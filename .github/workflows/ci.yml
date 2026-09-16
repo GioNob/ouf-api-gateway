@@ -17,7 +17,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1h-d-evidence-${{ github.run_id }}
+          name: gateway-1i-evidence-${{ github.run_id }}
           path: |
             generated/
             config/runtime-catalog-v1.yaml
@@ -34,9 +34,12 @@ jobs:
             docs/GATEWAY_1H_A_TRACEABILITY.md
             docs/GATEWAY_1H_BC_TRACEABILITY.md
             docs/GATEWAY_1H_D_TRACEABILITY.md
+            docs/GATEWAY_1I_TRACEABILITY.md
             docs/runbooks/etcd-restore.md
             helm/networkpolicy/
             helm/topology/gateway-ha.yaml
+            ops/capacity-fixture-v1.yaml
+            ops/observability-contract-v1.yaml
             schemas/gateway-publication-manifest-v1.json
             schemas/mcp-gateway-dispatch-v1.json
             schemas/mcp-gateway-recovery-v1.json
@@ -45,6 +48,7 @@ jobs:
             tests/test_runtime_catalog_closure.py
             tests/test_etcd_resilience.py
             tests/test_gateway_ha_topology.py
+            tests/test_gateway_ops_contract.py
             tests/test_apisix_control_plane.py
             tests/test_mcp_evidence_ingress.py
           retention-days: 30
