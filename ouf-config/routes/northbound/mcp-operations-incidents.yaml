@@ -5,12 +5,12 @@ spec:
   direction: northbound
   exposure: internal
   capabilityRef: ouf.operations.incidents@1.0.0
-  sourceRef: ingestion-runtime-operations@1.0.0
+  sourceRef: mcp-server-operations@1.0.0
   match: {method: POST, path: /internal/capabilities/v1/execute/ouf.operations.incidents}
-  backendBinding: {service: ouf-ingestion-runtime, port: 8080, path: /api/internal/v1/ingestion/operations/incidents}
+  backendBinding: {service: ouf-mcp-server, port: 8080, path: /api/internal/v1/mcp/operations/incidents}
   policy:
     identity: M2M
     allowedServiceIdentities: [ouf-mcp-server]
     allowedActorTypes: [HUMAN_USER, MCP_SERVER]
     maxRequestBytes: 65536
-    timeoutSeconds: 3
+    timeoutSeconds: 5
