@@ -7,12 +7,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-source-onboarding
+          ref: fb2dd51dfc204577a47c1e702f17531dd0709b3c
+          path: .pairwise/authorization
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - run: AUTHORIZATION_PAIRWISE_ROOT="$PWD/.pairwise/authorization" pytest -q tests/test_authorization_gateway_pairwise.py
       - run: bash scripts/verify.sh
       - if: always()
         uses: actions/upload-artifact@v4
@@ -39,6 +45,7 @@ jobs:
             docs/GATEWAY_OPERATIONAL_AWARENESS_EXPLAIN_TRACEABILITY.md
             docs/GATEWAY_CHANNEL_NEUTRAL_OA_TRACEABILITY.md
             docs/GATEWAY_OPERATIONAL_AWARENESS_PRODUCER_TRACEABILITY.md
+            docs/GATEWAY_AUTHORIZATION_PAIRWISE_TRACEABILITY.md
             docs/runbooks/etcd-restore.md
             helm/networkpolicy/
             helm/topology/gateway-ha.yaml
@@ -58,10 +65,14 @@ jobs:
             schemas/mcp-gateway-dispatch-v1.json
             schemas/mcp-gateway-recovery-v1.json
             schemas/mcp-evidence-ingress-v1.json
+            tools/identity_boundary.py
+            tools/authorization_boundary.py
             tools/operational_incidents.py
             tools/gateway_operational_api.py
             tools/publication.py
             tools/etcd_resilience.py
+            tests/test_authorization_gateway_pairwise.py
+            tests/test_identity_boundary.py
             tests/test_operational_awareness_routes.py
             tests/test_channel_neutral_system_status.py
             tests/test_gateway_operational_incidents.py
