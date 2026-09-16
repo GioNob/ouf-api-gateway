@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.operations.explain, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: ingestion
+  operationType: READ
+  scope: operations.incident.explain
+  classification: [TENANT_OPERATIONAL]
+  mcp: {toolEligible: true, humanRequired: false}
