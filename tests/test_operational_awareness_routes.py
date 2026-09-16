@@ -14,6 +14,7 @@ def test_operational_awareness_capabilities_and_routes_are_governed():
         "ouf.ingestion.status": ("ingestion.operations.read", "/api/internal/v1/ingestion/operations/status"),
         "ouf.ingestion.history": ("ingestion.operations.read", "/api/internal/v1/ingestion/operations/history"),
         "ouf.operations.incidents": ("operations.incident.read", "/api/internal/v1/ingestion/operations/incidents"),
+        "ouf.operations.explain": ("operations.incident.explain", "/api/internal/v1/ingestion/operations/incidents/explain"),
         "ouf.operations.summary": ("operations.status.read", "/api/internal/v1/ingestion/operations/summary"),
     }
     source = load("ouf-config/source-runtime/ingestion-runtime-operations.yaml")
@@ -27,6 +28,7 @@ def test_operational_awareness_capabilities_and_routes_are_governed():
             "ouf.ingestion.status": "mcp-ingestion-status",
             "ouf.ingestion.history": "mcp-ingestion-history",
             "ouf.operations.incidents": "mcp-operations-incidents",
+            "ouf.operations.explain": "mcp-operations-explain",
             "ouf.operations.summary": "mcp-operations-summary",
         }[capability_id]
         route = load(f"ouf-config/routes/northbound/{route_name}.yaml")
@@ -42,7 +44,7 @@ def test_compiled_routes_preserve_operational_scopes():
     from tools.compile_config import compile_config
     compiled = compile_config(ROOT / "ouf-config")
     operational = {r["id"]: r for r in compiled["routes"] if r["id"].startswith("mcp-ingestion-") or r["id"].startswith("mcp-operations-")}
-    assert len(operational) == 4
+    assert len(operational) == 5
     scopes = {r["x-ouf-policy"]["requiredScope"] for r in operational.values()}
-    assert scopes == {"ingestion.operations.read", "operations.incident.read", "operations.status.read"}
+    assert scopes == {"ingestion.operations.read", "operations.incident.read", "operations.incident.explain", "operations.status.read"}
     assert all(r["service_id"] == "ouf-ingestion-runtime" for r in operational.values())
