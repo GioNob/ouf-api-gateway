@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: mcp-operations-summary, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.operations.summary@1.0.0
+  sourceRef: ingestion-runtime-operations@1.0.0
+  match: {method: POST, path: /internal/capabilities/v1/execute/ouf.operations.summary}
+  backendBinding: {service: ouf-ingestion-runtime, port: 8080, path: /api/internal/v1/ingestion/operations/summary}
+  policy:
+    identity: M2M
+    allowedServiceIdentities: [ouf-mcp-server]
+    allowedActorTypes: [HUMAN_USER, MCP_SERVER]
+    maxRequestBytes: 65536
+    timeoutSeconds: 3

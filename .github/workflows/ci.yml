@@ -17,7 +17,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1i-evidence-${{ github.run_id }}
+          name: gateway-operational-awareness-evidence-${{ github.run_id }}
           path: |
             generated/
             config/runtime-catalog-v1.yaml
@@ -35,16 +35,23 @@ jobs:
             docs/GATEWAY_1H_BC_TRACEABILITY.md
             docs/GATEWAY_1H_D_TRACEABILITY.md
             docs/GATEWAY_1I_TRACEABILITY.md
+            docs/GATEWAY_OPERATIONAL_AWARENESS_TRACEABILITY.md
             docs/runbooks/etcd-restore.md
             helm/networkpolicy/
             helm/topology/gateway-ha.yaml
             ops/capacity-fixture-v1.yaml
             ops/observability-contract-v1.yaml
+            ouf-config/capabilities/ouf.*.yaml
+            ouf-config/source-runtime/ingestion-runtime-operations.yaml
+            ouf-config/routes/northbound/mcp-ingestion-*.yaml
+            ouf-config/routes/northbound/mcp-operations-*.yaml
+            schemas/capability-manifest-v1.json
             schemas/gateway-publication-manifest-v1.json
             schemas/mcp-gateway-dispatch-v1.json
             schemas/mcp-gateway-recovery-v1.json
             schemas/mcp-evidence-ingress-v1.json
             tools/etcd_resilience.py
+            tests/test_operational_awareness_routes.py
             tests/test_runtime_catalog_closure.py
             tests/test_etcd_resilience.py
             tests/test_gateway_ha_topology.py
