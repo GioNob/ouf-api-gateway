@@ -1,44 +1,25 @@
 apiVersion: ouf.trieste.it/v1
 kind: GatewayRuntimeConfigurationCatalog
-version: "1.0"
+version: "1.1"
 entries:
-  publication.batchSize:
-    type: integer
-    unit: objects
-    default: 50
-    minimum: 1
-    maximum: 1000
-    scope: control-plane
-    reload: restart
-  publication.convergenceTimeout:
-    type: duration
-    unit: seconds
-    default: 30
-    minimum: 1
-    maximum: 120
-    scope: control-plane
-    reload: restart
-  request.maxBytesCeiling:
-    type: integer
-    unit: bytes
-    default: 10485760
-    minimum: 1
-    maximum: 10485760
-    scope: data-plane
-    reload: publication
-  request.timeoutCeiling:
-    type: integer
-    unit: seconds
-    default: 60
-    minimum: 1
-    maximum: 60
-    scope: data-plane
-    reload: publication
-  rateLimit.defaultPerMinute:
-    type: integer
-    unit: requests/minute
-    default: 100
-    minimum: 1
-    maximum: 10000
-    scope: data-plane
-    reload: publication
+  publication.batchSize: {type: integer, unit: objects, default: 50, minimum: 1, maximum: 1000, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  publication.convergenceTimeout: {type: duration, unit: seconds, default: 30, minimum: 1, maximum: 120, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  request.maxBytesCeiling: {type: integer, unit: bytes, default: 10485760, minimum: 1, maximum: 10485760, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
+  request.timeoutCeiling: {type: integer, unit: seconds, default: 60, minimum: 1, maximum: 60, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
+  rateLimit.defaultPerMinute: {type: integer, unit: requests/minute, default: 100, minimum: 1, maximum: 10000, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
+  ha.northbound.replicas: {type: integer, unit: pods, default: 3, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.northbound.hpaMinReplicas: {type: integer, unit: pods, default: 3, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.northbound.hpaMaxReplicas: {type: integer, unit: pods, default: 10, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.northbound.cpuTargetUtilization: {type: integer, unit: percent, default: 70, minimum: 1, maximum: 100, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.northbound.pdbMinAvailable: {type: integer, unit: pods, default: 2, minimum: 1, maximum: 9, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.southbound.replicas: {type: integer, unit: pods, default: 2, minimum: 2, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.southbound.pdbMinAvailable: {type: integer, unit: pods, default: 1, minimum: 1, maximum: 9, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.controlPlane.replicas: {type: integer, unit: pods, default: 2, minimum: 2, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.etcd.members: {type: integer, unit: members, default: 3, minimum: 3, maximum: 7, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.terminationGracePeriod: {type: duration, unit: seconds, default: 60, minimum: 30, maximum: 300, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  ha.preStopDrainDelay: {type: duration, unit: seconds, default: 15, minimum: 1, maximum: 120, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
+  etcd.maxPendingProposals: {type: integer, unit: proposals, default: 64, minimum: 1, maximum: 4096, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  etcd.storageSlowBlocksPublication: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  etcd.quorumRequiredForPublication: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  restore.requireExactActiveRevision: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  restore.rejectWildcardRoutes: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
