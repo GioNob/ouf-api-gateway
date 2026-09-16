@@ -36,6 +36,7 @@ jobs:
             docs/GATEWAY_1H_D_TRACEABILITY.md
             docs/GATEWAY_1I_TRACEABILITY.md
             docs/GATEWAY_OPERATIONAL_AWARENESS_TRACEABILITY.md
+            docs/GATEWAY_OPERATIONAL_AWARENESS_EXPLAIN_TRACEABILITY.md
             docs/runbooks/etcd-restore.md
             helm/networkpolicy/
             helm/topology/gateway-ha.yaml
