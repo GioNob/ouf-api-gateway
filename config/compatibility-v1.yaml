@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: GatewayCompatibilityManifest
+version: "1.0"
+contracts:
+  capabilityManifest: ["v1"]
+  sourceRuntimeProfile: ["v1"]
+  extractionRuntimeProfile: ["v1"]
+  routeBinding: ["v1"]
+  publicationManifest: ["v1"]
+  mcpGatewayDispatch: ["v1"]
+  mcpGatewayRecovery: ["v1"]
+  mcpEvidenceIngress: ["v1"]
+policy:
+  currentGeneration: "v1"
+  previousGeneration: null
+  rejectUnknownGeneration: true
