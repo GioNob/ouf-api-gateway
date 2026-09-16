@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingestion-default-deny-egress
+  namespace: ouf-ingestion
+spec:
+  podSelector:
+    matchLabels:
+      ouf.component: ingestion-runtime
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ouf-gateway
+          podSelector:
+            matchLabels:
+              ouf.component: apisix-southbound
+      ports:
+        - protocol: TCP
+          port: 9443
+# DNS/telemetry/PKI exceptions, where required by the adopted cluster, must be
+# explicit environment overlays. No direct vertical/Internet egress belongs
+# in this baseline.
