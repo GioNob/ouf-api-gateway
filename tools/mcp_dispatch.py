@@ -49,7 +49,14 @@ class MCPDispatcher:
         self.routes = {}
         for route in compiled["routes"]:
             capability = route.get("x-ouf-capability", {})
-            if capability.get("toolEligible"):
+            policy = route.get("x-ouf-policy", {})
+            is_mcp_route = (
+                capability.get("toolEligible")
+                and route.get("labels", {}).get("exposure") == "internal"
+                and policy.get("identity") == "M2M"
+                and "ouf-mcp-server" in policy.get("allowedServiceIdentities", [])
+            )
+            if is_mcp_route:
                 capability_id = capability["capabilityId"]
                 if capability_id in self.routes:
                     raise DispatchError(503, "AMBIGUOUS_CAPABILITY_BINDING", capability_id)

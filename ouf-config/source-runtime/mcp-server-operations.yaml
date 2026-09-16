@@ -1,0 +1,7 @@
+apiVersion: ouf.trieste.it/v1
+kind: SourceRuntimeProfile
+metadata: {id: mcp-server-operations, version: 1.0.0, status: ACTIVE}
+spec:
+  protocol: HTTP
+  endpointRef: service://ouf-mcp-server
+  sourceSchemaRef: capability-contract://ouf.operational-awareness/v1

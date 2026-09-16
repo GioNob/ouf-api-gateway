@@ -37,6 +37,7 @@ jobs:
             docs/GATEWAY_1I_TRACEABILITY.md
             docs/GATEWAY_OPERATIONAL_AWARENESS_TRACEABILITY.md
             docs/GATEWAY_OPERATIONAL_AWARENESS_EXPLAIN_TRACEABILITY.md
+            docs/GATEWAY_CHANNEL_NEUTRAL_OA_TRACEABILITY.md
             docs/runbooks/etcd-restore.md
             helm/networkpolicy/
             helm/topology/gateway-ha.yaml
@@ -44,8 +45,11 @@ jobs:
             ops/observability-contract-v1.yaml
             ouf-config/capabilities/ouf.*.yaml
             ouf-config/source-runtime/ingestion-runtime-operations.yaml
+            ouf-config/source-runtime/mcp-server-operations.yaml
             ouf-config/routes/northbound/mcp-ingestion-*.yaml
             ouf-config/routes/northbound/mcp-operations-*.yaml
+            ouf-config/routes/northbound/mcp-system-status.yaml
+            ouf-config/routes/northbound/api-system-status.yaml
             schemas/capability-manifest-v1.json
             schemas/gateway-publication-manifest-v1.json
             schemas/mcp-gateway-dispatch-v1.json
@@ -53,6 +57,7 @@ jobs:
             schemas/mcp-evidence-ingress-v1.json
             tools/etcd_resilience.py
             tests/test_operational_awareness_routes.py
+            tests/test_channel_neutral_system_status.py
             tests/test_runtime_catalog_closure.py
             tests/test_etcd_resilience.py
             tests/test_gateway_ha_topology.py
