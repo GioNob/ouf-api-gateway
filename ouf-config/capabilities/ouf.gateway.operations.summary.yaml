@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.gateway.operations.summary, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: gateway
+  operationType: READ
+  scope: operations.status.read
+  classification: [RESTRICTED_OPERATIONAL]
+  mcp: {toolEligible: false, humanRequired: false}
