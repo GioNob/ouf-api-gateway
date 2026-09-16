@@ -5,5 +5,5 @@ spec:
   owner: gateway
   operationType: READ
   scope: operations.incident.read
-  classification: [PLATFORM_OPERATIONAL]
+  classification: [RESTRICTED_OPERATIONAL]
   mcp: {toolEligible: false, humanRequired: false}
