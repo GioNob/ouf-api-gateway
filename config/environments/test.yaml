@@ -1,0 +1,7 @@
+apiVersion: ouf.trieste.it/v1
+kind: GatewayEnvironmentOverlay
+environment: test
+values:
+  publication.batchSize: 50
+  publication.convergenceTimeout: 30
+  rateLimit.defaultPerMinute: 100
