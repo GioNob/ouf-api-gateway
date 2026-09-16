@@ -1,0 +1,33 @@
+apiVersion: ouf.trieste.it/v1
+kind: GatewayObservabilityContract
+version: "1.0"
+metrics:
+  dataPlane:
+    - gateway_requests_total
+    - gateway_request_duration_seconds
+    - gateway_inflight_requests
+    - gateway_upstream_errors_total
+  publication:
+    - gateway_publication_duration_seconds
+    - gateway_convergence_duration_seconds
+    - gateway_publication_blocked_total
+  etcd:
+    - etcd_server_wal_fsync_duration_seconds
+    - etcd_disk_backend_commit_duration_seconds
+    - etcd_server_leader_changes_seen_total
+    - etcd_server_proposals_pending
+    - etcd_mvcc_db_total_size_in_bytes
+slos:
+  northboundAvailability: 0.999
+  southboundAvailability: 0.995
+  publicationConvergenceP95Seconds: 30
+alerts:
+  - EtcdQuorumUnavailable
+  - EtcdStorageSlow
+  - EtcdPendingProposalsHigh
+  - PublicationConvergenceSlow
+  - GatewayErrorRateHigh
+  - GatewaySaturationHigh
+status:
+  deployedDashboards: EVIDENCE_PENDING
+  alertFiringEvidence: EVIDENCE_PENDING
