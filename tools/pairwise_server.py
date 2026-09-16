@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.compile_config import ROOT, compile_config
 from tools.mcp_dispatch import BackendResponse, DispatchError, MCPDispatcher, TrustedIdentity
+from tools.mcp_recovery import MCPRecoveryMediator
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -35,8 +36,21 @@ class HTTPUpstream:
         with response:
             return BackendResponse(response.status, response.read(), dict(response.headers.items()))
 
+    def recover(self, service, path, headers, timeout_seconds):
+        if service != "ouf-udp-object-resolution" or not path.startswith("/internal/v1/attempt-outcomes/"):
+            raise RuntimeError("pairwise recovery upstream is not the governed UDP binding")
+        request = urllib.request.Request(self.base_url + path, headers=headers, method="GET")
+        try:
+            response = self.opener.open(request, timeout=timeout_seconds)
+        except urllib.error.HTTPError as error:
+            response = error
+        except urllib.error.URLError:
+            return BackendResponse(503, b"", {})
+        with response:
+            return BackendResponse(response.status, response.read(65537), dict(response.headers.items()))
 
-def handler(dispatcher, expected_token):
+
+def handler(dispatcher, recovery, expected_token):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/health/ready":
@@ -44,15 +58,18 @@ def handler(dispatcher, expected_token):
             self.send_error(404)
 
         def do_POST(self):
-            if self.path != "/internal/capabilities/v1/execute/urban.object.related_search":
+            if self.path not in ("/internal/capabilities/v1/execute/urban.object.related_search", "/internal/capabilities/v1/recovery"):
                 self.send_error(404); return
             if self.headers.get("Authorization") != f"Bearer {expected_token}":
                 self._problem(DispatchError(401, "INVALID_SERVICE_IDENTITY", "workload token rejected")); return
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(min(length, 1048577))
-            identity = TrustedIdentity("ouf-mcp-server", "agent-1", "tenant-1", "AI_AGENT", "authn-1", "decision-1", frozenset({"urban.object.related_search"}))
+            identity = TrustedIdentity("ouf-mcp-server", "agent-1", "tenant-1", "AI_AGENT", "authn-1", "decision-1", frozenset({"urban.object.related_search", "mcp.attempt.recover"}))
             try:
-                response = dispatcher.dispatch(body, dict(self.headers.items()), identity)
+                if self.path == "/internal/capabilities/v1/recovery":
+                    response = recovery.recover(body, dict(self.headers.items()), identity)
+                else:
+                    response = dispatcher.dispatch(body, dict(self.headers.items()), identity)
             except DispatchError as error:
                 self._problem(error); return
             self.send_response(response.status)
@@ -75,9 +92,12 @@ def main():
     token = os.environ.get("PAIRWISE_WORKLOAD_TOKEN")
     udp_url = os.environ.get("PAIRWISE_UDP_URL")
     if not token or not udp_url: raise SystemExit("PAIRWISE_WORKLOAD_TOKEN and PAIRWISE_UDP_URL are required")
-    dispatcher = MCPDispatcher(compile_config(ROOT / "ouf-config"), HTTPUpstream(udp_url))
+    compiled = compile_config(ROOT / "ouf-config")
+    upstream = HTTPUpstream(udp_url)
+    dispatcher = MCPDispatcher(compiled, upstream)
+    recovery = MCPRecoveryMediator(compiled, upstream)
     host, port = args.listen.rsplit(":", 1)
-    server = ThreadingHTTPServer((host, int(port)), handler(dispatcher, token))
+    server = ThreadingHTTPServer((host, int(port)), handler(dispatcher, recovery, token))
     print(server.server_address[1], flush=True)
     server.serve_forever()
 

@@ -1,4 +1,4 @@
-name: Gateway 1C MCP capability binding
+name: Gateway 1D recovery mediation
 on: [push, pull_request]
 permissions: {contents: read}
 jobs:
@@ -17,13 +17,16 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1c-evidence-${{ github.run_id }}
+          name: gateway-1d-evidence-${{ github.run_id }}
           path: |
             generated/
             docs/GATEWAY_1A_TRACEABILITY.md
             docs/GATEWAY_1B_TRACEABILITY.md
             docs/GATEWAY_1C_TRACEABILITY.md
+            docs/GATEWAY_1D_TRACEABILITY.md
             schemas/gateway-publication-manifest-v1.json
             schemas/mcp-gateway-dispatch-v1.json
+            schemas/mcp-gateway-recovery-v1.json
             tests/fixtures/mcp-related-search-dispatch.json
+            tests/fixtures/mcp-recovery-request.json
           retention-days: 30

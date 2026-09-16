@@ -23,6 +23,11 @@ def test_compiles_onboarding_micro_pairwise_contract():
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")
 
+def test_udp_recovery_binding_is_compiled_from_registry_configuration():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["routes"] if item["id"]=="mcp-related-search")
+    assert route["x-ouf-recovery-binding"]=={"owner":"udp","service":"ouf-udp-object-resolution","pathTemplate":"/internal/v1/attempt-outcomes/{backendRequestId}"}
+
 def test_missing_exact_capability_version_fails_closed(tmp_path):
     root=isolated(tmp_path); path=next((root/"routes").rglob("*.yaml")); doc=yaml.safe_load(path.read_text()); doc["spec"]["capabilityRef"]="ouf.object-storage.content.read@2.0.0"; path.write_text(yaml.safe_dump(doc))
     with pytest.raises(ConfigError,match="unresolved capabilityRef"): compile_config(root)
