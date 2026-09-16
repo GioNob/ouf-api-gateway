@@ -17,7 +17,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gateway-1f-evidence-${{ github.run_id }}
+          name: gateway-1h-a-evidence-${{ github.run_id }}
           path: |
             generated/
             docs/GATEWAY_1A_TRACEABILITY.md
@@ -26,12 +26,18 @@ jobs:
             docs/GATEWAY_1D_TRACEABILITY.md
             docs/GATEWAY_1E_TRACEABILITY.md
             docs/GATEWAY_1F_TRACEABILITY.md
+            docs/GATEWAY_1G_TRACEABILITY.md
+            docs/GATEWAY_1G_B_TRACEABILITY.md
+            docs/GATEWAY_1G_C_TRACEABILITY.md
+            docs/GATEWAY_1G_D_TRACEABILITY.md
+            docs/GATEWAY_1H_A_TRACEABILITY.md
+            helm/networkpolicy/
+            helm/topology/gateway-ha.yaml
             schemas/gateway-publication-manifest-v1.json
             schemas/mcp-gateway-dispatch-v1.json
             schemas/mcp-gateway-recovery-v1.json
             schemas/mcp-evidence-ingress-v1.json
-            tests/fixtures/mcp-related-search-dispatch.json
-            tests/fixtures/mcp-recovery-request.json
+            tests/test_gateway_ha_topology.py
             tests/test_apisix_control_plane.py
             tests/test_mcp_evidence_ingress.py
           retention-days: 30
