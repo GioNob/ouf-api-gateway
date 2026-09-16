@@ -16,7 +16,6 @@ from jsonschema import Draft202012Validator, FormatChecker
 from tools.activation_gate import ActivationRejected, validate_route_activation
 from tools.compile_config import ROOT, compile_config, load_documents, ref
 
-
 class PublicationError(RuntimeError): pass
 class ControlPlane(Protocol):
     def healthy(self) -> bool: ...
@@ -69,8 +68,7 @@ class FilePublicationStore:
 class Publisher:
     REQUIRED_CHECKS=("health","routeBinding","authorizationNegativePath","upstreamReachability","convergence")
     def __init__(self,plane,store,clock=None,authorization_gate:AuthorizationGate|None=None):
-        self.plane=plane;self.store=store;self.clock=clock or (lambda:datetime.now(timezone.utc));self.authorization_gate=authorization_gate
-        self.schema=json.loads((ROOT/"schemas"/"gateway-publication-manifest-v1.json").read_text())
+        self.plane=plane;self.store=store;self.clock=clock or (lambda:datetime.now(timezone.utc));self.authorization_gate=authorization_gate;self.schema=json.loads((ROOT/"schemas"/"gateway-publication-manifest-v1.json").read_text())
     def publish(self,config_root,environment,source_revision,publication_id):
         with self.store.exclusive():return self._publish(config_root,environment,source_revision,publication_id)
     def _validate_repository_governance(self,config_root:Path,environment:str)->None:
@@ -93,9 +91,11 @@ class Publisher:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}",publication_id):raise PublicationError("invalid publication manifest: unsafe publicationId")
         if self.store.contains(publication_id):raise PublicationError("publication manifest is immutable")
         previous=self.store.active_manifest();created=self.clock().isoformat().replace("+00:00","Z")
+        pre_manifest={"publicationId":publication_id,"environment":environment,"sourceRevisionRef":source_revision,"artifactSetHash":"0"*64,"status":"COMPILED","createdAt":created,"activatedAt":None,"verification":None,"previousActivePublicationId":previous["publicationId"] if previous else None,"controlPlaneRevision":None,"inputHashes":{}}
+        self._validate(pre_manifest)
         try:self._validate_repository_governance(config_root,environment);artifact=compile_config(config_root)
         except Exception as exc:raise PublicationError(f"validation/compile failed: {exc}") from exc
-        manifest={"publicationId":publication_id,"environment":environment,"sourceRevisionRef":source_revision,"artifactSetHash":artifact["configurationSha256"],"status":"COMPILED","createdAt":created,"activatedAt":None,"verification":None,"previousActivePublicationId":previous["publicationId"] if previous else None,"controlPlaneRevision":None,"inputHashes":self._input_hashes(config_root)};self._validate(manifest)
+        manifest={**pre_manifest,"artifactSetHash":artifact["configurationSha256"],"inputHashes":self._input_hashes(config_root)};self._validate(manifest)
         try:healthy=self.plane.healthy()
         except Exception:healthy=False
         if not healthy:manifest["status"]="FAILED";manifest["verification"]={"health":False};self._record(manifest,artifact);return manifest
