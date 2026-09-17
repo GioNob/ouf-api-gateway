@@ -35,6 +35,20 @@ def test_m2m_routes_compile_real_oidc_boundary_without_embedding_secret():
     assert oidc["set_userinfo_header"] is True
     assert route["x-ouf-identity-normalization"]=={"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"}
 
+def test_apisix_projection_contains_only_deployable_route_fields_and_governed_upstream():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["apisixRoutes"] if item["id"]=="mcp-related-search")
+    assert set(route)=={"id","uri","methods","plugins","upstream"}
+    assert route["upstream"]=={"type":"roundrobin","nodes":{"ouf-udp-object-resolution:8080":1}}
+    assert route["plugins"]["proxy-rewrite"]=={"uri":"/internal/v1/objects/related-search"}
+    assert route["plugins"]["openid-connect"]["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
+
+def test_apisix_projection_rejects_backend_service_mismatch(tmp_path):
+    root=isolated(tmp_path)
+    path=root/"source-runtime"/"udp-object-resolution.yaml"
+    doc=yaml.safe_load(path.read_text()); doc["spec"]["endpointRef"]="service://wrong-service"; path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(ConfigError,match="backend service does not match governed endpointRef"): compile_config(root)
+
 def test_current_gateway_contracts_use_authorization_actor_vocabulary():
     legacy=("HUMAN_USER","MCP_SERVER","SERVICE_IDENTITY")
     offenders=[]
