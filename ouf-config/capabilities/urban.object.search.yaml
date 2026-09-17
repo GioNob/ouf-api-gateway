@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: urban.object.search
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: udp
+  operationType: SEARCH
+  scope: urban.object.search
+  classification:
+  - OPEN
+  - ANONYMOUS
+  mcp:
+    toolEligible: false
+    humanRequired: false

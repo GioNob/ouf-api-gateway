@@ -1,6 +1,9 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
-metadata: {id: onboarding-managed-file-read, version: 1.0.0, status: ACTIVE}
+metadata:
+  id: onboarding-managed-file-read
+  version: 1.0.0
+  status: ACTIVE
 spec:
   direction: northbound
   exposure: internal
@@ -10,11 +13,17 @@ spec:
     method: GET
     path: /internal/object-storage/v1/content
     query:
-      ref: {required: true, pattern: '^object://[a-z0-9._/-]+$'}
-  backendBinding: {service: ouf-object-storage, port: 8080, path: /v1/content}
+      ref:
+        required: true
+        pattern: ^object://[a-z0-9._/-]+$
+  backendBinding:
+    service: ouf-object-storage
+    port: 8080
+    path: /v1/content
   policy:
     identity: MTLS_SERVICE
-    allowedServiceIdentities: [ouf-source-onboarding]
+    allowedServiceIdentities:
+    - ouf-source-onboarding
+    - ouf-ingestion-runtime
     maxRequestBytes: 10485760
     timeoutSeconds: 10
-

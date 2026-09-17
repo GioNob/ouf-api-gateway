@@ -1,0 +1,27 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: r2b-publication-resolution
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.onboarding.configuration.read@1.0.0
+  sourceRef: r2b-onboarding@1.0.0
+  match:
+    method: GET
+    path: /api/onboarding/v1/runtime/publications/*
+  backendBinding:
+    service: ouf-source-onboarding
+    port: 8080
+    path: /api/onboarding/v1/runtime/publications/*
+  policy:
+    identity: M2M
+    maxRequestBytes: 65536
+    timeoutSeconds: 10
+    allowedServiceIdentities:
+    - ouf-ingestion-runtime
+    - ouf-udp-object-resolution
+    allowedActorTypes:
+    - SERVICE_IDENTITY

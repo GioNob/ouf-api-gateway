@@ -15,7 +15,7 @@ def test_compiles_onboarding_micro_pairwise_contract():
     assert route["uri"]==contract["path"]
     assert route["methods"]==[contract["method"]]
     assert route["x-ouf-query-contract"][contract["queryParameter"]]=={"required":True,"pattern":contract["referencePattern"]}
-    assert route["x-ouf-policy"]["allowedServiceIdentities"]==[contract["consumerIdentity"]]
+    assert route["x-ouf-policy"]["allowedServiceIdentities"]==[contract["consumerIdentity"],"ouf-ingestion-runtime"]
     assert route["x-ouf-policy"]["maxRequestBytes"]==contract["maximumBytes"]
     assert route["service_id"]=="ouf-object-storage"
     assert route["plugins"]["request-id"]=={"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}

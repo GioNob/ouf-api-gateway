@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: urban.object.read
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: udp
+  operationType: READ
+  scope: urban.object.read
+  classification:
+  - OPEN
+  - ANONYMOUS
+  mcp:
+    toolEligible: false
+    humanRequired: false

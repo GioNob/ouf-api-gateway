@@ -56,11 +56,17 @@ def compile_config(config_root):
         match=(spec["match"]["method"],spec["match"]["path"])
         if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
         matches.add(match)
+        wildcard = "*" in spec["match"]["path"]
+        if wildcard and (not spec["match"]["path"].endswith("/*") or spec["match"]["path"].count("*") != 1 or spec["backendBinding"]["path"] != spec["match"]["path"]):
+            raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
+        plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
+        if not wildcard:
+            plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         routes.append({
           "id": route["metadata"]["id"], "uri": spec["match"]["path"], "methods": [spec["match"]["method"]],
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
-          "plugins": {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "proxy-rewrite": {"uri": spec["backendBinding"]["path"]}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}},
+          "plugins": plugins,
           "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{}),
