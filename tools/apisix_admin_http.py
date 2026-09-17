@@ -22,23 +22,19 @@ class APISIXAdminHTTP:
         parsed=urllib.parse.urlparse(self.base_url)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("APISIX Admin API requires an origin without URL credentials")
-        if parsed.scheme == "http":
-            if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-                raise ValueError("APISIX Admin API permits plaintext HTTP only on loopback")
-            self.ssl_context=None
-        elif parsed.scheme == "https":
-            self.ssl_context=ssl.create_default_context(cafile=self.ca_file)
-        else:
-            raise ValueError("APISIX Admin API requires https, or loopback http")
+        loopback=parsed.hostname in {"127.0.0.1","localhost","::1"}
+        if parsed.scheme not in ({"http","https"} if loopback else {"https"}):
+            raise ValueError("APISIX Admin API requires https except for loopback http")
         if not self.api_key: raise ValueError("APISIX Admin API key is required")
         self.base_url=self.base_url.rstrip("/")
+        self.ssl_context=ssl.create_default_context(cafile=self.ca_file) if parsed.scheme=="https" else None
 
     def _request(self,method,path,body=None,expected=(200,201)):
         data=None if body is None else json.dumps(body,separators=(",",":"),sort_keys=True).encode()
         req=urllib.request.Request(self.base_url+path,data=data,method=method,headers={"X-API-KEY":self.api_key,"Accept":"application/json","Content-Type":"application/json"})
+        kwargs={"timeout":self.timeout_seconds}
+        if self.ssl_context is not None: kwargs["context"]=self.ssl_context
         try:
-            kwargs={"timeout":self.timeout_seconds}
-            if self.ssl_context is not None: kwargs["context"]=self.ssl_context
             with urllib.request.urlopen(req,**kwargs) as response:
                 payload=response.read()
                 if response.status not in expected: raise APISIXAdminError(f"unexpected APISIX status {response.status}")
@@ -64,7 +60,11 @@ class APISIXAdminHTTP:
         staged=[]
         try:
             for route_id,route in zip(route_ids,artifact.get("apisixRoutes",[])):
-                body={**route,"status":0}
+                # APISIX PUT /routes/{id} rejects a different conf.id in the body.
+                # Keep the governed logical route id in the OUF artifact, but let
+                # APISIX derive its immutable deployment id exclusively from path.
+                body={key:value for key,value in route.items() if key != "id"}
+                body["status"]=0
                 self._request("PUT",f"/apisix/admin/routes/{route_id}",body,expected=(200,201))
                 value=self._route_value(self._request("GET",f"/apisix/admin/routes/{route_id}",expected=(200,)))
                 if not isinstance(value,dict) or value.get("status") != 0:
