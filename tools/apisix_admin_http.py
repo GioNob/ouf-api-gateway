@@ -17,6 +17,7 @@ class APISIXAdminHTTP:
     timeout_seconds: float = 3.0
     convergence_timeout_seconds: float = 30.0
     ca_file: str | None = None
+    runtime_probe: object | None = None
 
     def __post_init__(self):
         parsed=urllib.parse.urlparse(self.base_url)
@@ -126,9 +127,19 @@ class APISIXAdminHTTP:
         try:
             route_ids=self._route_ids_for_revision(revision)
             health=self.health()
+            convergence=self.active_revision()==revision
         except APISIXAdminError:
             return {k:False for k in ("health","routeBinding","authorizationNegativePath","upstreamReachability","convergence")}
-        return {"health":health,"routeBinding":bool(route_ids),"authorizationNegativePath":False,"upstreamReachability":False,"convergence":self.active_revision()==revision}
+        runtime={"authorizationNegativePath":False,"upstreamReachability":False}
+        if route_ids and self.runtime_probe is not None:
+            try:
+                observed=self.runtime_probe.probe(self,revision,route_ids)
+                if isinstance(observed,dict):
+                    runtime["authorizationNegativePath"]=observed.get("authorizationNegativePath") is True
+                    runtime["upstreamReachability"]=observed.get("upstreamReachability") is True
+            except Exception:
+                pass
+        return {"health":health,"routeBinding":bool(route_ids),**runtime,"convergence":convergence}
 
     def _set_revision_status(self,revision,status):
         route_ids=self._route_ids_for_revision(revision)
