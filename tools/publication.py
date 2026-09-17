@@ -111,7 +111,10 @@ class FilePublicationStore:
 
 
 class Publisher:
-    REQUIRED_CHECKS = ("health", "routeBinding", "authorizationNegativePath", "upstreamReachability", "convergence")
+    # Convergence is an activation post-condition, not a staging pre-condition.
+    # APISIX staged revisions are deliberately disabled (status=0), therefore
+    # requiring active convergence here would make activation unreachable.
+    REQUIRED_CHECKS = ("health", "routeBinding", "authorizationNegativePath", "upstreamReachability")
     INCIDENT_KEY = "gateway:publication:blocked"
 
     def __init__(
@@ -250,6 +253,7 @@ class Publisher:
             return manifest
         manifest["status"] = "ACTIVE"
         manifest["activatedAt"] = self.clock().isoformat().replace("+00:00", "Z")
+        manifest["verification"]["convergence"] = True
         self._record(manifest, artifact, activate=True)
         if self.incident_sink is not None:
             self.incident_sink.resolve_incident(

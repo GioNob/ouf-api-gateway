@@ -20,6 +20,50 @@ def test_compiles_onboarding_micro_pairwise_contract():
     assert route["service_id"]=="ouf-object-storage"
     assert route["plugins"]["request-id"]=={"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}
 
+def test_m2m_routes_compile_real_oidc_boundary_without_embedding_secret():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["routes"] if item["id"]=="mcp-related-search")
+    oidc=route["plugins"]["openid-connect"]
+    assert oidc["bearer_only"] is True
+    assert oidc["client_id"]=="ouf-api-gateway"
+    assert oidc["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
+    assert oidc["discovery"]=="http://ouf-keycloak:8080/realms/ouf/.well-known/openid-configuration"
+    assert oidc["introspection_endpoint"]=="http://ouf-keycloak:8080/realms/ouf/protocol/openid-connect/token/introspect"
+    assert oidc["required_scopes"]==[route["x-ouf-policy"]["requiredScope"]]
+    assert oidc["required_scopes"]==["urban.object.related_search"]
+    assert oidc["claim_validator"]["issuer"]["valid_issuers"]==["https://auth.ouf-lab.it/realms/ouf"]
+    assert oidc["claim_validator"]["audience"]=={"claim":"aud","required":True,"match_with_client_id":True}
+    assert oidc["set_access_token_header"] is False
+    assert oidc["set_userinfo_header"] is True
+    assert route["x-ouf-identity-normalization"]=={"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"}
+
+def test_apisix_projection_contains_only_deployable_route_fields_and_governed_upstream():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["apisixRoutes"] if item["id"]=="mcp-related-search")
+    assert set(route)=={"id","uri","methods","plugins","upstream"}
+    assert route["upstream"]=={"type":"roundrobin","nodes":{"ouf-udp-object-resolution:8080":1}}
+    assert route["plugins"]["proxy-rewrite"]=={"uri":"/internal/v1/objects/related-search"}
+    assert route["plugins"]["openid-connect"]["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
+    assert route["plugins"]["openid-connect"]["required_scopes"]==["urban.object.related_search"]
+
+def test_apisix_projection_rejects_backend_service_mismatch(tmp_path):
+    root=isolated(tmp_path)
+    path=root/"source-runtime"/"udp-object-resolution.yaml"
+    doc=yaml.safe_load(path.read_text()); doc["spec"]["endpointRef"]="service://wrong-service"; path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(ConfigError,match="backend service does not match governed endpointRef"): compile_config(root)
+
+def test_current_gateway_contracts_use_authorization_actor_vocabulary():
+    legacy=("HUMAN_USER","MCP_SERVER","SERVICE_IDENTITY")
+    offenders=[]
+    for root in (ROOT/"ouf-config", ROOT/"schemas"):
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix in {".yaml",".yml",".json"}:
+                text=path.read_text()
+                for value in legacy:
+                    if value in text:
+                        offenders.append(f"{path.relative_to(ROOT)}:{value}")
+    assert offenders==[]
+
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")
 

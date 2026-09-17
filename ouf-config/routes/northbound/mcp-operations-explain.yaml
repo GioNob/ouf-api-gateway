@@ -11,6 +11,6 @@ spec:
   policy:
     identity: M2M
     allowedServiceIdentities: [ouf-mcp-server]
-    allowedActorTypes: [HUMAN_USER, MCP_SERVER]
+    allowedActorTypes: [HUMAN, SERVICE]
     maxRequestBytes: 16384
     timeoutSeconds: 3

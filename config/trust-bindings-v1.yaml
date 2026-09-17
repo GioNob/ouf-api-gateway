@@ -2,11 +2,12 @@ apiVersion: ouf.trieste.it/v1
 kind: GatewayTrustBindingCatalog
 version: "1.0"
 bindings:
-  - issuerRef: iam://ouf/workload-issuer
+  - issuerRef: https://auth.ouf-lab.it/realms/ouf
     subject: workload:ouf-mcp-server
     servicePrincipalId: ouf-mcp-server
-    actorType: MCP_SERVER
+    actorType: SERVICE
     requiredAudience: ouf-api-gateway
+    tenantId: ouf-lab
 status:
   verifierIntegration: EVIDENCE_PENDING
   authorizationModule: NOT_YET_IMPLEMENTED

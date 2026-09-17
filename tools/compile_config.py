@@ -25,6 +25,51 @@ def load_documents(config_root):
         documents.append((path,doc))
     return documents
 
+def m2m_oidc_plugin(required_scope):
+    if not isinstance(required_scope,str) or not required_scope:
+        raise ConfigError("M2M route requires a non-empty governed capability scope")
+    # Lab binding. The client secret is injected into the APISIX container and is
+    # never compiled into Git or etcd in plaintext. Introspection is deliberately
+    # internal to the ouf-backend network; issuer/audience remain validated against
+    # the externally stable OUF issuer and gateway audience. Capability scope is
+    # enforced by APISIX from the access-token scope claim.
+    return {
+        "client_id": "ouf-api-gateway",
+        "client_secret": "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET",
+        "discovery": "http://ouf-keycloak:8080/realms/ouf/.well-known/openid-configuration",
+        "introspection_endpoint": "http://ouf-keycloak:8080/realms/ouf/protocol/openid-connect/token/introspect",
+        "introspection_endpoint_auth_method": "client_secret_basic",
+        "bearer_only": True,
+        "realm": "ouf",
+        "required_scopes": [required_scope],
+        "set_access_token_header": False,
+        "set_userinfo_header": True,
+        "claim_validator": {
+            "issuer": {"valid_issuers": ["https://auth.ouf-lab.it/realms/ouf"]},
+            "audience": {"claim": "aud", "required": True, "match_with_client_id": True},
+        },
+    }
+
+def render_apisix_route(path, route, source, plugins):
+    spec=route["spec"]
+    endpoint_ref=source["spec"]["endpointRef"]
+    if not endpoint_ref.startswith("service://"):
+        raise ConfigError(f"{path}: APISIX route requires service endpointRef")
+    governed_service=endpoint_ref.removeprefix("service://")
+    backend=spec["backendBinding"]
+    if governed_service != backend["service"]:
+        raise ConfigError(f"{path}: backend service does not match governed endpointRef")
+    return {
+        "id": route["metadata"]["id"],
+        "uri": spec["match"]["path"],
+        "methods": [spec["match"]["method"]],
+        "plugins": plugins,
+        "upstream": {
+            "type": "roundrobin",
+            "nodes": {f"{governed_service}:{backend['port']}": 1},
+        },
+    }
+
 def compile_config(config_root):
     docs=load_documents(config_root)
     indexed={}
@@ -36,6 +81,7 @@ def compile_config(config_root):
         if profile["kind"]=="ExtractionRuntimeProfile" and not indexed.get(("SourceRuntimeProfile",profile["spec"]["sourceRef"])):
             raise ConfigError(f"{path}: unresolved sourceRef {profile['spec']['sourceRef']}")
     routes=[]
+    apisix_routes=[]
     matches=set()
     for path,route in docs:
         if route["kind"]!="RouteBinding": continue
@@ -60,6 +106,10 @@ def compile_config(config_root):
         if wildcard and (not spec["match"]["path"].endswith("/*") or spec["match"]["path"].count("*") != 1 or spec["backendBinding"]["path"] != spec["match"]["path"]):
             raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
+        identity=spec["policy"]["identity"]
+        required_scope=capability[1]["spec"]["scope"]
+        if identity=="M2M":
+            plugins["openid-connect"]=m2m_oidc_plugin(required_scope)
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         routes.append({
@@ -67,12 +117,19 @@ def compile_config(config_root):
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
           "plugins": plugins,
-          "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
+          "x-ouf-policy": {"identity": identity, "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": required_scope},
+          "x-ouf-identity-normalization": {"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"} if identity=="M2M" else None,
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{}),
           "x-ouf-recovery-binding": {"owner": capability[1]["spec"]["owner"], "service": spec["backendBinding"]["service"], "pathTemplate": source[1]["spec"].get("ownerOutcomePath")} if source[1]["spec"].get("ownerOutcomePath") else None
         })
-    output={"formatVersion":"1.0","apisixVersion":"3.18.x","routes":sorted(routes,key=lambda r:r["id"])}
+        apisix_routes.append(render_apisix_route(path,route,source[1],plugins))
+    output={
+        "formatVersion":"1.0",
+        "apisixVersion":"3.18.x",
+        "routes":sorted(routes,key=lambda r:r["id"]),
+        "apisixRoutes":sorted(apisix_routes,key=lambda r:r["id"]),
+    }
     output["configurationSha256"]=hashlib.sha256(canonical(output).encode()).hexdigest()
     return output
 
