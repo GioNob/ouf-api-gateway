@@ -33,3 +33,13 @@ def test_property_decisions_and_onboarding_surface_preserve_ownership():
         assert route["service_id"]=="ouf-source-onboarding"
         assert route["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
         assert route["methods"]==["GET"]
+
+
+def test_access_schema_proposal_route_cannot_become_an_approval_route():
+    routes={r["id"]:r for r in compile_config(ROOT/"ouf-config")["routes"]}
+    route=routes["r2f-access-proposals"]
+    assert route["uri"]=="/api/onboarding/v1/access-semantic-proposals"
+    assert route["service_id"]=="ouf-source-onboarding"
+    assert route["methods"]==["POST"]
+    assert route["x-ouf-policy"]["requiredScope"]=="ouf.source-onboarding.semantic-gap.create"
+    assert route["x-ouf-capability"]["toolEligible"] is True
