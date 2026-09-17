@@ -35,6 +35,18 @@ def test_m2m_routes_compile_real_oidc_boundary_without_embedding_secret():
     assert oidc["set_userinfo_header"] is True
     assert route["x-ouf-identity-normalization"]=={"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"}
 
+def test_current_gateway_contracts_use_authorization_actor_vocabulary():
+    legacy=("HUMAN_USER","MCP_SERVER","SERVICE_IDENTITY")
+    offenders=[]
+    for root in (ROOT/"ouf-config", ROOT/"schemas"):
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix in {".yaml",".yml",".json"}:
+                text=path.read_text()
+                for value in legacy:
+                    if value in text:
+                        offenders.append(f"{path.relative_to(ROOT)}:{value}")
+    assert offenders==[]
+
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")
 
