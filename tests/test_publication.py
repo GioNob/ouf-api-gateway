@@ -6,7 +6,7 @@ from tools.compile_config import ROOT
 from tools.publication import Change, FilePublicationStore, PublicationError, Publisher, coalesce
 
 
-CHECKS = {"health": True, "routeBinding": True, "authorizationNegativePath": True, "upstreamReachability": True, "convergence": True}
+CHECKS = {"health": True, "routeBinding": True, "authorizationNegativePath": True, "upstreamReachability": True, "convergence": False}
 
 
 class FakeControlPlane:
@@ -30,7 +30,7 @@ class FakeControlPlane:
         self.calls.append("verify")
         if self.fail_at == "verify":
             raise RuntimeError("verify failed")
-        return self.checks
+        return dict(self.checks)
 
     def activate(self, revision):
         self.calls.append("activate")
@@ -46,16 +46,27 @@ def publisher(tmp_path, plane):
     return Publisher(plane, FilePublicationStore(tmp_path), fixed)
 
 
-def test_activation_requires_all_verification_and_records_manifest(tmp_path):
+def test_activation_requires_all_pre_activation_verification_and_records_manifest(tmp_path):
     plane = FakeControlPlane()
     result = publisher(tmp_path, plane).publish(ROOT / "ouf-config", "test", "git:abc123", "publication-1")
     assert result["status"] == "ACTIVE"
     assert result["controlPlaneRevision"] == "apisix-revision-42"
     assert result["artifactSetHash"]
     assert result["inputHashes"]
+    assert result["verification"]["convergence"] is True
     assert (tmp_path / "artifacts" / f"{result['artifactSetHash']}.json").exists()
     assert plane.calls == ["health", "stage", "verify", "activate"]
     assert FilePublicationStore(tmp_path).active_manifest()["publicationId"] == "publication-1"
+
+
+def test_staged_revision_does_not_need_to_be_active_before_activation(tmp_path):
+    checks = dict(CHECKS)
+    checks["convergence"] = False
+    plane = FakeControlPlane(checks=checks)
+    result = publisher(tmp_path, plane).publish(ROOT / "ouf-config", "test", "git:staged", "publication-staged")
+    assert result["status"] == "ACTIVE"
+    assert plane.calls == ["health", "stage", "verify", "activate"]
+    assert result["verification"]["convergence"] is True
 
 
 def test_degraded_control_plane_blocks_stage_and_preserves_last_known_good(tmp_path):
