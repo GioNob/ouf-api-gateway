@@ -2,8 +2,11 @@ import pytest
 from tools.apisix_admin_http import APISIXAdminHTTP,APISIXAdminError
 
 
-def test_admin_requires_https():
-    with pytest.raises(ValueError,match="https"):APISIXAdminHTTP("http://apisix:9180","secret")
+def test_admin_allows_loopback_http_only():
+    admin=APISIXAdminHTTP("http://127.0.0.1:9180","secret")
+    assert admin.base_url=="http://127.0.0.1:9180"
+    assert admin.ssl_context is None
+    with pytest.raises(ValueError,match="loopback"):APISIXAdminHTTP("http://apisix:9180","secret")
 
 def test_admin_rejects_url_credentials():
     with pytest.raises(ValueError):APISIXAdminHTTP("https://user:pass@apisix.example","secret")
@@ -43,15 +46,11 @@ def test_activate_enables_new_revision_disables_previous_then_advances_pointer()
     calls=[]
     admin.active_revision=lambda:"old" if not any("ouf-active-publication" in p for _,p,_ in calls) else "new"
     admin._revision_node=lambda revision:{"routeIds":[revision+"-route"]}
-    def fake(method,path,body=None,expected=(200,201)):
-        calls.append((method,path,body))
-        if method=="GET" and "/routes/" in path:return {"value":{"status":body["status"] if body else 1}}
-        return {}
     statuses={}
     def fake_request(method,path,body=None,expected=(200,201)):
         calls.append((method,path,body))
         if method=="PATCH":statuses[path]=body["status"];return {}
-        if method=="GET" and "/routes/" in path:return {"value":{"status":statuses[path.replace('/apisix/admin/routes/','/apisix/admin/routes/')]}}
+        if method=="GET" and "/routes/" in path:return {"value":{"status":statuses[path]}}
         return {}
     admin._request=fake_request
     admin.activate_revision("new")
