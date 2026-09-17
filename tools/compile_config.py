@@ -46,6 +46,26 @@ def m2m_oidc_plugin():
         },
     }
 
+def render_apisix_route(path, route, source, plugins):
+    spec=route["spec"]
+    endpoint_ref=source["spec"]["endpointRef"]
+    if not endpoint_ref.startswith("service://"):
+        raise ConfigError(f"{path}: APISIX route requires service endpointRef")
+    governed_service=endpoint_ref.removeprefix("service://")
+    backend=spec["backendBinding"]
+    if governed_service != backend["service"]:
+        raise ConfigError(f"{path}: backend service does not match governed endpointRef")
+    return {
+        "id": route["metadata"]["id"],
+        "uri": spec["match"]["path"],
+        "methods": [spec["match"]["method"]],
+        "plugins": plugins,
+        "upstream": {
+            "type": "roundrobin",
+            "nodes": {f"{governed_service}:{backend['port']}": 1},
+        },
+    }
+
 def compile_config(config_root):
     docs=load_documents(config_root)
     indexed={}
@@ -57,6 +77,7 @@ def compile_config(config_root):
         if profile["kind"]=="ExtractionRuntimeProfile" and not indexed.get(("SourceRuntimeProfile",profile["spec"]["sourceRef"])):
             raise ConfigError(f"{path}: unresolved sourceRef {profile['spec']['sourceRef']}")
     routes=[]
+    apisix_routes=[]
     matches=set()
     for path,route in docs:
         if route["kind"]!="RouteBinding": continue
@@ -97,7 +118,13 @@ def compile_config(config_root):
           "x-ouf-query-contract": spec["match"].get("query",{}),
           "x-ouf-recovery-binding": {"owner": capability[1]["spec"]["owner"], "service": spec["backendBinding"]["service"], "pathTemplate": source[1]["spec"].get("ownerOutcomePath")} if source[1]["spec"].get("ownerOutcomePath") else None
         })
-    output={"formatVersion":"1.0","apisixVersion":"3.18.x","routes":sorted(routes,key=lambda r:r["id"])}
+        apisix_routes.append(render_apisix_route(path,route,source[1],plugins))
+    output={
+        "formatVersion":"1.0",
+        "apisixVersion":"3.18.x",
+        "routes":sorted(routes,key=lambda r:r["id"]),
+        "apisixRoutes":sorted(apisix_routes,key=lambda r:r["id"]),
+    }
     output["configurationSha256"]=hashlib.sha256(canonical(output).encode()).hexdigest()
     return output
 
