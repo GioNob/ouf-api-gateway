@@ -58,10 +58,28 @@ def test_delete_revision_refuses_active_revision():
     admin.active_revision=lambda:revision
     with pytest.raises(APISIXAdminError,match="active"):admin.delete_revision(revision)
 
-def test_probe_never_fakes_runtime_authorization_or_upstream_evidence():
+def test_probe_without_runtime_adapter_never_fakes_evidence():
     admin=APISIXAdminHTTP("https://apisix.example","secret");revision=_revision()
     admin._route_ids_for_revision=lambda revision:["r1"];admin.health=lambda:True;admin.active_revision=lambda:revision
     checks=admin.probe_revision(revision)
     assert checks["health"] and checks["routeBinding"] and checks["convergence"]
     assert checks["authorizationNegativePath"] is False
     assert checks["upstreamReachability"] is False
+
+def test_probe_uses_runtime_adapter_observations():
+    class Probe:
+        def probe(self,admin,revision,route_ids):
+            assert route_ids==["r1"]
+            return {"authorizationNegativePath":True,"upstreamReachability":True}
+    admin=APISIXAdminHTTP("https://apisix.example","secret",runtime_probe=Probe());revision=_revision()
+    admin._route_ids_for_revision=lambda revision:["r1"];admin.health=lambda:True;admin.active_revision=lambda:None
+    checks=admin.probe_revision(revision)
+    assert checks=={"health":True,"routeBinding":True,"authorizationNegativePath":True,"upstreamReachability":True,"convergence":False}
+
+def test_probe_adapter_exception_fails_closed():
+    class Probe:
+        def probe(self,*args): raise RuntimeError("probe failed")
+    admin=APISIXAdminHTTP("https://apisix.example","secret",runtime_probe=Probe());revision=_revision()
+    admin._route_ids_for_revision=lambda revision:["r1"];admin.health=lambda:True;admin.active_revision=lambda:None
+    checks=admin.probe_revision(revision)
+    assert checks["authorizationNegativePath"] is False and checks["upstreamReachability"] is False
