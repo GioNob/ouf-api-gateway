@@ -1,0 +1,19 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: resolution.issue.read
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: udp
+  operationType: READ
+  scope: resolution.issue.read
+  classification:
+  - OPEN
+  - ANONYMOUS
+  - PERSONAL
+  - SENSITIVE
+  - RESTRICTED
+  mcp:
+    toolEligible: false
+    humanRequired: false

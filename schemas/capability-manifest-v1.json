@@ -14,10 +14,11 @@
         "owner": {"type": "string", "pattern": "^[a-z0-9._-]+$"},
         "operationType": {"enum": ["READ", "SEARCH", "STATUS", "COMMAND"]},
         "scope": {"type": "string", "minLength": 1},
-        "classification": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["OPEN", "ANONYMOUS", "TENANT_OPERATIONAL", "RESTRICTED_OPERATIONAL", "SECURITY_SENSITIVE"]}},
+        "classification": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["OPEN", "ANONYMOUS", "PERSONAL", "SENSITIVE", "RESTRICTED", "TENANT_OPERATIONAL", "RESTRICTED_OPERATIONAL", "SECURITY_SENSITIVE"]}},
         "mcp": {"type": "object", "additionalProperties": false, "required": ["toolEligible"], "properties": {"toolEligible": {"type": "boolean"}, "humanRequired": {"type": "boolean", "default": false}}}
       }
     }
   },
   "$defs": {"metadata": {"type": "object", "additionalProperties": false, "required": ["id", "version", "status"], "properties": {"id": {"type": "string", "pattern": "^[a-z0-9._-]+$"}, "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"}, "status": {"const": "ACTIVE"}}}}
 }
+
