@@ -5,7 +5,7 @@ bindings:
   - issuerRef: iam://ouf/workload-issuer
     subject: workload:ouf-mcp-server
     servicePrincipalId: ouf-mcp-server
-    actorType: MCP_SERVER
+    actorType: SERVICE
     requiredAudience: ouf-api-gateway
 status:
   verifierIntegration: EVIDENCE_PENDING
