@@ -20,17 +20,26 @@ class APISIXAdminHTTP:
 
     def __post_init__(self):
         parsed=urllib.parse.urlparse(self.base_url)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("APISIX Admin API requires an https origin without URL credentials")
+        if not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("APISIX Admin API requires an origin without URL credentials")
+        if parsed.scheme == "http":
+            if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                raise ValueError("APISIX Admin API permits plaintext HTTP only on loopback")
+            self.ssl_context=None
+        elif parsed.scheme == "https":
+            self.ssl_context=ssl.create_default_context(cafile=self.ca_file)
+        else:
+            raise ValueError("APISIX Admin API requires https, or loopback http")
         if not self.api_key: raise ValueError("APISIX Admin API key is required")
         self.base_url=self.base_url.rstrip("/")
-        self.ssl_context=ssl.create_default_context(cafile=self.ca_file)
 
     def _request(self,method,path,body=None,expected=(200,201)):
         data=None if body is None else json.dumps(body,separators=(",",":"),sort_keys=True).encode()
         req=urllib.request.Request(self.base_url+path,data=data,method=method,headers={"X-API-KEY":self.api_key,"Accept":"application/json","Content-Type":"application/json"})
         try:
-            with urllib.request.urlopen(req,timeout=self.timeout_seconds,context=self.ssl_context) as response:
+            kwargs={"timeout":self.timeout_seconds}
+            if self.ssl_context is not None: kwargs["context"]=self.ssl_context
+            with urllib.request.urlopen(req,**kwargs) as response:
                 payload=response.read()
                 if response.status not in expected: raise APISIXAdminError(f"unexpected APISIX status {response.status}")
                 return json.loads(payload) if payload else {}
