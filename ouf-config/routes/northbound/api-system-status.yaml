@@ -10,6 +10,6 @@ spec:
   backendBinding: {service: ouf-mcp-server, port: 8080, path: /api/internal/v1/mcp/operations/status}
   policy:
     identity: OIDC
-    allowedActorTypes: [HUMAN_USER]
+    allowedActorTypes: [HUMAN]
     maxRequestBytes: 65536
     timeoutSeconds: 3
