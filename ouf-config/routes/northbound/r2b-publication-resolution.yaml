@@ -24,4 +24,4 @@ spec:
     - ouf-ingestion-runtime
     - ouf-udp-object-resolution
     allowedActorTypes:
-    - SERVICE_IDENTITY
+    - SERVICE
