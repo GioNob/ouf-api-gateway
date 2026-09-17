@@ -9,7 +9,7 @@ def test_geometry_review_and_decision_keep_bounded_owner_paths_and_human_contrac
     assert read["methods"]==["GET"] and write["methods"]==["POST"]
     assert read["x-ouf-policy"]["requiredScope"]=="resolution.issue.read"
     assert write["x-ouf-policy"]["requiredScope"]=="authority.override"
-    assert write["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
+    assert write["x-ouf-policy"]["allowedActorTypes"]==["HUMAN"]
     assert write["x-ouf-capability"]["humanRequired"] is True
     assert write["x-ouf-capability"]["toolEligible"] is False
     for route in (read,write):
@@ -26,12 +26,12 @@ def test_property_decisions_and_onboarding_surface_preserve_ownership():
         assert route["service_id"]=="ouf-udp-object-resolution"
         assert route["uri"]=="/api/udp/v1/governance/properties/conflicts/*"
     write=routes["r2f-property-decision"]
-    assert write["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
+    assert write["x-ouf-policy"]["allowedActorTypes"]==["HUMAN"]
     assert write["x-ouf-capability"]["toolEligible"] is False
     for name in ("page","assets"):
         route=routes["r2f-review-"+name]
         assert route["service_id"]=="ouf-source-onboarding"
-        assert route["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
+        assert route["x-ouf-policy"]["allowedActorTypes"]==["HUMAN"]
         assert route["methods"]==["GET"]
 
 
