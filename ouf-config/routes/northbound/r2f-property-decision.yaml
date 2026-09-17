@@ -21,4 +21,4 @@ spec:
     maxRequestBytes: 65536
     timeoutSeconds: 10
     allowedActorTypes:
-    - HUMAN_USER
+    - HUMAN
