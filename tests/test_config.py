@@ -20,6 +20,21 @@ def test_compiles_onboarding_micro_pairwise_contract():
     assert route["service_id"]=="ouf-object-storage"
     assert route["plugins"]["request-id"]=={"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}
 
+def test_m2m_routes_compile_real_oidc_boundary_without_embedding_secret():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["routes"] if item["id"]=="mcp-related-search")
+    oidc=route["plugins"]["openid-connect"]
+    assert oidc["bearer_only"] is True
+    assert oidc["client_id"]=="ouf-api-gateway"
+    assert oidc["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
+    assert oidc["discovery"]=="http://ouf-keycloak:8080/realms/ouf/.well-known/openid-configuration"
+    assert oidc["introspection_endpoint"]=="http://ouf-keycloak:8080/realms/ouf/protocol/openid-connect/token/introspect"
+    assert oidc["claim_validator"]["issuer"]["valid_issuers"]==["https://auth.ouf-lab.it/realms/ouf"]
+    assert oidc["claim_validator"]["audience"]=={"claim":"aud","required":True,"match_with_client_id":True}
+    assert oidc["set_access_token_header"] is False
+    assert oidc["set_userinfo_header"] is True
+    assert route["x-ouf-identity-normalization"]=={"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"}
+
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")
 
