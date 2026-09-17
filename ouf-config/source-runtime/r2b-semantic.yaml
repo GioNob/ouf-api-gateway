@@ -1,0 +1,10 @@
+apiVersion: ouf.trieste.it/v1
+kind: SourceRuntimeProfile
+metadata:
+  id: r2b-semantic
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  protocol: HTTP
+  endpointRef: service://ouf-semantic-registry
+  sourceSchemaRef: capability-contract://r2b-semantic/v1

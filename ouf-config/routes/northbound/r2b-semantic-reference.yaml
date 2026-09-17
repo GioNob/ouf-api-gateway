@@ -1,0 +1,27 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: r2b-semantic-reference
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.semantic.read@1.0.0
+  sourceRef: r2b-semantic@1.0.0
+  match:
+    method: GET
+    path: /api/semantic/v1/references:resolve
+  backendBinding:
+    service: ouf-semantic-registry
+    port: 8080
+    path: /api/semantic/v1/references:resolve
+  policy:
+    identity: M2M
+    maxRequestBytes: 65536
+    timeoutSeconds: 10
+    allowedServiceIdentities:
+    - ouf-ingestion-runtime
+    - ouf-udp-object-resolution
+    allowedActorTypes:
+    - SERVICE_IDENTITY

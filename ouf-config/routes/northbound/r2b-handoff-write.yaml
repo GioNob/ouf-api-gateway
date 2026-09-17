@@ -1,0 +1,26 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: r2b-handoff-write
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: udp.candidate.write@1.0.0
+  sourceRef: r2b-udp@1.0.0
+  match:
+    method: POST
+    path: /api/internal/v1/handoffs
+  backendBinding:
+    service: ouf-udp-object-resolution
+    port: 8080
+    path: /api/internal/v1/handoffs
+  policy:
+    identity: M2M
+    maxRequestBytes: 10485760
+    timeoutSeconds: 10
+    allowedServiceIdentities:
+    - ouf-ingestion-runtime
+    allowedActorTypes:
+    - SERVICE_IDENTITY
