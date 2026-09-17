@@ -25,6 +25,27 @@ def load_documents(config_root):
         documents.append((path,doc))
     return documents
 
+def m2m_oidc_plugin():
+    # Lab binding. The client secret is injected into the APISIX container and is
+    # never compiled into Git or etcd in plaintext. Introspection is deliberately
+    # internal to the ouf-backend network; issuer/audience remain validated against
+    # the externally stable OUF issuer and gateway audience.
+    return {
+        "client_id": "ouf-api-gateway",
+        "client_secret": "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET",
+        "discovery": "http://ouf-keycloak:8080/realms/ouf/.well-known/openid-configuration",
+        "introspection_endpoint": "http://ouf-keycloak:8080/realms/ouf/protocol/openid-connect/token/introspect",
+        "introspection_endpoint_auth_method": "client_secret_basic",
+        "bearer_only": True,
+        "realm": "ouf",
+        "set_access_token_header": False,
+        "set_userinfo_header": True,
+        "claim_validator": {
+            "issuer": {"valid_issuers": ["https://auth.ouf-lab.it/realms/ouf"]},
+            "audience": {"claim": "aud", "required": True, "match_with_client_id": True},
+        },
+    }
+
 def compile_config(config_root):
     docs=load_documents(config_root)
     indexed={}
@@ -60,6 +81,9 @@ def compile_config(config_root):
         if wildcard and (not spec["match"]["path"].endswith("/*") or spec["match"]["path"].count("*") != 1 or spec["backendBinding"]["path"] != spec["match"]["path"]):
             raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
+        identity=spec["policy"]["identity"]
+        if identity=="M2M":
+            plugins["openid-connect"]=m2m_oidc_plugin()
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         routes.append({
@@ -67,7 +91,8 @@ def compile_config(config_root):
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
           "plugins": plugins,
-          "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
+          "x-ouf-policy": {"identity": identity, "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
+          "x-ouf-identity-normalization": {"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"} if identity=="M2M" else None,
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{}),
           "x-ouf-recovery-binding": {"owner": capability[1]["spec"]["owner"], "service": spec["backendBinding"]["service"], "pathTemplate": source[1]["spec"].get("ownerOutcomePath")} if source[1]["spec"].get("ownerOutcomePath") else None
