@@ -23,4 +23,4 @@ spec:
     allowedServiceIdentities:
     - ouf-ingestion-runtime
     allowedActorTypes:
-    - SERVICE_IDENTITY
+    - SERVICE
