@@ -25,11 +25,14 @@ def load_documents(config_root):
         documents.append((path,doc))
     return documents
 
-def m2m_oidc_plugin():
+def m2m_oidc_plugin(required_scope):
+    if not isinstance(required_scope,str) or not required_scope:
+        raise ConfigError("M2M route requires a non-empty governed capability scope")
     # Lab binding. The client secret is injected into the APISIX container and is
     # never compiled into Git or etcd in plaintext. Introspection is deliberately
     # internal to the ouf-backend network; issuer/audience remain validated against
-    # the externally stable OUF issuer and gateway audience.
+    # the externally stable OUF issuer and gateway audience. Capability scope is
+    # enforced by APISIX from the access-token scope claim.
     return {
         "client_id": "ouf-api-gateway",
         "client_secret": "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET",
@@ -38,6 +41,7 @@ def m2m_oidc_plugin():
         "introspection_endpoint_auth_method": "client_secret_basic",
         "bearer_only": True,
         "realm": "ouf",
+        "required_scopes": [required_scope],
         "set_access_token_header": False,
         "set_userinfo_header": True,
         "claim_validator": {
@@ -103,8 +107,9 @@ def compile_config(config_root):
             raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
         identity=spec["policy"]["identity"]
+        required_scope=capability[1]["spec"]["scope"]
         if identity=="M2M":
-            plugins["openid-connect"]=m2m_oidc_plugin()
+            plugins["openid-connect"]=m2m_oidc_plugin(required_scope)
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         routes.append({
@@ -112,7 +117,7 @@ def compile_config(config_root):
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
           "plugins": plugins,
-          "x-ouf-policy": {"identity": identity, "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
+          "x-ouf-policy": {"identity": identity, "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": required_scope},
           "x-ouf-identity-normalization": {"subjectClaim":"ouf_subject","tenantClaim":"tenant_id","clientIdClaim":"client_id","actorType":"SERVICE"} if identity=="M2M" else None,
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{}),
