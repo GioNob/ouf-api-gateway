@@ -14,60 +14,54 @@ def test_admin_rejects_url_credentials():
 def test_admin_requires_api_key():
     with pytest.raises(ValueError,match="key"):APISIXAdminHTTP("https://apisix.example","")
 
-def test_revision_id_is_path_encoded_and_routes_are_staged_disabled():
+def _revision(ch="a"): return "sha256:"+ch*64
+
+def _route(): return {"id":"logical","uri":"/x","methods":["POST"],"plugins":{},"upstream":{"type":"roundrobin","nodes":{"svc:8080":1}}}
+
+def test_routes_are_staged_disabled_without_body_id_and_with_revision_labels():
     admin=APISIXAdminHTTP("https://apisix.example","secret")
-    seen=[]
-    route={"id":"logical","uri":"/x","methods":["POST"],"plugins":{},"upstream":{"type":"roundrobin","nodes":{"svc:8080":1}}}
+    seen=[];route=_route();revision=_revision()
     def fake(method,path,body=None,expected=(200,201)):
         seen.append((method,path,body))
         if method=="GET" and "/routes/" in path:
-            return {"value":{**{k:v for k,v in route.items() if k!="id"},"status":0}}
+            return {"value":{**{k:v for k,v in route.items() if k!="id"},"labels":admin._revision_labels(revision,1),"status":0}}
         return {}
     admin._request=fake
-    admin.put_revision("sha256:a/b",{"apisixRoutes":[route]})
-    assert seen[0][0:2]==("PUT","/apisix/admin/routes/ouf-a/b-001")
-    assert seen[0][2]["status"]==0
-    assert "id" not in seen[0][2]
-    metadata=next(item for item in seen if "/plugin_metadata/" in item[1])
-    assert "%2F" in metadata[1]
-    assert metadata[2]["value"]["routeIds"]==["ouf-a/b-001"]
+    admin.put_revision(revision,{"apisixRoutes":[route]})
+    assert seen[0][0:2]==("PUT","/apisix/admin/routes/ouf-aaaaaaaaaaaa-001")
+    assert seen[0][2]["status"]==0 and "id" not in seen[0][2]
+    assert seen[0][2]["labels"]["ouf_revision"]=="a"*64
+    assert all("plugin_metadata" not in path for _,path,_ in seen)
 
-def test_read_revision_verifies_staged_routes_against_artifact():
+def test_revision_matches_reads_real_routes():
     admin=APISIXAdminHTTP("https://apisix.example","secret")
-    route={"id":"logical","uri":"/x","methods":["POST"],"plugins":{},"upstream":{"type":"roundrobin","nodes":{"svc:8080":1}}}
-    artifact={"apisixRoutes":[route]}
+    route=_route();artifact={"apisixRoutes":[route]};revision=_revision("b")
     def fake(method,path,body=None,expected=(200,201)):
-        if "/plugin_metadata/" in path:return {"value":{"value":{"artifact":artifact,"routeIds":["ouf-abc-001"]}}}
-        return {"value":{**{k:v for k,v in route.items() if k!="id"},"status":0}}
+        return {"value":{**{k:v for k,v in route.items() if k!="id"},"labels":admin._revision_labels(revision,1),"status":0}}
     admin._request=fake
-    assert admin.read_revision("sha256:abc")==artifact
+    assert admin.revision_matches(revision,artifact) is True
 
-def test_activate_enables_new_revision_disables_previous_then_advances_pointer():
-    admin=APISIXAdminHTTP("https://apisix.example","secret")
-    calls=[]
-    admin.active_revision=lambda:"old" if not any("ouf-active-publication" in p for _,p,_ in calls) else "new"
-    admin._revision_node=lambda revision:{"routeIds":[revision+"-route"]}
-    statuses={}
-    def fake_request(method,path,body=None,expected=(200,201)):
-        calls.append((method,path,body))
-        if method=="PATCH":statuses[path]=body["status"];return {}
-        if method=="GET" and "/routes/" in path:return {"value":{"status":statuses[path]}}
-        return {}
-    admin._request=fake_request
-    admin.activate_revision("new")
-    assert ("PATCH","/apisix/admin/routes/new-route",{"status":1}) in calls
-    assert ("PATCH","/apisix/admin/routes/old-route",{"status":0}) in calls
-    assert any(path=="/apisix/admin/plugin_metadata/ouf-active-publication" for _,path,_ in calls)
+def test_active_revision_is_derived_from_enabled_managed_routes():
+    admin=APISIXAdminHTTP("https://apisix.example","secret");revision=_revision("c")
+    admin._request=lambda *a,**k:{"list":[{"key":"/apisix/routes/r1","value":{"status":1,"labels":admin._revision_labels(revision,1)}}]}
+    assert admin.active_revision()==revision
+
+def test_multiple_active_revisions_fail_closed():
+    admin=APISIXAdminHTTP("https://apisix.example","secret");r1=_revision("c");r2=_revision("d")
+    admin._request=lambda *a,**k:{"list":[
+        {"key":"/apisix/routes/r1","value":{"status":1,"labels":admin._revision_labels(r1,1)}},
+        {"key":"/apisix/routes/r2","value":{"status":1,"labels":admin._revision_labels(r2,1)}}]}
+    with pytest.raises(APISIXAdminError,match="multiple active"):admin.active_revision()
 
 def test_delete_revision_refuses_active_revision():
-    admin=APISIXAdminHTTP("https://apisix.example","secret")
-    admin.active_revision=lambda:"rev"
-    with pytest.raises(APISIXAdminError,match="active"):admin.delete_revision("rev")
+    admin=APISIXAdminHTTP("https://apisix.example","secret");revision=_revision()
+    admin.active_revision=lambda:revision
+    with pytest.raises(APISIXAdminError,match="active"):admin.delete_revision(revision)
 
 def test_probe_never_fakes_runtime_authorization_or_upstream_evidence():
-    admin=APISIXAdminHTTP("https://apisix.example","secret")
-    admin.read_revision=lambda revision:{"routes":[]};admin.health=lambda:True;admin.active_revision=lambda:"rev"
-    checks=admin.probe_revision("rev")
+    admin=APISIXAdminHTTP("https://apisix.example","secret");revision=_revision()
+    admin._route_ids_for_revision=lambda revision:["r1"];admin.health=lambda:True;admin.active_revision=lambda:revision
+    checks=admin.probe_revision(revision)
     assert checks["health"] and checks["routeBinding"] and checks["convergence"]
     assert checks["authorizationNegativePath"] is False
     assert checks["upstreamReachability"] is False
