@@ -29,6 +29,8 @@ def test_m2m_routes_compile_real_oidc_boundary_without_embedding_secret():
     assert oidc["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
     assert oidc["discovery"]=="http://ouf-keycloak:8080/realms/ouf/.well-known/openid-configuration"
     assert oidc["introspection_endpoint"]=="http://ouf-keycloak:8080/realms/ouf/protocol/openid-connect/token/introspect"
+    assert oidc["required_scopes"]==[route["x-ouf-policy"]["requiredScope"]]
+    assert oidc["required_scopes"]==["urban.object.related_search"]
     assert oidc["claim_validator"]["issuer"]["valid_issuers"]==["https://auth.ouf-lab.it/realms/ouf"]
     assert oidc["claim_validator"]["audience"]=={"claim":"aud","required":True,"match_with_client_id":True}
     assert oidc["set_access_token_header"] is False
@@ -42,6 +44,7 @@ def test_apisix_projection_contains_only_deployable_route_fields_and_governed_up
     assert route["upstream"]=={"type":"roundrobin","nodes":{"ouf-udp-object-resolution:8080":1}}
     assert route["plugins"]["proxy-rewrite"]=={"uri":"/internal/v1/objects/related-search"}
     assert route["plugins"]["openid-connect"]["client_secret"]=="$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
+    assert route["plugins"]["openid-connect"]["required_scopes"]==["urban.object.related_search"]
 
 def test_apisix_projection_rejects_backend_service_mismatch(tmp_path):
     root=isolated(tmp_path)
