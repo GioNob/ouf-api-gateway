@@ -1,0 +1,24 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: r2f-review-assets
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: public
+  capabilityRef: resolution.issue.read@1.0.0
+  sourceRef: r2b-onboarding@1.0.0
+  match:
+    method: GET
+    path: /trusted-human/r2f/*
+  backendBinding:
+    service: ouf-source-onboarding
+    port: 8080
+    path: /trusted-human/r2f/*
+  policy:
+    identity: OIDC
+    maxRequestBytes: 65536
+    timeoutSeconds: 10
+    allowedActorTypes:
+    - HUMAN_USER

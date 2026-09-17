@@ -17,3 +17,19 @@ def test_geometry_review_and_decision_keep_bounded_owner_paths_and_human_contrac
         assert route["service_id"]=="ouf-udp-object-resolution"
         assert "proxy-rewrite" not in route["plugins"]
         assert route["x-ouf-policy"]["identity"]=="OIDC"
+
+
+def test_property_decisions_and_onboarding_surface_preserve_ownership():
+    routes={r["id"]:r for r in compile_config(ROOT/"ouf-config")["routes"]}
+    for action in ("review","decision"):
+        route=routes["r2f-property-"+action]
+        assert route["service_id"]=="ouf-udp-object-resolution"
+        assert route["uri"]=="/api/udp/v1/governance/properties/conflicts/*"
+    write=routes["r2f-property-decision"]
+    assert write["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
+    assert write["x-ouf-capability"]["toolEligible"] is False
+    for name in ("page","assets"):
+        route=routes["r2f-review-"+name]
+        assert route["service_id"]=="ouf-source-onboarding"
+        assert route["x-ouf-policy"]["allowedActorTypes"]==["HUMAN_USER"]
+        assert route["methods"]==["GET"]
