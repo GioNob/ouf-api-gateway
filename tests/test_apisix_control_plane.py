@@ -13,9 +13,9 @@ class FakeAdmin:
 
     def health(self): return True
     def put_revision(self, revision, artifact): self.revisions[revision] = artifact
-    def read_revision(self, revision):
-        if self.corrupt_read: return {"corrupt": True}
-        return self.revisions[revision]
+    def revision_matches(self, revision, artifact):
+        if self.corrupt_read: return False
+        return self.revisions.get(revision) == artifact
     def probe_revision(self, revision): return self.checks
     def activate_revision(self, revision):
         if self.activation_converges: self.active = revision
