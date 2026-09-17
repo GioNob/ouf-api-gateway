@@ -40,25 +40,75 @@ class APISIXAdminHTTP:
         try:self._request("GET","/apisix/admin/routes",expected=(200,));return True
         except APISIXAdminError:return False
 
-    def put_revision(self,revision,artifact):
-        rid=urllib.parse.quote(revision,safe="")
-        self._request("PUT",f"/apisix/admin/plugin_metadata/ouf-publication-{rid}",{"value":{"revision":revision,"artifact":artifact}},expected=(200,201))
+    @staticmethod
+    def _route_ids(revision, artifact):
+        digest=revision.split(":",1)[-1][:12]
+        return [f"ouf-{digest}-{index:03d}" for index,_ in enumerate(artifact.get("apisixRoutes",[]),start=1)]
 
-    def read_revision(self,revision):
+    @staticmethod
+    def _route_value(response):
+        value=response.get("value",response)
+        return value.get("value",value) if isinstance(value,dict) else value
+
+    def put_revision(self,revision,artifact):
+        route_ids=self._route_ids(revision,artifact)
+        staged=[]
+        try:
+            for route_id,route in zip(route_ids,artifact.get("apisixRoutes",[])):
+                body={**route,"status":0}
+                self._request("PUT",f"/apisix/admin/routes/{route_id}",body,expected=(200,201))
+                value=self._route_value(self._request("GET",f"/apisix/admin/routes/{route_id}",expected=(200,)))
+                if not isinstance(value,dict) or value.get("status") != 0:
+                    raise APISIXAdminError("staged APISIX route failed read-after-write verification")
+                staged.append(route_id)
+            rid=urllib.parse.quote(revision,safe="")
+            self._request("PUT",f"/apisix/admin/plugin_metadata/ouf-publication-{rid}",{"value":{"revision":revision,"artifact":artifact,"routeIds":route_ids}},expected=(200,201))
+        except Exception:
+            for route_id in reversed(staged):
+                try:self._request("DELETE",f"/apisix/admin/routes/{route_id}",expected=(200,204))
+                except Exception:pass
+            raise
+
+    def _revision_node(self,revision):
         rid=urllib.parse.quote(revision,safe="")
         value=self._request("GET",f"/apisix/admin/plugin_metadata/ouf-publication-{rid}",expected=(200,))
         node=value.get("value",value).get("value",value.get("value",value))
-        if isinstance(node,dict) and "artifact" in node:return node["artifact"]
-        raise APISIXAdminError("staged APISIX revision is unreadable")
+        if not isinstance(node,dict) or "artifact" not in node or "routeIds" not in node:
+            raise APISIXAdminError("staged APISIX revision is unreadable")
+        return node
+
+    def read_revision(self,revision):
+        node=self._revision_node(revision)
+        artifact=node["artifact"]
+        route_ids=node["routeIds"]
+        expected=artifact.get("apisixRoutes",[])
+        if len(route_ids) != len(expected): raise APISIXAdminError("staged APISIX revision route count mismatch")
+        for route_id,route in zip(route_ids,expected):
+            value=self._route_value(self._request("GET",f"/apisix/admin/routes/{route_id}",expected=(200,)))
+            if not isinstance(value,dict): raise APISIXAdminError("staged APISIX route is unreadable")
+            for key in ("uri","methods","plugins","upstream"):
+                if value.get(key) != route.get(key):
+                    raise APISIXAdminError("staged APISIX route differs from compiled artifact")
+        return artifact
 
     def probe_revision(self,revision):
-        # Structural probes are executed against the adopted Admin API state;
-        # Authorization/upstream runtime probes remain explicit environment gates.
         try:self.read_revision(revision);health=self.health()
         except APISIXAdminError:return {k:False for k in ("health","routeBinding","authorizationNegativePath","upstreamReachability","convergence")}
         return {"health":health,"routeBinding":True,"authorizationNegativePath":False,"upstreamReachability":False,"convergence":self.active_revision()==revision}
 
+    def _set_revision_status(self,revision,status):
+        node=self._revision_node(revision)
+        for route_id in node["routeIds"]:
+            self._request("PATCH",f"/apisix/admin/routes/{route_id}",{"status":status},expected=(200,))
+            value=self._route_value(self._request("GET",f"/apisix/admin/routes/{route_id}",expected=(200,)))
+            if not isinstance(value,dict) or value.get("status") != status:
+                raise APISIXAdminError("APISIX route status failed to converge")
+
     def activate_revision(self,revision):
+        previous=self.active_revision()
+        self._set_revision_status(revision,1)
+        if previous and previous != revision:
+            self._set_revision_status(previous,0)
         self._request("PUT","/apisix/admin/plugin_metadata/ouf-active-publication",{"value":{"revision":revision}},expected=(200,201))
         deadline=time.monotonic()+self.convergence_timeout_seconds
         while time.monotonic()<deadline:
@@ -73,5 +123,9 @@ class APISIXAdminHTTP:
         return node.get("revision") if isinstance(node,dict) else None
 
     def delete_revision(self,revision):
+        if self.active_revision()==revision: raise APISIXAdminError("refusing to delete active APISIX revision")
+        node=self._revision_node(revision)
+        for route_id in reversed(node["routeIds"]):
+            self._request("DELETE",f"/apisix/admin/routes/{route_id}",expected=(200,204))
         rid=urllib.parse.quote(revision,safe="")
         self._request("DELETE",f"/apisix/admin/plugin_metadata/ouf-publication-{rid}",expected=(200,204))
