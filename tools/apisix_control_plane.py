@@ -7,7 +7,7 @@ from typing import Protocol
 class APISIXAdminPort(Protocol):
     def health(self) -> bool: ...
     def put_revision(self, revision: str, artifact: dict) -> None: ...
-    def read_revision(self, revision: str) -> dict: ...
+    def revision_matches(self, revision: str, artifact: dict) -> bool: ...
     def probe_revision(self, revision: str) -> dict[str, bool]: ...
     def activate_revision(self, revision: str) -> None: ...
     def active_revision(self) -> str | None: ...
@@ -40,14 +40,14 @@ class APISIXControlPlane:
     def stage(self, artifact: dict) -> str:
         revision = self.revision_for(artifact)
         self.admin.put_revision(revision, artifact)
-        if self.admin.read_revision(revision) != artifact:
+        if self.admin.revision_matches(revision, artifact) is not True:
             raise RuntimeError("APISIX staged revision failed read-after-write verification")
         return revision
 
     def verify(self, revision: str, artifact: dict) -> dict[str, bool]:
         if revision != self.revision_for(artifact):
             return {"artifactIntegrity": False}
-        if self.admin.read_revision(revision) != artifact:
+        if self.admin.revision_matches(revision, artifact) is not True:
             return {"artifactIntegrity": False}
         checks = self.admin.probe_revision(revision)
         return {
