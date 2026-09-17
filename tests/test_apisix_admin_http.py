@@ -21,12 +21,13 @@ def test_revision_id_is_path_encoded_and_routes_are_staged_disabled():
     def fake(method,path,body=None,expected=(200,201)):
         seen.append((method,path,body))
         if method=="GET" and "/routes/" in path:
-            return {"value":{**route,"status":0}}
+            return {"value":{**{k:v for k,v in route.items() if k!="id"},"status":0}}
         return {}
     admin._request=fake
     admin.put_revision("sha256:a/b",{"apisixRoutes":[route]})
     assert seen[0][0:2]==("PUT","/apisix/admin/routes/ouf-a/b-001")
     assert seen[0][2]["status"]==0
+    assert "id" not in seen[0][2]
     metadata=next(item for item in seen if "/plugin_metadata/" in item[1])
     assert "%2F" in metadata[1]
     assert metadata[2]["value"]["routeIds"]==["ouf-a/b-001"]
@@ -37,7 +38,7 @@ def test_read_revision_verifies_staged_routes_against_artifact():
     artifact={"apisixRoutes":[route]}
     def fake(method,path,body=None,expected=(200,201)):
         if "/plugin_metadata/" in path:return {"value":{"value":{"artifact":artifact,"routeIds":["ouf-abc-001"]}}}
-        return {"value":{**route,"status":0}}
+        return {"value":{**{k:v for k,v in route.items() if k!="id"},"status":0}}
     admin._request=fake
     assert admin.read_revision("sha256:abc")==artifact
 
