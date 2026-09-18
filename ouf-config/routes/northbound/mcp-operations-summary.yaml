@@ -7,7 +7,7 @@ spec:
   capabilityRef: ouf.operations.summary@1.0.0
   sourceRef: mcp-server-operations@1.0.0
   match: {method: POST, path: /internal/capabilities/v1/execute/ouf.operations.summary}
-  backendBinding: {service: installation://iam.workloadClients.mcpServer, port: 8080, path: /api/internal/v1/mcp/operations/summary}
+  backendBinding: {service: ouf-mcp-server, port: 8080, path: /api/internal/v1/mcp/operations/summary}
   policy:
     identity: M2M
     allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
