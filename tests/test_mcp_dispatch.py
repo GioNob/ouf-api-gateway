@@ -91,6 +91,8 @@ def test_dispatcher_accepts_installation_specific_mcp_service_identity():
     compiled=compile_config(ROOT/"ouf-config")
     upstream=FakeUpstream()
     custom_service="ente-x-mcp-workload"
+    value=fixture()
+    value["Identity"]["ServicePrincipalID"]=custom_service
     current=MCPDispatcher(compiled,upstream,service_identity=custom_service)
-    result=current.dispatch(body(),headers(),identity(service=custom_service))
+    result=current.dispatch(body(value),headers(value),identity(service=custom_service))
     assert result.status==200 and len(upstream.calls)==1
