@@ -58,7 +58,7 @@ def test_ingestion_producer_primitives_are_internal_and_not_tools():
         suffix = capability_id.rsplit(".", 1)[-1]
         route = load(f"ouf-config/routes/northbound/mcp-ingestion-operations-{suffix}-producer.yaml")
         assert route["spec"]["exposure"] == "internal"
-        assert route["spec"]["policy"]["allowedServiceIdentities"] == ["ouf-mcp-server"]
+        assert route["spec"]["policy"]["allowedServiceIdentities"] == ["installation://iam.workloadClients.mcpServer"]
         assert route["spec"]["backendBinding"]["path"] == backend_path
 
 
