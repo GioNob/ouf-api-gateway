@@ -24,7 +24,7 @@ def test_gateway_operational_producer_capabilities_are_private_and_non_tool():
         suffix = "incidents" if capability_id.endswith("incidents") else "summary"
         route = load(f"ouf-config/routes/northbound/mcp-gateway-operations-{suffix}.yaml")
         assert route["spec"]["exposure"] == "internal"
-        assert route["spec"]["policy"]["allowedServiceIdentities"] == ["ouf-mcp-server"]
+        assert route["spec"]["policy"]["allowedServiceIdentities"] == ["installation://iam.workloadClients.mcpServer"]
         assert route["spec"]["backendBinding"]["service"] == "ouf-gateway-control-plane"
         assert route["spec"]["backendBinding"]["path"] == backend_path
         assert route["spec"]["backendBinding"]["path"] != "/mcp"
