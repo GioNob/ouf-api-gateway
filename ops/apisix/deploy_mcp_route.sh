@@ -49,14 +49,14 @@ umask 077
 printf 'X-API-KEY: %s\n' "$(cat "$ADMIN_KEY_FILE")" > "$WORK/admin.header"
 
 PREVIOUS_STATUS="$(
-  docker run --rm --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/previous.json -w '%{http_code}'     -H @/work/admin.header     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
+  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/previous.json -w '%{http_code}'     -H @/work/admin.header     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
 )"
 
 restore() {
   if [ "$PREVIOUS_STATUS" = "200" ]; then
-    docker run --rm --network "container:$APISIX_CONTAINER"       -v "$WORK:/work" "$CURL_IMAGE"       -sS -o /dev/null -X PUT       -H @/work/admin.header -H 'Content-Type: application/json'       --data-binary @/work/previous-route.json       "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
+    docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"       -v "$WORK:/work" "$CURL_IMAGE"       -sS -o /dev/null -X PUT       -H @/work/admin.header -H 'Content-Type: application/json'       --data-binary @/work/previous-route.json       "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
   else
-    docker run --rm --network "container:$APISIX_CONTAINER"       -v "$WORK:/work" "$CURL_IMAGE"       -sS -o /dev/null -X DELETE       -H @/work/admin.header       "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
+    docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"       -v "$WORK:/work" "$CURL_IMAGE"       -sS -o /dev/null -X DELETE       -H @/work/admin.header       "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID" || true
   fi
 }
 
@@ -72,7 +72,7 @@ PY
 fi
 
 PUT_STATUS="$(
-  docker run --rm --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/put.json -w '%{http_code}' -X PUT     -H @/work/admin.header -H 'Content-Type: application/json'     --data-binary @/work/route.json     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID"
+  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/put.json -w '%{http_code}' -X PUT     -H @/work/admin.header -H 'Content-Type: application/json'     --data-binary @/work/route.json     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID"
 )"
 
 case "$PUT_STATUS" in
@@ -81,7 +81,7 @@ case "$PUT_STATUS" in
 esac
 
 READ_STATUS="$(
-  docker run --rm --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/read.json -w '%{http_code}'     -H @/work/admin.header     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID"
+  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     -v "$WORK:/work" "$CURL_IMAGE"     -sS -o /work/read.json -w '%{http_code}'     -H @/work/admin.header     "http://127.0.0.1:9180/apisix/admin/routes/$ROUTE_ID"
 )"
 
 if [ "$READ_STATUS" != "200" ]; then
@@ -91,7 +91,7 @@ if [ "$READ_STATUS" != "200" ]; then
 fi
 
 NEGATIVE_STATUS="$(
-  docker run --rm --network "container:$APISIX_CONTAINER"     "$CURL_IMAGE" -sS -o /dev/null -w '%{http_code}'     -X POST http://127.0.0.1:9080/mcp
+  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     "$CURL_IMAGE" -sS -o /dev/null -w '%{http_code}'     -X POST http://127.0.0.1:9080/mcp
 )"
 
 case "$NEGATIVE_STATUS" in
