@@ -1,0 +1,17 @@
+apiVersion: ouf.trieste.it/v1
+kind: McpMediationBinding
+metadata:
+  id: mcp-generic-recovery
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  mode: RECOVERY
+  match:
+    method: POST
+    path: /internal/capabilities/v1/recovery
+  policy:
+    identity: M2M
+    serviceIdentityRef: installation://iam.workloadClients.mcpServer
+    requiredScope: mcp.attempt.recover
+    maxRequestBytes: 65536
+    timeoutSeconds: 5
