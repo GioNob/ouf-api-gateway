@@ -44,7 +44,7 @@ class MCPDispatcher:
     REQUIRED_HEADERS = ("X-Correlation-ID", "Idempotency-Key", "X-Tool-Attempt-ID")
     INSTALLATION_MCP_REF = "installation://iam.workloadClients.mcpServer"
 
-    def __init__(self, compiled: dict, upstream: UpstreamPort, schema_path: Path | None = None, service_identity: str = "ouf-mcp-server"):
+    def __init__(self, compiled: dict, upstream: UpstreamPort, service_identity: str, schema_path: Path | None = None):
         self.upstream = upstream
         self.service_identity = service_identity
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-dispatch-v1.json").read_text())
