@@ -29,7 +29,7 @@ def test_system_status_is_channel_neutral_and_not_mcp_protocol_backed():
 
     assert mcp_route["spec"]["exposure"] == "internal"
     assert mcp_route["spec"]["policy"]["identity"] == "M2M"
-    assert mcp_route["spec"]["policy"]["allowedServiceIdentities"] == ["ouf-mcp-server"]
+    assert mcp_route["spec"]["policy"]["allowedServiceIdentities"] == ["installation://iam.workloadClients.mcpServer"]
     assert api_route["spec"]["exposure"] == "public"
     assert api_route["spec"]["policy"]["identity"] == "OIDC"
     assert api_route["spec"]["match"]["path"] == "/api/v1/operations/system/status"
