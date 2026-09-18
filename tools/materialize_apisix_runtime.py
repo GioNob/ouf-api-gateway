@@ -3,11 +3,14 @@ import argparse
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 class MaterializationError(RuntimeError):
     pass
 
 SECRET_REF_PREFIXES = ("$ENV://", "$secret://")
+PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+PROTECTED_RESOURCE_ROUTE_ID = "public-mcp-oauth-protected-resource"
 
 
 def require_text(obj, key):
@@ -15,6 +18,22 @@ def require_text(obj, key):
     if not isinstance(value, str) or not value.strip():
         raise MaterializationError(f"missing or invalid {key}")
     return value.strip()
+
+
+def require_https_url(obj, key, *, origin_only=False):
+    value = require_text(obj, key).rstrip("/")
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or (origin_only and parsed.path not in ("", "/"))
+    ):
+        raise MaterializationError(f"{key} must be a canonical HTTPS URL")
+    return value
 
 
 def lua_quote(value):
@@ -92,7 +111,9 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
     ):
         raise MaterializationError("missing MCP allowedActorTypes")
 
-    issuer = require_text(installation, "issuerUrl").rstrip("/")
+    issuer = require_https_url(installation, "issuerUrl")
+    public_api_base = require_https_url(installation, "publicApiBaseUrl", origin_only=True)
+    resource_metadata_url = public_api_base + PROTECTED_RESOURCE_METADATA_PATH
     service = require_text(backend, "service")
     port = backend.get("port")
     path = require_text(backend, "path")
@@ -146,6 +167,17 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
                 }
             },
         },
+        "response-rewrite": {
+            "headers": {
+                "set": {
+                    "WWW-Authenticate": (
+                        f'Bearer resource_metadata="{resource_metadata_url}", '
+                        f'scope="{required_scope}"'
+                    )
+                }
+            },
+            "vars": [["status", "==", 401]],
+        },
         "serverless-post-function": {
             "phase": "access",
             "functions": [trusted_post_function(allowed_actors)],
@@ -171,6 +203,48 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
     }
 
 
+def materialize_protected_resource_route(route, installation):
+    policy = route.get("x-ouf-policy")
+    if not isinstance(policy, dict):
+        raise MaterializationError("missing governed MCP route policy")
+
+    issuer = require_https_url(installation, "issuerUrl")
+    public_api_base = require_https_url(installation, "publicApiBaseUrl", origin_only=True)
+    required_scope = require_text(policy, "requiredScope")
+    metadata = {
+        "authorization_servers": [issuer],
+        "bearer_methods_supported": ["header"],
+        "resource": public_api_base + "/mcp",
+        "resource_name": "OUF MCP Server",
+        "scopes_supported": [required_scope],
+    }
+
+    return {
+        "id": PROTECTED_RESOURCE_ROUTE_ID,
+        "uri": PROTECTED_RESOURCE_METADATA_PATH,
+        "methods": ["GET"],
+        "labels": {
+            "ouf-managed": "true",
+            "ouf-installation": require_text(installation, "installationId"),
+            "ouf-installation-revision": str(installation.get("revision")),
+            "ouf-protocol": "OAUTH_PROTECTED_RESOURCE_METADATA",
+        },
+        "plugins": {
+            "request-id": route.get("plugins", {}).get("request-id", {}),
+            "limit-count": {"count": 120, "time_window": 60, "rejected_code": 429},
+            "mocking": {
+                "content_type": "application/json",
+                "response_example": json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+                "response_headers": {
+                    "Cache-Control": "public, max-age=300",
+                    "X-Content-Type-Options": "nosniff",
+                },
+                "response_status": 200,
+                "with_mock_header": False,
+            },
+        },
+    }
+
 def materialize(runtime, oidc_secret_ref):
     installation = runtime.get("x-ouf-installation")
     if not isinstance(installation, dict):
@@ -186,12 +260,13 @@ def materialize(runtime, oidc_secret_ref):
         raise MaterializationError(f"expected exactly one public MCP endpoint, found {len(candidates)}")
 
     route = materialize_mcp_route(candidates[0], installation, oidc_secret_ref)
+    protected_resource = materialize_protected_resource_route(candidates[0], installation)
     return {
         "formatVersion": "1.0",
         "installationId": require_text(installation, "installationId"),
         "installationRevision": installation.get("revision"),
         "installationChecksum": require_text(installation, "checksum"),
-        "routes": [route],
+        "routes": [protected_resource, route],
     }
 
 

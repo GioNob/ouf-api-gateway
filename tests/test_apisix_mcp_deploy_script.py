@@ -11,9 +11,13 @@ def test_mcp_deploy_script_is_fail_closed_and_secret_safe():
     assert "--user 0:0 --network \"container:$APISIX_CONTAINER\"" in script
     assert "APISIX_OIDC_SECRET_ENV_MISSING" in script
     assert "APISIX_MCP_NEGATIVE_HTTP" in script
+    assert "APISIX_MCP_METADATA_HTTP" in script
+    assert "public-mcp-oauth-protected-resource" in script
+    assert "resource_metadata=" in script
+    assert "metadata-route.json" in script
+    assert "restore_all" in script
     assert "-H 'Content-Type: application/json'" in script
     assert "--data-binary '{}'" in script
-    assert "restore" in script
     assert "X-API-KEY" in script
     assert "cat \"$ADMIN_KEY_FILE\"" in script
     assert "echo \"$ADMIN_KEY_FILE\"" not in script
