@@ -14,7 +14,7 @@ class RecoveryUpstreamPort(Protocol):
 
 
 class MCPRecoveryMediator:
-    def __init__(self, compiled: dict, upstream: RecoveryUpstreamPort, schema_path: Path | None = None, service_identity: str = "ouf-mcp-server"):
+    def __init__(self, compiled: dict, upstream: RecoveryUpstreamPort, service_identity: str, schema_path: Path | None = None):
         self.upstream = upstream
         self.service_identity = service_identity
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-recovery-v1.json").read_text())
