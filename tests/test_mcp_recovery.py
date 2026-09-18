@@ -30,7 +30,7 @@ def identity(service="ouf-mcp-server", scopes=frozenset({"mcp.attempt.recover"})
 
 
 def mediator(upstream):
-    return MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), upstream)
+    return MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), upstream, service_identity="ouf-mcp-server")
 
 
 def test_recovery_uses_only_registry_owned_service_and_path():
