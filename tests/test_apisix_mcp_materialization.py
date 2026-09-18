@@ -43,6 +43,12 @@ def test_materializes_single_oidc_protected_mcp_route():
         "nodes": {"ouf-mcp-server:8080": 1},
     }
 
+    validation = route["plugins"]["request-validation"]
+    assert validation["max_req_body_size"] == 1048576
+    assert validation["body_schema"] == {
+        "oneOf": [{"type": "object"}, {"type": "array"}]
+    }
+
     oidc = route["plugins"]["openid-connect"]
     assert oidc["client_id"] == "ouf-api-gateway"
     assert oidc["client_secret"] == "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET"
