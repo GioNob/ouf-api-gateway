@@ -48,6 +48,7 @@ def apply_projection(compiled, projection):
         "revision": projection.get("revision"),
         "checksum": _require(projection, "checksum"),
         "issuerUrl": issuer,
+        "gatewayAudience": audience,
         "publicApiBaseUrl": api_base,
         "mcpServiceIdentity": mcp_client,
     }
