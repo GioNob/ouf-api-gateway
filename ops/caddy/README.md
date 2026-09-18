@@ -92,3 +92,25 @@ docker start ouf-caddy
 ## Production acceptance history
 
 The 2026-09-18 live deployment, safe initial failure, hotfix, OIDC discovery acceptance and preserved rollback are recorded in [ACCEPTANCE_HISTORY_2026-09-18.md](ACCEPTANCE_HISTORY_2026-09-18.md).
+
+
+## InstallationProjection-driven deployment
+
+Caddy deployment must be driven by the active OUF InstallationProjection. The canonical invocation is:
+
+```sh
+sudo env OUF_INSTALLATION_PROJECTION=/opt/ouf/installation/active-projection.json \
+  sh ops/caddy/deploy.sh
+```
+
+The projection supplies backend/edge networks, issuer/API hostnames and OIDC discovery URL. Product code contains no organization DNS defaults.
+
+The installation Caddyfile remains a generated/managed installation artifact. The deploy script checks that both projected hostnames are present before switching containers.
+
+For the current laboratory only, the active projection is expected to resolve to:
+- `auth.ouf-lab.it`;
+- `api.ouf-lab.it`;
+- `ouf-backend`;
+- `ouf-edge`.
+
+These are not product defaults.

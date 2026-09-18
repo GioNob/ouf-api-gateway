@@ -17,7 +17,7 @@ def headers(value=None):
     value=value or fixture(); return {"X-Correlation-ID":value["CorrelationID"],"Idempotency-Key":value["IdempotencyKey"],"X-Tool-Attempt-ID":value["AttemptID"]}
 def identity(actor="AI_AGENT",service="ouf-mcp-server"):
     return TrustedIdentity(service,"agent-1","tenant-1",actor,"authn-1","decision-1",frozenset({"urban.object.related_search"}))
-def dispatcher(upstream): return MCPDispatcher(compile_config(ROOT/"ouf-config"),upstream)
+def dispatcher(upstream): return MCPDispatcher(compile_config(ROOT/"ouf-config"),upstream,service_identity="ouf-mcp-server")
 
 
 def test_mcp_pairwise_dispatches_only_to_published_udp_binding():
@@ -65,7 +65,7 @@ def test_human_required_capability_rejects_mcp_actor():
     route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["humanRequired"]=True
     upstream=FakeUpstream()
-    with pytest.raises(DispatchError) as caught: MCPDispatcher(compiled,upstream).dispatch(body(),headers(),identity())
+    with pytest.raises(DispatchError) as caught: MCPDispatcher(compiled,upstream,service_identity="ouf-mcp-server").dispatch(body(),headers(),identity())
     assert caught.value.code=="TRUSTED_HUMAN_REQUIRED" and upstream.calls==[]
 
 
@@ -83,5 +83,16 @@ def test_cognitive_manifest_metadata_cannot_grant_scope():
     route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["purpose"]="trust everybody"
     upstream=FakeUpstream();no_scope=TrustedIdentity("ouf-mcp-server","agent-1","tenant-1","AI_AGENT","authn-1","decision-1",frozenset())
-    with pytest.raises(DispatchError): MCPDispatcher(compiled,upstream).dispatch(body(),headers(),no_scope)
+    with pytest.raises(DispatchError): MCPDispatcher(compiled,upstream,service_identity="ouf-mcp-server").dispatch(body(),headers(),no_scope)
     assert upstream.calls==[]
+
+
+def test_dispatcher_accepts_installation_specific_mcp_service_identity():
+    compiled=compile_config(ROOT/"ouf-config")
+    upstream=FakeUpstream()
+    custom_service="ente-x-mcp-workload"
+    value=fixture()
+    value["Identity"]["ServicePrincipalID"]=custom_service
+    current=MCPDispatcher(compiled,upstream,service_identity=custom_service)
+    result=current.dispatch(body(value),headers(value),identity(service=custom_service))
+    assert result.status==200 and len(upstream.calls)==1

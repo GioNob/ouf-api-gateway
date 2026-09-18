@@ -28,7 +28,7 @@ def test_gateway_queries_real_owner_adapter_by_persisted_backend_request_id():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        mediator = MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), HTTPUpstream(f"http://127.0.0.1:{server.server_port}"))
+        mediator = MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), HTTPUpstream(f"http://127.0.0.1:{server.server_port}"), service_identity="ouf-mcp-server")
         body = (ROOT / "tests/fixtures/mcp-recovery-request.json").read_bytes()
         identity = TrustedIdentity("ouf-mcp-server", "agent-1", "tenant-1", "MCP_SERVER", "authn-1", "decision-1", frozenset({"mcp.attempt.recover"}))
         result = mediator.recover(body, {"X-Correlation-ID": "correlation-recovery-1"}, identity)
@@ -44,7 +44,7 @@ def test_gateway_queries_real_owner_adapter_by_persisted_backend_request_id():
 
 
 def test_owner_network_unavailable_is_not_inferred_as_terminal():
-    mediator = MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), HTTPUpstream("http://127.0.0.1:1"))
+    mediator = MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), HTTPUpstream("http://127.0.0.1:1"), service_identity="ouf-mcp-server")
     body = (ROOT / "tests/fixtures/mcp-recovery-request.json").read_bytes()
     identity = TrustedIdentity("ouf-mcp-server", "agent-1", "tenant-1", "MCP_SERVER", "authn-1", "decision-1", frozenset({"mcp.attempt.recover"}))
     try:

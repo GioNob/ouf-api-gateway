@@ -14,8 +14,9 @@ class RecoveryUpstreamPort(Protocol):
 
 
 class MCPRecoveryMediator:
-    def __init__(self, compiled: dict, upstream: RecoveryUpstreamPort, schema_path: Path | None = None):
+    def __init__(self, compiled: dict, upstream: RecoveryUpstreamPort, service_identity: str, schema_path: Path | None = None):
         self.upstream = upstream
+        self.service_identity = service_identity
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-recovery-v1.json").read_text())
         self.bindings = {}
         for route in compiled["routes"]:
@@ -30,7 +31,7 @@ class MCPRecoveryMediator:
             self.bindings[capability_id] = candidate
 
     def recover(self, raw_body: bytes, request_headers: dict[str, str], identity: TrustedIdentity) -> BackendResponse:
-        if identity.service_principal_id != "ouf-mcp-server" or "mcp.attempt.recover" not in identity.scopes:
+        if identity.service_principal_id != self.service_identity or "mcp.attempt.recover" not in identity.scopes:
             raise DispatchError(403, "RECOVERY_ACCESS_DENIED", "MCP recovery workload identity is not authorized")
         try:
             request = json.loads(raw_body)

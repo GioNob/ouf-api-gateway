@@ -30,7 +30,7 @@ def identity(service="ouf-mcp-server", scopes=frozenset({"mcp.attempt.recover"})
 
 
 def mediator(upstream):
-    return MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), upstream)
+    return MCPRecoveryMediator(compile_config(ROOT / "ouf-config"), upstream, service_identity="ouf-mcp-server")
 
 
 def test_recovery_uses_only_registry_owned_service_and_path():
@@ -90,3 +90,19 @@ def test_owner_proves_no_dispatch_is_preserved_exactly():
     evidence = json.loads(result.body)
     assert evidence["Outcome"] == "NOT_DISPATCHED" and evidence["OutcomeCode"] == "OWNER_PROVES_NO_DISPATCH"
     assert evidence["ActualToolCalls"] == 0 and evidence["ActualResultBytes"] == 0
+
+
+def test_recovery_accepts_installation_specific_mcp_service_identity():
+    custom_service="ente-x-mcp-workload"
+    upstream=FakeRecoveryUpstream()
+    current=MCPRecoveryMediator(
+        compile_config(ROOT/"ouf-config"),
+        upstream,
+        service_identity=custom_service,
+    )
+    result=current.recover(
+        request(),
+        {"X-Correlation-ID":"correlation-recovery-1"},
+        identity(service=custom_service),
+    )
+    assert result.status==200 and len(upstream.calls)==1

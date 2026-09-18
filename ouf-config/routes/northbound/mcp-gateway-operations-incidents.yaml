@@ -10,7 +10,7 @@ spec:
   backendBinding: {service: ouf-gateway-control-plane, port: 8081, path: /api/internal/v1/gateway/operations/incidents}
   policy:
     identity: M2M
-    allowedServiceIdentities: [ouf-mcp-server]
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
     allowedActorTypes: [MCP_SERVER]
     maxRequestBytes: 65536
     timeoutSeconds: 3

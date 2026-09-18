@@ -8,7 +8,7 @@ spec:
   backendBinding: {service: ouf-mcp-server, port: 8080, path: /mcp}
   policy:
     identity: OIDC
-    requiredAudience: ouf-api-gateway
+    requiredAudience: installation://iam.gatewayAudience
     requiredScope: mcp.connect
     allowedActorTypes: [HUMAN, AI_AGENT, SERVICE]
     maxRequestBytes: 1048576

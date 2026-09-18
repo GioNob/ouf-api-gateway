@@ -1,0 +1,15 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: authorization.bundle.read
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: authorization
+  operationType: READ
+  scope: authorization.bundle.read
+  classification:
+    - RESTRICTED_OPERATIONAL
+  mcp:
+    toolEligible: false
+    humanRequired: false

@@ -63,7 +63,7 @@ def test_remote_mcp_protocol_endpoint_is_compiled_without_fake_capability():
         "protocolVersion":"2026-07-28",
     }
     assert route["x-ouf-policy"]["identity"]=="OIDC"
-    assert route["x-ouf-policy"]["requiredAudience"]=="ouf-api-gateway"
+    assert route["x-ouf-policy"]["requiredAudience"]=="installation://iam.gatewayAudience"
     assert route["x-ouf-policy"]["requiredScope"]=="mcp.connect"
 
 
@@ -89,3 +89,35 @@ def test_remote_mcp_protocol_endpoint_fails_closed_when_trusted_header_strip_is_
     path.write_text(yaml.safe_dump(doc))
     with pytest.raises(ConfigError,match="trusted identity headers must be stripped"):
         compile_config(root)
+
+
+def test_generic_mcp_mediation_routes_are_compiled_without_fake_capabilities():
+    result=compile_config(ROOT/"ouf-config")
+    execution=next(r for r in result["routes"] if r["id"]=="mcp-generic-execution")
+    recovery=next(r for r in result["routes"] if r["id"]=="mcp-generic-recovery")
+    assert execution["uri"]=="/internal/capabilities/v1/execute"
+    assert execution["x-ouf-capability"] is None
+    assert execution["x-ouf-mediation"]=={
+        "mode":"EXECUTION",
+        "serviceIdentityRef":"installation://iam.workloadClients.mcpServer",
+    }
+    assert execution["x-ouf-policy"]["requiredScope"] is None
+    assert recovery["uri"]=="/internal/capabilities/v1/recovery"
+    assert recovery["x-ouf-capability"] is None
+    assert recovery["x-ouf-mediation"]["mode"]=="RECOVERY"
+    assert recovery["x-ouf-policy"]["requiredScope"]=="mcp.attempt.recover"
+
+
+def test_policy_bundle_route_is_real_authorization_capability():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(r for r in result["routes"] if r["id"]=="mcp-authorization-policy-bundle-read")
+    assert route["uri"]=="/internal/capabilities/v1/authorization/policy-bundle/active"
+    assert route["service_id"]=="ouf-source-onboarding"
+    assert route["plugins"]["proxy-rewrite"]["uri"]=="/api/internal/v1/authorization/policy-bundle/active"
+    assert route["x-ouf-capability"]["capabilityId"]=="authorization.bundle.read"
+    assert route["x-ouf-capability"]["owner"]=="authorization"
+    assert route["x-ouf-policy"]["requiredScope"]=="authorization.bundle.read"
+    assert route["x-ouf-policy"]["allowedServiceIdentities"]==[
+        "installation://iam.workloadClients.mcpServer"
+    ]
+    assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]

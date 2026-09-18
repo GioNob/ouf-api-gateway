@@ -42,9 +42,11 @@ class UpstreamPort(Protocol):
 class MCPDispatcher:
     FORWARDED_RESPONSE_HEADERS = frozenset({"content-type", "retry-after", "x-backend-request-id"})
     REQUIRED_HEADERS = ("X-Correlation-ID", "Idempotency-Key", "X-Tool-Attempt-ID")
+    INSTALLATION_MCP_REF = "installation://iam.workloadClients.mcpServer"
 
-    def __init__(self, compiled: dict, upstream: UpstreamPort, schema_path: Path | None = None):
+    def __init__(self, compiled: dict, upstream: UpstreamPort, service_identity: str, schema_path: Path | None = None):
         self.upstream = upstream
+        self.service_identity = service_identity
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-dispatch-v1.json").read_text())
         self.routes = {}
         for route in compiled["routes"]:
@@ -54,7 +56,10 @@ class MCPDispatcher:
                 capability.get("toolEligible")
                 and route.get("labels", {}).get("exposure") == "internal"
                 and policy.get("identity") == "M2M"
-                and "ouf-mcp-server" in policy.get("allowedServiceIdentities", [])
+                and (
+                    service_identity in policy.get("allowedServiceIdentities", [])
+                    or self.INSTALLATION_MCP_REF in policy.get("allowedServiceIdentities", [])
+                )
             )
             if is_mcp_route:
                 capability_id = capability["capabilityId"]
@@ -85,7 +90,11 @@ class MCPDispatcher:
             raise DispatchError(409, "CAPABILITY_BINDING_MISMATCH", "operation class does not match published capability")
         if envelope["Owner"] != capability["owner"]:
             raise DispatchError(409, "CAPABILITY_BINDING_MISMATCH", "owner does not match published capability")
-        if identity.service_principal_id not in policy["allowedServiceIdentities"]:
+        allowed_services = [
+            self.service_identity if value == self.INSTALLATION_MCP_REF else value
+            for value in policy["allowedServiceIdentities"]
+        ]
+        if identity.service_principal_id not in allowed_services:
             raise DispatchError(403, "CAPABILITY_ACCESS_DENIED", "service identity is not allowed")
         if policy["allowedActorTypes"] and identity.actor_type not in policy["allowedActorTypes"]:
             raise DispatchError(403, "CAPABILITY_ACCESS_DENIED", "actor type is not allowed")
