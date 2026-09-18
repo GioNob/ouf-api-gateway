@@ -33,6 +33,7 @@ def test_installation_projection_resolves_gateway_audience_and_mcp_identity():
         "revision": 1,
         "checksum": "a" * 64,
         "issuerUrl": "https://auth.ouf-lab.it/realms/ouf",
+        "gatewayAudience": "ouf-api-gateway",
         "publicApiBaseUrl": "https://api.ouf-lab.it",
         "mcpServiceIdentity": "ouf-mcp-server",
     }
