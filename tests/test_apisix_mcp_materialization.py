@@ -46,7 +46,7 @@ def test_materializes_single_oidc_protected_mcp_route():
     validation = route["plugins"]["request-validation"]
     assert validation["max_req_body_size"] == 1048576
     assert validation["body_schema"] == {
-        "oneOf": [{"type": "object"}, {"type": "array"}]
+        "anyOf": [{"type": "object"}, {"type": "array"}]
     }
 
     oidc = route["plugins"]["openid-connect"]
