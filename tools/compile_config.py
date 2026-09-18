@@ -6,7 +6,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json"}
+SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json", "McpMediationBinding": "mcp-mediation-binding-v1.json"}
 
 class ConfigError(RuntimeError): pass
 
@@ -117,6 +117,38 @@ def compile_config(config_root):
             "stripClientHeaders":sorted(stripped),
             "claimProjection":projected,
             "injectAfterVerification":{"X-OUF-Gateway-Verified":"true"}
+          },
+          "x-ouf-capability":None,
+          "x-ouf-query-contract":{},
+          "x-ouf-recovery-binding":None
+        })
+    for path,binding in docs:
+        if binding["kind"]!="McpMediationBinding": continue
+        spec=binding["spec"]
+        match=(spec["match"]["method"],spec["match"]["path"])
+        if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
+        matches.add(match)
+        policy=spec["policy"]
+        routes.append({
+          "id":binding["metadata"]["id"],
+          "uri":spec["match"]["path"],
+          "methods":[spec["match"]["method"]],
+          "upstream_id":None,
+          "service_id":None,
+          "labels":{"protocol":"MCP","mediation":spec["mode"],"exposure":"internal"},
+          "plugins":{
+            "request-id":{"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"},
+            "limit-count":{"count":120,"time_window":60,"rejected_code":429}
+          },
+          "x-ouf-mediation":{
+            "mode":spec["mode"],
+            "serviceIdentityRef":policy["serviceIdentityRef"]
+          },
+          "x-ouf-policy":{
+            "identity":policy["identity"],
+            "requiredScope":policy.get("requiredScope"),
+            "maxRequestBytes":policy["maxRequestBytes"],
+            "timeoutSeconds":policy["timeoutSeconds"]
           },
           "x-ouf-capability":None,
           "x-ouf-query-contract":{},
