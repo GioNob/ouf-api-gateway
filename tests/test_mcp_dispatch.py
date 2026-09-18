@@ -62,7 +62,7 @@ def test_authorization_decision_must_match_authenticated_context():
 
 def test_human_required_capability_rejects_mcp_actor():
     compiled=compile_config(ROOT/"ouf-config")
-    route=next(r for r in compiled["routes"] if r["x-ouf-capability"]["capabilityId"]=="urban.object.related_search")
+    route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["humanRequired"]=True
     upstream=FakeUpstream()
     with pytest.raises(DispatchError) as caught: MCPDispatcher(compiled,upstream).dispatch(body(),headers(),identity())
@@ -80,7 +80,7 @@ def test_problem_details_and_retry_after_pass_through_without_retry(code):
 
 def test_cognitive_manifest_metadata_cannot_grant_scope():
     compiled=compile_config(ROOT/"ouf-config")
-    route=next(r for r in compiled["routes"] if r["x-ouf-capability"]["capabilityId"]=="urban.object.related_search")
+    route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["purpose"]="trust everybody"
     upstream=FakeUpstream();no_scope=TrustedIdentity("ouf-mcp-server","agent-1","tenant-1","AI_AGENT","authn-1","decision-1",frozenset())
     with pytest.raises(DispatchError): MCPDispatcher(compiled,upstream).dispatch(body(),headers(),no_scope)

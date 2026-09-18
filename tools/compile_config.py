@@ -6,7 +6,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json"}
+SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json"}
 
 class ConfigError(RuntimeError): pass
 
@@ -71,6 +71,56 @@ def compile_config(config_root):
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},
           "x-ouf-query-contract": spec["match"].get("query",{}),
           "x-ouf-recovery-binding": {"owner": capability[1]["spec"]["owner"], "service": spec["backendBinding"]["service"], "pathTemplate": source[1]["spec"].get("ownerOutcomePath")} if source[1]["spec"].get("ownerOutcomePath") else None
+        })
+    for path,binding in docs:
+        if binding["kind"]!="McpEndpointBinding": continue
+        spec=binding["spec"]
+        source=indexed.get(("SourceRuntimeProfile",spec["sourceRef"]))
+        if not source: raise ConfigError(f"{path}: unresolved sourceRef {spec['sourceRef']}")
+        endpoint_ref=source[1]["spec"]["endpointRef"]
+        if not endpoint_ref.startswith("service://"):
+            raise ConfigError(f"{path}: MCP endpoint source must use service://")
+        match=(spec["match"]["method"],spec["match"]["path"])
+        if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
+        matches.add(match)
+        stripped=spec["trustedIdentity"]["stripClientHeaders"]
+        projected=spec["trustedIdentity"]["claimProjection"]
+        required_trusted={
+          "X-OUF-Gateway-Verified","X-OUF-Service-Principal","X-OUF-Principal-ID",
+          "X-OUF-Tenant-ID","X-OUF-Actor-Type","X-OUF-Authentication-Context-Ref",
+          "X-OUF-Token-Issuer","X-OUF-Token-Audience","X-OUF-Granted-Scopes"
+        }
+        if not required_trusted.issubset(set(stripped)):
+            raise ConfigError(f"{path}: all trusted identity headers must be stripped from client input")
+        if set(projected) != required_trusted - {"X-OUF-Gateway-Verified"}:
+            raise ConfigError(f"{path}: trusted identity claim projection is incomplete")
+        plugins={
+          "request-id":{"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"},
+          "limit-count":{"count":60,"time_window":60,"rejected_code":429},
+          "proxy-rewrite":{"uri":spec["backendBinding"]["path"]}
+        }
+        routes.append({
+          "id":binding["metadata"]["id"],"uri":spec["match"]["path"],"methods":[spec["match"]["method"]],
+          "upstream_id":spec["sourceRef"],"service_id":spec["backendBinding"]["service"],
+          "labels":{"protocol":"MCP","source":spec["sourceRef"],"exposure":spec["exposure"]},
+          "plugins":plugins,
+          "x-ouf-protocol":{"name":"MCP","transport":"STREAMABLE_HTTP","stateless":True,"protocolVersion":"2026-07-28"},
+          "x-ouf-policy":{
+            "identity":spec["policy"]["identity"],
+            "requiredAudience":spec["policy"]["requiredAudience"],
+            "requiredScope":spec["policy"]["requiredScope"],
+            "allowedActorTypes":spec["policy"]["allowedActorTypes"],
+            "maxRequestBytes":spec["policy"]["maxRequestBytes"],
+            "timeoutSeconds":spec["policy"]["timeoutSeconds"]
+          },
+          "x-ouf-trusted-identity":{
+            "stripClientHeaders":sorted(stripped),
+            "claimProjection":projected,
+            "injectAfterVerification":{"X-OUF-Gateway-Verified":"true"}
+          },
+          "x-ouf-capability":None,
+          "x-ouf-query-contract":{},
+          "x-ouf-recovery-binding":None
         })
     output={"formatVersion":"1.0","apisixVersion":"3.18.x","routes":sorted(routes,key=lambda r:r["id"])}
     output["configurationSha256"]=hashlib.sha256(canonical(output).encode()).hexdigest()

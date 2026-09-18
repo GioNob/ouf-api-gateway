@@ -47,3 +47,45 @@ def test_internal_route_without_service_identity_is_rejected(tmp_path):
 def test_only_open_or_anonymous_classification_is_accepted(tmp_path):
     root=isolated(tmp_path); path=next((root/"capabilities").glob("*.yaml")); doc=yaml.safe_load(path.read_text()); doc["spec"]["classification"]=["PERSONAL"]; path.write_text(yaml.safe_dump(doc))
     with pytest.raises(ConfigError,match="not one of"): compile_config(root)
+
+
+def test_remote_mcp_protocol_endpoint_is_compiled_without_fake_capability():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["routes"] if item["id"]=="public-mcp-endpoint")
+    assert route["uri"]=="/mcp"
+    assert route["methods"]==["POST"]
+    assert route["service_id"]=="ouf-mcp-server"
+    assert route["x-ouf-capability"] is None
+    assert route["x-ouf-protocol"]=={
+        "name":"MCP",
+        "transport":"STREAMABLE_HTTP",
+        "stateless":True,
+        "protocolVersion":"2026-07-28",
+    }
+    assert route["x-ouf-policy"]["identity"]=="OIDC"
+    assert route["x-ouf-policy"]["requiredAudience"]=="ouf-api-gateway"
+    assert route["x-ouf-policy"]["requiredScope"]=="mcp.connect"
+
+
+def test_remote_mcp_protocol_endpoint_strips_all_client_trusted_headers():
+    result=compile_config(ROOT/"ouf-config")
+    route=next(item for item in result["routes"] if item["id"]=="public-mcp-endpoint")
+    trusted=route["x-ouf-trusted-identity"]
+    required={
+        "X-OUF-Gateway-Verified","X-OUF-Service-Principal","X-OUF-Principal-ID",
+        "X-OUF-Tenant-ID","X-OUF-Actor-Type","X-OUF-Authentication-Context-Ref",
+        "X-OUF-Token-Issuer","X-OUF-Token-Audience","X-OUF-Granted-Scopes",
+    }
+    assert set(trusted["stripClientHeaders"])==required
+    assert set(trusted["claimProjection"])==required-{"X-OUF-Gateway-Verified"}
+    assert trusted["injectAfterVerification"]=={"X-OUF-Gateway-Verified":"true"}
+
+
+def test_remote_mcp_protocol_endpoint_fails_closed_when_trusted_header_strip_is_incomplete(tmp_path):
+    root=isolated(tmp_path)
+    path=root/"protocol"/"mcp-endpoint.yaml"
+    doc=yaml.safe_load(path.read_text())
+    doc["spec"]["trustedIdentity"]["stripClientHeaders"].remove("X-OUF-Actor-Type")
+    path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(ConfigError,match="trusted identity headers must be stripped"):
+        compile_config(root)

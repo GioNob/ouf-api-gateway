@@ -48,7 +48,7 @@ class MCPDispatcher:
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-dispatch-v1.json").read_text())
         self.routes = {}
         for route in compiled["routes"]:
-            capability = route.get("x-ouf-capability", {})
+            capability = route.get("x-ouf-capability") or {}
             policy = route.get("x-ouf-policy", {})
             is_mcp_route = (
                 capability.get("toolEligible")

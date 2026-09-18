@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "ouf.trieste.it/v1"},
+    "kind": {"const": "McpEndpointBinding"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status"],
+      "properties": {
+        "id": {"type": "string"},
+        "version": {"type": "string"},
+        "status": {"const": "ACTIVE"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exposure", "sourceRef", "match", "backendBinding", "policy", "trustedIdentity"],
+      "properties": {
+        "exposure": {"const": "public"},
+        "sourceRef": {"type": "string"},
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "path"],
+          "properties": {
+            "method": {"const": "POST"},
+            "path": {"const": "/mcp"}
+          }
+        },
+        "backendBinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["service", "port", "path"],
+          "properties": {
+            "service": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "path": {"const": "/mcp"}
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "requiredAudience", "requiredScope", "allowedActorTypes", "maxRequestBytes", "timeoutSeconds"],
+          "properties": {
+            "identity": {"const": "OIDC"},
+            "requiredAudience": {"type": "string", "minLength": 1},
+            "requiredScope": {"type": "string", "minLength": 1},
+            "allowedActorTypes": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"enum": ["HUMAN", "SERVICE", "AI_AGENT"]}
+            },
+            "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
+            "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 60}
+          }
+        },
+        "trustedIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stripClientHeaders", "claimProjection"],
+          "properties": {
+            "stripClientHeaders": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "minLength": 1}
+            },
+            "claimProjection": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "X-OUF-Service-Principal",
+                "X-OUF-Principal-ID",
+                "X-OUF-Tenant-ID",
+                "X-OUF-Actor-Type",
+                "X-OUF-Authentication-Context-Ref",
+                "X-OUF-Token-Issuer",
+                "X-OUF-Token-Audience",
+                "X-OUF-Granted-Scopes"
+              ],
+              "properties": {
+                "X-OUF-Service-Principal": {"enum": ["client_id", "azp"]},
+                "X-OUF-Principal-ID": {"enum": ["ouf_subject", "sub"]},
+                "X-OUF-Tenant-ID": {"const": "tenant_id"},
+                "X-OUF-Actor-Type": {"const": "ouf_actor_type"},
+                "X-OUF-Authentication-Context-Ref": {"const": "acr"},
+                "X-OUF-Token-Issuer": {"const": "iss"},
+                "X-OUF-Token-Audience": {"const": "aud"},
+                "X-OUF-Granted-Scopes": {"const": "scope"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
