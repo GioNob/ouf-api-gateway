@@ -10,7 +10,7 @@ spec:
   backendBinding: {service: ouf-ingestion-runtime, port: 8080, path: /api/internal/v1/ingestion/operations/incidents}
   policy:
     identity: M2M
-    allowedServiceIdentities: [ouf-mcp-server]
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
     allowedActorTypes: [MCP_SERVER]
     maxRequestBytes: 65536
     timeoutSeconds: 3
