@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {"const": "ouf.trieste.it/v1"},
+    "kind": {"const": "McpMediationBinding"},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "status"],
+      "properties": {
+        "id": {"type": "string"},
+        "version": {"type": "string"},
+        "status": {"const": "ACTIVE"}
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "match", "policy"],
+      "properties": {
+        "mode": {"enum": ["EXECUTION", "RECOVERY"]},
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "path"],
+          "properties": {
+            "method": {"const": "POST"},
+            "path": {
+              "enum": [
+                "/internal/capabilities/v1/execute",
+                "/internal/capabilities/v1/recovery"
+              ]
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["identity", "serviceIdentityRef", "maxRequestBytes", "timeoutSeconds"],
+          "properties": {
+            "identity": {"const": "M2M"},
+            "serviceIdentityRef": {
+              "const": "installation://iam.workloadClients.mcpServer"
+            },
+            "requiredScope": {"type": ["string", "null"]},
+            "maxRequestBytes": {"type": "integer", "minimum": 1, "maximum": 1048576},
+            "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 60}
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "EXECUTION"}}},
+          "then": {
+            "properties": {
+              "match": {"properties": {"path": {"const": "/internal/capabilities/v1/execute"}}},
+              "policy": {"properties": {"requiredScope": {"type": "null"}}}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"mode": {"const": "RECOVERY"}}},
+          "then": {
+            "properties": {
+              "match": {"properties": {"path": {"const": "/internal/capabilities/v1/recovery"}}},
+              "policy": {"properties": {"requiredScope": {"const": "mcp.attempt.recover"}}}
+            }
+          }
+        }
+      ]
+    }
+  }
+}
