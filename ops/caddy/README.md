@@ -29,14 +29,13 @@ sudo sh ops/caddy/deploy.sh
 The script:
 
 1. validates `/opt/ouf/Caddyfile` before switch;
-2. creates a replacement from pinned image `caddy:2.11.4` with no implicit default network;
+2. creates a replacement from pinned image `caddy:2.11.4` directly on `ouf-backend`, with alias `auth.ouf-lab.it`, avoiding any implicit default bridge;
 3. attaches `ouf-edge`;
-4. attaches `ouf-backend` with alias `auth.ouf-lab.it`;
-5. preserves the previous container as a stopped rollback container;
-6. switches to the replacement;
-7. validates the running Caddy configuration;
-8. probes the real OIDC discovery URL from `ouf-backend`;
-9. automatically restores the previous Caddy container if activation or discovery fails.
+4. preserves the previous container as a stopped rollback container;
+5. switches to the replacement;
+6. validates the running Caddy configuration;
+7. probes the real OIDC discovery URL from `ouf-backend`;
+8. automatically restores the previous Caddy container if activation or discovery fails.
 
 The script does not contain credentials or secrets.
 
