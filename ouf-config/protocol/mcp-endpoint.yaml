@@ -1,0 +1,35 @@
+apiVersion: ouf.trieste.it/v1
+kind: McpEndpointBinding
+metadata: {id: public-mcp-endpoint, version: 1.0.0, status: ACTIVE}
+spec:
+  exposure: public
+  sourceRef: mcp-server-operations@1.0.0
+  match: {method: POST, path: /mcp}
+  backendBinding: {service: ouf-mcp-server, port: 8080, path: /mcp}
+  policy:
+    identity: OIDC
+    requiredAudience: ouf-api-gateway
+    requiredScope: mcp.connect
+    allowedActorTypes: [HUMAN, AI_AGENT, SERVICE]
+    maxRequestBytes: 1048576
+    timeoutSeconds: 30
+  trustedIdentity:
+    stripClientHeaders:
+      - X-OUF-Gateway-Verified
+      - X-OUF-Service-Principal
+      - X-OUF-Principal-ID
+      - X-OUF-Tenant-ID
+      - X-OUF-Actor-Type
+      - X-OUF-Authentication-Context-Ref
+      - X-OUF-Token-Issuer
+      - X-OUF-Token-Audience
+      - X-OUF-Granted-Scopes
+    claimProjection:
+      X-OUF-Service-Principal: azp
+      X-OUF-Principal-ID: sub
+      X-OUF-Tenant-ID: tenant_id
+      X-OUF-Actor-Type: ouf_actor_type
+      X-OUF-Authentication-Context-Ref: acr
+      X-OUF-Token-Issuer: iss
+      X-OUF-Token-Audience: aud
+      X-OUF-Granted-Scopes: scope
