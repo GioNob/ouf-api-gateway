@@ -117,7 +117,13 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
         "request-id": route.get("plugins", {}).get("request-id", {}),
         "limit-count": route.get("plugins", {}).get("limit-count", {}),
         "request-validation": {
-            "max_req_body_size": int(policy.get("maxRequestBytes", 1048576))
+            "max_req_body_size": int(policy.get("maxRequestBytes", 1048576)),
+            "body_schema": {
+                "oneOf": [
+                    {"type": "object"},
+                    {"type": "array"}
+                ]
+            }
         },
         "proxy-rewrite": {"uri": "/mcp"},
         "serverless-pre-function": {
