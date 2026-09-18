@@ -85,3 +85,12 @@ def test_cognitive_manifest_metadata_cannot_grant_scope():
     upstream=FakeUpstream();no_scope=TrustedIdentity("ouf-mcp-server","agent-1","tenant-1","AI_AGENT","authn-1","decision-1",frozenset())
     with pytest.raises(DispatchError): MCPDispatcher(compiled,upstream).dispatch(body(),headers(),no_scope)
     assert upstream.calls==[]
+
+
+def test_dispatcher_accepts_installation_specific_mcp_service_identity():
+    compiled=compile_config(ROOT/"ouf-config")
+    upstream=FakeUpstream()
+    custom_service="ente-x-mcp-workload"
+    current=MCPDispatcher(compiled,upstream,service_identity=custom_service)
+    result=current.dispatch(body(),headers(),identity(service=custom_service))
+    assert result.status==200 and len(upstream.calls)==1
