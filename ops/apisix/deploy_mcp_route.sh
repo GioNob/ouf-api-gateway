@@ -91,7 +91,7 @@ if [ "$READ_STATUS" != "200" ]; then
 fi
 
 NEGATIVE_STATUS="$(
-  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     "$CURL_IMAGE" -sS -o /dev/null -w '%{http_code}'     -X POST http://127.0.0.1:9080/mcp
+  docker run --rm --user 0:0 --network "container:$APISIX_CONTAINER"     "$CURL_IMAGE" -sS -o /dev/null -w '%{http_code}'     -X POST -H 'Content-Type: application/json'     --data-binary '{}' http://127.0.0.1:9080/mcp
 )"
 
 case "$NEGATIVE_STATUS" in
