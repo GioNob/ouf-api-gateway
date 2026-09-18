@@ -88,3 +88,7 @@ docker start ouf-caddy
 - No consumer gets a permanent `--add-host` override.
 - No issuer rewrite is allowed.
 - Production JWT validation remains fail-closed.
+
+## Production acceptance history
+
+The 2026-09-18 live deployment, safe initial failure, hotfix, OIDC discovery acceptance and preserved rollback are recorded in [ACCEPTANCE_HISTORY_2026-09-18.md](ACCEPTANCE_HISTORY_2026-09-18.md).
