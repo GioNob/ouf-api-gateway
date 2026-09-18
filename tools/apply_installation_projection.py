@@ -81,9 +81,20 @@ def main():
     parser.add_argument("--projection", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--caddy-env", action="store_true")
+    parser.add_argument("--get")
     args = parser.parse_args()
 
     projection = json.loads(args.projection.read_text())
+    if args.get:
+        current = projection
+        for part in args.get.split("."):
+            if not isinstance(current, dict) or part not in current:
+                raise ProjectionError(f"missing projection field {args.get}")
+            current = current[part]
+        if not isinstance(current, (str, int)):
+            raise ProjectionError(f"projection field {args.get} is not scalar")
+        print(current)
+        return
     if args.caddy_env:
         for key, value in caddy_environment(projection).items():
             print(f"{key}={value}")
