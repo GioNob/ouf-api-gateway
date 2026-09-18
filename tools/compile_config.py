@@ -103,6 +103,11 @@ def compile_config(config_root):
           "id":binding["metadata"]["id"],"uri":spec["match"]["path"],"methods":[spec["match"]["method"]],
           "upstream_id":spec["sourceRef"],"service_id":spec["backendBinding"]["service"],
           "labels":{"protocol":"MCP","source":spec["sourceRef"],"exposure":spec["exposure"]},
+          "x-ouf-backend-binding":{
+            "service":spec["backendBinding"]["service"],
+            "port":spec["backendBinding"]["port"],
+            "path":spec["backendBinding"]["path"]
+          },
           "plugins":plugins,
           "x-ouf-protocol":{"name":"MCP","transport":"STREAMABLE_HTTP","stateless":True,"protocolVersion":"2026-07-28"},
           "x-ouf-policy":{
