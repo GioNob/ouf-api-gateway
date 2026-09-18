@@ -10,7 +10,7 @@ spec:
   backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /internal/v1/objects/related-search}
   policy:
     identity: M2M
-    allowedServiceIdentities: [ouf-mcp-server]
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
     allowedActorTypes: [AI_AGENT, MCP_SERVER, SERVICE_IDENTITY]
     maxRequestBytes: 1048576
     timeoutSeconds: 3
