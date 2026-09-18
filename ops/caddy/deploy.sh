@@ -7,6 +7,7 @@ CANDIDATE="${NAME}-next"
 BACKEND_NETWORK="${OUF_BACKEND_NETWORK:-ouf-backend}"
 EDGE_NETWORK="${OUF_EDGE_NETWORK:-ouf-edge}"
 INTERNAL_ISSUER_HOST="${OUF_INTERNAL_ISSUER_HOST:-auth.ouf-lab.it}"
+INTERNAL_API_HOST="${OUF_INTERNAL_API_HOST:-api.ouf-lab.it}"
 CADDYFILE="${OUF_CADDYFILE:-/opt/ouf/Caddyfile}"
 CONFIG_VOLUME="${OUF_CADDY_CONFIG_VOLUME:-ouf-caddy-config}"
 DATA_VOLUME="${OUF_CADDY_DATA_VOLUME:-ouf-caddy-data}"
@@ -33,7 +34,7 @@ docker run --rm   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy val
 
 docker rm -f "$CANDIDATE" >/dev/null 2>&1 || true
 
-docker create   --name "$CANDIDATE"   --network "$BACKEND_NETWORK"   --network-alias "$INTERNAL_ISSUER_HOST"   --restart unless-stopped   -p 80:80   -p 443:443   -v "$CONFIG_VOLUME:/config"   -v "$DATA_VOLUME:/data"   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+docker create   --name "$CANDIDATE"   --network "$BACKEND_NETWORK"   --network-alias "$INTERNAL_ISSUER_HOST"   --network-alias "$INTERNAL_API_HOST"   --restart unless-stopped   -p 80:80   -p 443:443   -v "$CONFIG_VOLUME:/config"   -v "$DATA_VOLUME:/data"   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
 trap 'docker rm -f "$CANDIDATE" >/dev/null 2>&1 || true' EXIT INT TERM
 
@@ -65,6 +66,7 @@ fi
 
 printf '%s\n' "Caddy active as $NAME"
 printf '%s\n' "Internal issuer DNS alias: $INTERNAL_ISSUER_HOST on $BACKEND_NETWORK"
+printf '%s\n' "Internal API DNS alias: $INTERNAL_API_HOST on $BACKEND_NETWORK"
 printf '%s\n' "OIDC discovery probe: OK"
 if [ -n "$rollback_name" ]; then
   printf '%s\n' "Rollback container preserved as $rollback_name"
