@@ -99,3 +99,14 @@ Repository CI is not production acceptance. R3a is deployable only after all of 
 14. Rollback to the previous Gateway configuration remains available.
 
 Until those gates are green, this increment must be described as repository/configuration evidence, not deployed remote-MCP acceptance.
+
+
+## CI history
+
+Initial PR #32 run `35322651396` failed in `config-contract` with 12 `test_mcp_dispatch.py` failures. Root cause: the historical `MCPDispatcher` assumed every compiled route carried a non-null `x-ouf-capability`. R3a intentionally adds a protocol-only route with no business capability, so that assumption was invalid.
+
+Resolution:
+- `MCPDispatcher` now treats missing/null capability metadata as non-dispatchable and ignores protocol-only routes;
+- capability-specific tests explicitly filter for capability-bearing routes.
+
+No synthetic capability was introduced to make the tests pass.
