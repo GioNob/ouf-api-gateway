@@ -1,0 +1,31 @@
+{
+  "installationId": "ouf-lab-netcup-01",
+  "revision": 1,
+  "checksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "caddy": {
+    "backendNetwork": "ouf-backend",
+    "edgeNetwork": "ouf-edge",
+    "internalIssuerHost": "auth.ouf-lab.it",
+    "internalApiHost": "api.ouf-lab.it",
+    "oidcDiscoveryUrl": "https://auth.ouf-lab.it/realms/ouf/.well-known/openid-configuration"
+  },
+  "gateway": {
+    "issuerUrl": "https://auth.ouf-lab.it/realms/ouf",
+    "requiredAudience": "ouf-api-gateway",
+    "publicApiBaseUrl": "https://api.ouf-lab.it",
+    "internalServiceRef": "service://ouf-apisix:9080"
+  },
+  "mcp": {
+    "environment": {
+      "MCP_OIDC_CLIENT_ID": "ouf-mcp-server",
+      "MCP_OIDC_TOKEN_ENDPOINT": "https://auth.ouf-lab.it/realms/ouf/protocol/openid-connect/token",
+      "MCP_GATEWAY_ENDPOINT": "https://api.ouf-lab.it/internal/capabilities/v1/execute",
+      "MCP_AUTHORIZATION_BUNDLE_ENDPOINT": "https://api.ouf-lab.it/internal/capabilities/v1/authorization/policy-bundle/active",
+      "MCP_GATEWAY_RECOVERY_ENDPOINT": "https://api.ouf-lab.it/internal/capabilities/v1/recovery"
+    },
+    "secretReferences": {
+      "MCP_OIDC_CLIENT_SECRET_FILE": "/opt/ouf/secrets/mcp-client-secret",
+      "MCP_FINGERPRINT_KEY_FILE": "/opt/ouf/secrets/mcp-fingerprint-key"
+    }
+  }
+}
