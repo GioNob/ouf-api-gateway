@@ -33,12 +33,11 @@ docker run --rm   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy val
 
 docker rm -f "$CANDIDATE" >/dev/null 2>&1 || true
 
-docker create   --name "$CANDIDATE"   --network none   --restart unless-stopped   -p 80:80   -p 443:443   -v "$CONFIG_VOLUME:/config"   -v "$DATA_VOLUME:/data"   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+docker create   --name "$CANDIDATE"   --network "$BACKEND_NETWORK"   --network-alias "$INTERNAL_ISSUER_HOST"   --restart unless-stopped   -p 80:80   -p 443:443   -v "$CONFIG_VOLUME:/config"   -v "$DATA_VOLUME:/data"   -v "$CADDYFILE:/etc/caddy/Caddyfile:ro"   "$IMAGE"   caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
 trap 'docker rm -f "$CANDIDATE" >/dev/null 2>&1 || true' EXIT INT TERM
 
 docker network connect "$EDGE_NETWORK" "$CANDIDATE"
-docker network connect --alias "$INTERNAL_ISSUER_HOST" "$BACKEND_NETWORK" "$CANDIDATE"
 
 if docker inspect "$NAME" >/dev/null 2>&1; then
   rollback_name="${NAME}-rollback-$(docker inspect --format '{{.Id}}' "$NAME" | cut -c1-12)"
