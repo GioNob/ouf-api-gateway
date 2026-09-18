@@ -23,29 +23,36 @@ This keeps TLS host/SNI, OIDC discovery and the JWT issuer aligned while avoidin
 Use:
 
 ```sh
-sudo ops/caddy/deploy.sh
+sudo sh ops/caddy/deploy.sh
 ```
 
 The script:
 
 1. validates `/opt/ouf/Caddyfile` before switch;
-2. creates a replacement from pinned image `caddy:2.11.4`;
+2. creates a replacement from pinned image `caddy:2.11.4` with no implicit default network;
 3. attaches `ouf-edge`;
 4. attaches `ouf-backend` with alias `auth.ouf-lab.it`;
 5. preserves the previous container as a stopped rollback container;
 6. switches to the replacement;
-7. validates the running configuration;
-8. restores the previous container automatically if activation fails.
+7. validates the running Caddy configuration;
+8. probes the real OIDC discovery URL from `ouf-backend`;
+9. automatically restores the previous Caddy container if activation or discovery fails.
 
 The script does not contain credentials or secrets.
 
 ## Acceptance
 
-After deployment, from `ouf-backend`:
+Successful deployment prints:
+
+```text
+OIDC discovery probe: OK
+```
+
+Independent verification from `ouf-backend`:
 
 ```sh
 docker run --rm --network ouf-backend curlimages/curl:8.16.0 \
-  -sS -o /dev/null -w '%{http_code}\n' \
+  -fsS -o /dev/null -w '%{http_code}\n' \
   https://auth.ouf-lab.it/realms/ouf/.well-known/openid-configuration
 ```
 
@@ -61,7 +68,7 @@ Also verify:
 docker inspect ouf-caddy --format '{{json .NetworkSettings.Networks}}'
 ```
 
-The `ouf-backend` DNS names must include `auth.ouf-lab.it`.
+The Caddy container must be attached only to the intended OUF networks, and the `ouf-backend` DNS names must include `auth.ouf-lab.it`.
 
 ## Rollback
 
