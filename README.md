@@ -15,3 +15,9 @@ Gateway 1B provides the publication state machine and a test control-plane adapt
 Gateway 1C adds the governed MCP dispatch adapter and exact MCP→Gateway→UDP contract fixture. Authenticated identity and authorization references must match the admitted envelope; backend destinations remain registry-owned and backend governance errors are returned without retry or reinterpretation.
 
 Gateway 1D adds deterministic MCP attempt-recovery mediation. The owner service and outcome path are compiled from registry configuration; callers cannot supply a physical target. See `docs/GATEWAY_1D_TRACEABILITY.md`.
+
+### MCP public system status deployment
+
+The closed execute profile and coordinated MCP upgrade are documented in
+[the status deployment runbook](docs/MCP_STATUS_EXECUTE_DEPLOYMENT.md), including
+Gateway-only delegation key provisioning, route snapshots and rollback.
