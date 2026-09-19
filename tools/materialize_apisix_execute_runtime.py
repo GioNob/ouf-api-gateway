@@ -49,7 +49,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env):
         'plugins': {
             'openid-connect': oidc,
             'limit-count': copy.deepcopy(plugins['limit-count']),
-            'request-validation': {'body_schema': schema},
+            'request-validation': {'max_req_body_size':65536, 'body_schema': schema},
             'serverless-pre-function': {'phase':'rewrite', 'functions': ["return function(conf, ctx) for name,_ in pairs(ngx.req.get_headers(0)) do if name:lower():sub(1,6)=='x-ouf-' and name:lower()~='x-ouf-delegation' then ngx.req.clear_header(name) end end end"]},
             'serverless-post-function': {'phase':'access', 'functions':[function('execute_status',installation,delegation_key_env)]},
             'proxy-rewrite': {'uri':'/api/internal/v1/mcp/operations/status'},

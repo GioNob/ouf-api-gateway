@@ -60,19 +60,19 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "pattern": "^[ -~]+$"
         },
         "PrincipalID": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "pattern": "^[ -~]+$"
         },
         "TenantID": {
           "type": "string",
           "minLength": 1,
           "maxLength": 4096,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "pattern": "^[ -~]+$"
         },
         "ActorType": {
           "enum": [
@@ -83,7 +83,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096,
-          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          "pattern": "^[ -~]+$"
         }
       }
     },
@@ -91,19 +91,19 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "pattern": "^[ -~]+$"
     },
     "CorrelationID": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "pattern": "^[ -~]+$"
     },
     "IdempotencyKey": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+      "pattern": "^[ -~]+$"
     },
     "AttemptID": {
       "type": "string",
