@@ -30,6 +30,8 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env):
         raise ValueError('status capability is not delegable READ')
     if policy['identity'] != 'M2M' or workload not in policy['allowedServiceIdentities'] or policy['requiredScope'] != 'operations.status.read' or 'HUMAN' not in policy['allowedActorTypes']:
         raise ValueError('status service/scope/actor policy mismatch')
+    if policy.get('maxRequestBytes') != 65536 or policy.get('timeoutSeconds') != 3:
+        raise ValueError('status profile limits changed; review materialization')
     if status['service_id'] != 'ouf-mcp-server' or status['plugins']['proxy-rewrite']['uri'] != '/api/internal/v1/mcp/operations/status':
         raise ValueError('unexpected status owner binding')
     result = materialize_ingress(runtime, oidc_secret_ref)

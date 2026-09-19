@@ -121,3 +121,17 @@ def test_closed_materialization_and_schema():
         if field=='serviceIdentity':
             m['x-ouf-mediation'][field]='wrong'
             with pytest.raises(ValueError):materialize(rtime,'$ENV://OIDC','KEY')
+
+@pytest.mark.parametrize('field',['CorrelationID','IdempotencyKey','AttemptID'])
+def test_governance_headers_must_match_admission_envelope(field):
+    body=envelope()
+    headers={'X-OUF-Delegation':proof(),'X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':body['AttemptID']}
+    body[field]='different'
+    with pytest.raises(Denied) as denied:Engine(workload(),headers,body).run('execute_status')
+    assert denied.value.args==(409,)
+
+@pytest.mark.parametrize('value',[None,'malformed','one.two.three'])
+def test_missing_or_malformed_delegation_rejected(value):
+    headers={} if value is None else {'X-OUF-Delegation':value}
+    with pytest.raises(Denied) as denied:Engine(workload(),headers).run('execute_status')
+    assert denied.value.args==(403,)
