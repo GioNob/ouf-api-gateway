@@ -247,3 +247,43 @@ Non ripetere indefinitamente lo switch sulla base di un generico
 `SWITCH_FAILED`: conservare il motivo del fallimento senza esporre segreti.
 Il 401 senza bearer verifica soltanto il diniego; la chiamata autenticata
 `ouf_system_status` rimane il collaudo finale da eseguire dopo il deploy completo.
+
+### Collaudo autenticato completato — 19 settembre 2026
+
+Il checkpoint precedente è stato completato: rotte installate e container MCP
+sostituito, poi chiamata reale dello strumento `ouf_system_status` riuscita.
+
+- Gateway aggiornato a `9101c16`; materializzazione in
+  `/run/ouf-status-deploy-aGbAjk/routes.json`.
+- Deploy rotte: `APISIX_STATUS_ROUTES_INSTALLED`; backup precedente in
+  `/run/ouf-status-routes-l2jni47b/previous.json`.
+- Backup della sostituzione MCP: `/run/ouf-mcp-delegation-qy_pi9og`.
+- Container corrente `ouf-mcp`, immagine `ouf-mcp:340cbc0`;
+  `MCP_READY_HTTP=204`. Precedente conservato fermo come
+  `ouf-mcp-rollback-8c4046a`.
+- APISIX precedente conservato come `ouf-apisix-rollback-before-delegation`.
+
+La readiness 204 è stata seguita dal collaudo autenticato effettivo, con
+`ouf_system_status({})`, che ha restituito `isError: false` e questo contenuto:
+
+```json
+{
+  "module": "MCP",
+  "status": "HEALTHY",
+  "actionRequired": false,
+  "partial": false,
+  "visibilityClass": "PUBLIC_OPERATIONAL",
+  "redacted": true
+}
+```
+
+Questo verifica il percorso ChatGPT → MCP → Gateway → owner per lo stato
+pubblico del modulo MCP. Non certifica lo stato di tutti gli altri moduli
+né abilita le altre capability del catalogo. La chiamata è una lettura di
+stato; i normali meccanismi interni di audit restano attivi.
+
+Il grant di prova `grant-system-status-giovanni-chatgpt-v6` nel bundle
+pubblicato versione 6 scade il **20 settembre 2026 alle 05:27:26 UTC**.
+Un successivo rinnovo deve seguire il flusso amministrativo previsto;
+il collaudo non ne modifica la durata. I backup sotto `/run` sono temporanei
+e non sopravvivono al riavvio della macchina.
