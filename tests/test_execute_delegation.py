@@ -84,6 +84,35 @@ def test_signed_context_roundtrip_and_owner_headers():
     assert e.headers[b'x-ouf-granted-scopes']==b'mcp.connect operations.status.read'
     assert all(k not in e.headers for k in [b'authorization',b'cookie',b'x-ouf-delegation'])
 
+def test_roles_come_from_iam_and_survive_signed_delegation():
+    claims=human();claims['externalRoleRefs']=['ouf:viewer','ouf:reader']
+    ingress=Engine(claims,{'X-OUF-External-Role-Refs':'ouf:admin'})
+    ingress.run('issue_delegation')
+    assert ingress.headers[b'x-ouf-external-role-refs']==b'ouf:reader ouf:viewer'
+    signed=ingress.headers[b'x-ouf-delegation'].decode()
+    owner=execute(signed)
+    assert owner.headers[b'x-ouf-external-role-refs']==b'ouf:reader ouf:viewer'
+    payload,signature=signed.split('.')
+    content=json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)))
+    content['roles']='ouf:admin'
+    forged=base64.urlsafe_b64encode(json.dumps(content).encode()).decode().rstrip('=')+'.'+signature
+    with pytest.raises(Denied): execute(forged)
+
+def test_missing_roles_clear_forged_header_and_do_not_gain_authority():
+    ingress=Engine(human(),{'X-OUF-External-Role-Refs':'ouf:admin'})
+    ingress.run('issue_delegation')
+    assert b'x-ouf-external-role-refs' not in ingress.headers
+    body=envelope()
+    headers={'X-OUF-Delegation':proof(),'X-OUF-External-Role-Refs':'ouf:admin',
+             'X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':body['AttemptID']}
+    owner=Engine(workload(),headers,body);owner.run('execute_status')
+    assert b'x-ouf-external-role-refs' not in owner.headers
+
+@pytest.mark.parametrize('roles',['ouf:admin',{'admin':'yes'},['a','a'],['bad role'],['a\nadmin'],['x'*129],list(map(str,range(33)))])
+def test_malformed_role_claim_rejected(roles):
+    claims=human();claims['externalRoleRefs']=roles
+    with pytest.raises(Denied):Engine(claims).run('issue_delegation')
+
 @pytest.mark.parametrize('kind',['signature','tenant','principal','client','actor','acr','workload','scope','audience','issuer','expired','future','key'])
 def test_invalid_context_never_reaches_owner(kind):
     p=proof();body=envelope();claims=workload();kwargs={}

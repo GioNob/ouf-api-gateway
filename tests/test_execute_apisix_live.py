@@ -43,7 +43,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             if self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
-                self.reply({'proof':self.headers.get('X-OUF-Delegation')})
+                self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
             else:self.send_error(404)
@@ -58,7 +58,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
     def post(path,body,bearer=None,proof=None):
-        headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID']}
+        headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin'}
         if bearer:headers['Authorization']='Bearer '+bearer
         if proof:headers['X-OUF-Delegation']=proof
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=json.dumps(body).encode(),headers=headers)
@@ -85,15 +85,17 @@ def test_real_apisix_oidc_delegation_and_execute():
                 except (OSError,urllib.error.URLError):pass
                 time.sleep(1)
             else:raise AssertionError('APISIX did not load protected routes')
-            code,raw=post('/mcp',{},token(),proof='forged')
+            code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
+            assert json.loads(raw)['roles']=='ouf:viewer'
             path='/internal/capabilities/v1/execute'
             code,raw=post(path,envelope(),token('SERVICE'),proof)
             assert code==200,(code,raw)
             assert len(calls)==1 and calls[0][1]==b'{}'
             h={k.lower():v for k,v in calls[0][0].items()}
             assert h['x-ouf-principal-id']=='human-a' and h['x-ouf-service-principal']==workload
+            assert h['x-ouf-external-role-refs']=='ouf:viewer'
             assert 'authorization' not in h and 'x-ouf-delegation' not in h
             bad=envelope();bad['Identity']['TenantID']='other'
             cases=[(envelope(),None,proof),(envelope(),token('SERVICE')+'broken',proof),(envelope(),token('SERVICE',aud='wrong'),proof),(envelope(),token('SERVICE',azp='other'),proof),(envelope(),token('SERVICE'),proof[:-2]+'zz'),(bad,token('SERVICE'),proof)]
