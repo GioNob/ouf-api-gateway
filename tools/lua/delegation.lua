@@ -6,6 +6,34 @@ end
 local function text(v)
     return type(v) == 'string' and #v > 0 and #v <= 4096 and not v:find('[%c]')
 end
+-- Only the canonical IAM claim is authority. No role lookup or client header.
+local function role_refs(values)
+    if values == nil then return '' end
+    if type(values) ~= 'table' then return nil end
+    local count, seen, roles = 0, {}, {}
+    for k,v in pairs(values) do
+        count = count + 1
+        if type(k) ~= 'number' or k < 1 or k % 1 ~= 0 or k > 32
+            or type(v) ~= 'string' or #v < 1 or #v > 128
+            or v:find('[^A-Za-z0-9_:./-]') or seen[v] then return nil end
+        seen[v] = true
+        roles[#roles+1] = v
+    end
+    if count > 32 or count ~= #values then return nil end
+    table.sort(roles)
+    local joined = table.concat(roles, ' ')
+    if #joined > 4096 then return nil end
+    return joined
+end
+local function role_header(value)
+    if value == nil or value == '' then return '' end
+    if type(value) ~= 'string' or #value > 4096 then return nil end
+    local roles = {}
+    for role in value:gmatch('%S+') do roles[#roles+1] = role end
+    local canonical = role_refs(roles)
+    if canonical ~= value then return nil end
+    return canonical
+end
 local function decode64(v)
     if type(v) ~= 'string' or v:find('[^%w_-]') then return nil end
     v = v:gsub('-', '+'):gsub('_', '/')

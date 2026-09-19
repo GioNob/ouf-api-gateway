@@ -20,6 +20,8 @@ if type(p) ~= 'table' or p.v ~= 1 or p.purpose ~= 'mcp-execute' or p.iss ~= ISSU
 for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
     if not text(p[key]) then return fail(403) end
 end
+local roles = role_header(p.roles)
+if roles == nil then return fail(403) end
 ngx.req.read_body()
 local body = ngx.req.get_body_data()
 if not body or #body > 65536 then return fail(413) end
@@ -54,5 +56,6 @@ local downstream = {
     ['X-OUF-Authorization-Decision-Ref']=e.AuthorizationDecisionRef
 }
 for name, value in pairs(downstream) do ngx.req.set_header(name, value) end
+if roles ~= '' then ngx.req.set_header('X-OUF-External-Role-Refs', roles) end
 ngx.req.set_body_data('{}')
 ngx.req.set_header('Content-Type','application/json')

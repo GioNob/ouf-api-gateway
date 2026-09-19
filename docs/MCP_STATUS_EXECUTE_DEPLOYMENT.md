@@ -287,3 +287,24 @@ pubblicato versione 6 scade il **20 settembre 2026 alle 05:27:26 UTC**.
 Un successivo rinnovo deve seguire il flusso amministrativo previsto;
 il collaudo non ne modifica la durata. I backup sotto `/run` sono temporanei
 e non sopravvivono al riavvio della macchina.
+
+### Ruoli IAM per l'accesso ordinario
+
+L'abilitazione ordinaria associa ruoli IAM a capability OUF, non rinnova grant
+personali al login. Il profilo di delega trasporta il claim canonico
+`externalRoleRefs` soltanto dopo verifica OIDC. I ruoli vengono validati,
+ordinati e inclusi nella firma, poi ricostruiti nell'header privato
+`X-OUF-External-Role-Refs` per MCP e owner. Header del client e body del tool
+non costituiscono autorità. Claim assente significa zero ruoli.
+
+Richiede il consumer MCP che legge questo contesto e una policy di ruolo
+esplicita. Limiti: 32 riferimenti distinti di 1–128 caratteri ASCII
+`A-Z a-z 0-9 _ : . / -`. La delega mantiene TTL massimo 60 secondi e scadenza
+entro il JWT originario. La rimozione IAM del ruolo è effettiva sui nuovi
+token; la revoca policy segue il refresh e la max-staleness del consumer.
+
+La configurazione, l'ordine di deploy, i test di revoca e il perimetro
+dell'amministrazione conversazionale sono nella
+[guida MCP per ruoli](https://github.com/GioNob/ouf-mcp-server/blob/main/docs/ACCESSO_PER_RUOLI_E_AMMINISTRAZIONE.md).
+Il nuovo codice non pubblica grant, non gestisce utenti IAM e non apre
+l'execute a capability ulteriori rispetto a `ouf.system.status`.
