@@ -11,6 +11,6 @@ spec:
   policy:
     identity: M2M
     allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
-    allowedActorTypes: [HUMAN_USER, MCP_SERVER]
+    allowedActorTypes: [HUMAN, HUMAN_USER, MCP_SERVER]
     maxRequestBytes: 65536
     timeoutSeconds: 3

@@ -2,3 +2,6 @@ jsonschema==4.25.1
 PyYAML==6.0.2
 pytest==8.4.2
 
+
+lupa==2.6
+PyJWT[crypto]==2.10.1
