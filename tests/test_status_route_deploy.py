@@ -32,3 +32,12 @@ def test_success_keeps_snapshot_and_updated_routes():
     admin=Admin();routes=[{'id':'first','uri':'/new'},{'id':'second','uri':'/second'}]
     deploy.apply_routes(routes,admin)
     assert list(admin.db.values())==routes and admin.saved['first']['uri']=='/old'
+
+
+@pytest.mark.parametrize('directive', ['env OUF_GATEWAY_DELEGATION_KEY;', 'env "OUF_GATEWAY_DELEGATION_KEY";'])
+def test_nginx_environment_inheritance_accepts_generated_quotes(directive):
+    assert deploy.inherits_env(directive, 'OUF_GATEWAY_DELEGATION_KEY')
+
+@pytest.mark.parametrize('directive', ['# env OUF_GATEWAY_DELEGATION_KEY;', 'env OTHER;', 'env "OUF_GATEWAY_DELEGATION_KEY;', 'env OUF_GATEWAY_DELEGATION_KEY_EXTRA;'])
+def test_nginx_environment_inheritance_rejects_other_directives(directive):
+    assert not deploy.inherits_env(directive, 'OUF_GATEWAY_DELEGATION_KEY')

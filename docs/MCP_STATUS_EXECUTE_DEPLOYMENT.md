@@ -169,3 +169,81 @@ verifica firma OIDC, prova emessa, dispatch, sanitizzazione header e dinieghi.
 La fixture usa HTTP soltanto in CI; la materializzazione produzione conserva
 HTTPS discovery e `ssl_verify: true`. Le regex dello schema sono compatibili
 anche col validatore effettivo APISIX, non solo con jsonschema Python.
+
+## Collaudo del 19 settembre: permessi, virgolette e ripristino
+
+### File montato leggibile dall'utente reale
+
+L'immagine in esercizio avvia APISIX come `apisix`, UID/GID **636:636**.
+Una nuova configurazione YAML creata con `umask 077` risultava root:root
+0600: il container si avviava e terminava con `Permission denied` sul mount
+`/usr/local/apisix/conf/config.yaml`. Questo errore non riguarda la chiave
+OIDC o il nuovo secret di delega.
+
+Distinguere i file: `gateway-delegation.env` resta root-only perché viene
+letto dal processo di provisioning; il YAML montato deve essere leggibile
+dall'utente del processo APISIX. Prima dello switch, copiare owner e modo
+dalla configurazione funzionante e provare una lettura con l'utente reale,
+senza mostrare il contenuto e senza avviare il servizio:
+
+```bash
+sudo chown --reference=/opt/ouf/secrets/apisix-config.yaml /opt/ouf/secrets/apisix-config-delegation.yaml
+sudo chmod --reference=/opt/ouf/secrets/apisix-config.yaml /opt/ouf/secrets/apisix-config-delegation.yaml
+sudo docker exec ouf-apisix id
+sudo docker run --rm --pull=never --network none \
+  --user apisix \
+  --mount type=bind,src=/opt/ouf/secrets/apisix-config-delegation.yaml,dst=/tmp/config.yaml,readonly \
+  --entrypoint /bin/sh apache/apisix:3.18.0-debian \
+  -c 'if cat /tmp/config.yaml >/dev/null; then echo CONFIG_READ_OK; else exit 1; fi'
+```
+
+Il nome utente è quello verificato in questa installazione: su un'altra
+installazione ricavarlo dall'inspect ed eseguire la prova con quell'utente.
+Non usare `chmod 777`, non eseguire il servizio come root per aggirare il
+problema e non estendere i permessi del file env contenente la chiave.
+
+### La direttiva generata contiene virgolette
+
+Nginx è stato generato con:
+
+```nginx
+env "OUF_GATEWAY_DELEGATION_KEY";
+```
+
+È una direttiva valida. Il primo controllo cercava soltanto il nome senza
+virgolette e ha causato un secondo rollback benché APISIX rispondesse già
+200 alla lettura del bundle. Lo script ora accetta entrambi i formati, con
+o senza virgolette bilanciate, e ha test di regressione. Non serve cambiare
+la configurazione o rigenerare la chiave.
+
+Un `EXIT_CODE=0` dopo lo switch fallito può essere lo stop ordinato del
+rollback. Non prova che APISIX non sia mai partito. Registrare separatamente
+la fase fallita, l'esito della lettura nginx.conf, il codice di uscita curl e
+il codice HTTP. In caso di errore, leggere log recenti con i valori delle
+variabili sensibili oscurati; mai stampare inspect completo o configurazioni.
+
+### Sequenza osservata e checkpoint operativo
+
+- Backup precedente APISIX: `/run/ouf-apisix-backup-izejp444/inspect.json` e
+  `config.yaml`; file privati e temporanei, persi al reboot.
+- Reti da conservare: `ouf-backend` e `ouf-gateway-control`; NetworkMode
+  `ouf-gateway-control`, restart `unless-stopped`, nessuna porta pubblicata.
+- Nuovo mount: `/opt/ouf/secrets/apisix-config-delegation.yaml` sullo stesso
+  percorso interno, read-only. Credenziali preesistenti conservate.
+- Sostitutivo creato inizialmente fermo, ID breve `52383313eccf`.
+- Primo rollback per permessi YAML; secondo per controllo env non compatibile
+  con virgolette. Entrambi hanno riavviato il container precedente.
+- Dopo la correzione, output osservato `APISIX_STARTED_WITH_DELEGATION_KEY`,
+  `MCP_UNAUTHENTICATED_HTTP=401`; precedente conservato fermo come
+  `ouf-apisix-rollback-before-delegation`.
+- Immagine MCP `ouf-mcp:340cbc0` costruita con successo, runtime derivato da
+  `ouf-mcp:8c4046a` e binario compilato con Go 1.25.13. Il build riuscito
+  **non** implica sostituzione del container MCP: in questo checkpoint
+  nuove rotte e sostituzione MCP restano da eseguire.
+
+Non ripetere creazione della chiave o del container dopo un rollback:
+verificare gli ID conservati e correggere la causa prima del nuovo switch.
+Non ripetere indefinitamente lo switch sulla base di un generico
+`SWITCH_FAILED`: conservare il motivo del fallimento senza esporre segreti.
+Il 401 senza bearer verifica soltanto il diniego; la chiamata autenticata
+`ouf_system_status` rimane il collaudo finale da eseguire dopo il deploy completo.

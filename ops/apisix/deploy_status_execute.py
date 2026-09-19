@@ -12,6 +12,11 @@ import subprocess
 import tempfile
 
 
+def inherits_env(nginx, name):
+    escaped = re.escape(name)
+    return bool(re.search(r'^\s*env\s+(?:"'+escaped+r'"|'+escaped+r')\s*;', nginx, re.M))
+
+
 def route_value(doc):
     value = doc.get('value', doc)
     if isinstance(value, dict) and isinstance(value.get('value'), dict):
@@ -148,7 +153,7 @@ def main():
                 raise SystemExit('OIDC environment secret missing')
     # Nginx workers need an explicit env directive; container env alone is insufficient.
     nginx=subprocess.run(['docker','exec',args.container,'cat','/usr/local/apisix/conf/nginx.conf'],check=True,capture_output=True,text=True).stdout
-    if not re.search(r'^\s*env\s+'+re.escape(env_name)+r'\s*;',nginx,re.M):
+    if not inherits_env(nginx, env_name):
         raise SystemExit('delegation key not inherited by Nginx workers; configure nginx_config.envs and restart first')
     admin=Admin(args)
     try:
