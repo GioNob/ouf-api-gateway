@@ -49,10 +49,14 @@ class ApisixIncidentCollector:
         self.failure_threshold = failure_threshold
         self.failure_window_seconds = failure_window_seconds
         self.failures: dict[str, deque[float]] = defaultdict(deque)
-        self.open_keys: set[str] = set()
+        self.open_keys: set[str] = store.active_incident_keys("gateway:upstream:")
+        self.last_heartbeat = 0.0
 
     def observe(self, line: str, now: float | None = None) -> None:
-        self.store.mark_collector_observed("APISIX")
+        heartbeat_now = time.monotonic() if now is None else now
+        if heartbeat_now - self.last_heartbeat >= 5:
+            self.store.mark_collector_observed("APISIX")
+            self.last_heartbeat = heartbeat_now
         match = ACCESS.search(line.strip())
         if not match:
             return
@@ -60,7 +64,7 @@ class ApisixIncidentCollector:
         if endpoint is None:
             return
         status = int(match["status"])
-        now = time.monotonic() if now is None else now
+        now = heartbeat_now
         key = "gateway:upstream:" + endpoint
         if status in FAILURE_STATUS:
             failures = self.failures[endpoint]
@@ -100,8 +104,12 @@ def apisix_loop(args) -> None:
     stop = threading.Event()
 
     def heartbeat():
-        while not stop.wait(args.heartbeat_seconds):
-            store.mark_collector_observed("APISIX")
+        heartbeat_store = SQLiteOperationalIncidentStore(args.store)
+        try:
+            while not stop.wait(args.heartbeat_seconds):
+                heartbeat_store.mark_collector_observed("APISIX")
+        finally:
+            heartbeat_store.close()
 
     thread = threading.Thread(target=heartbeat, name="apisix-collector-heartbeat", daemon=True)
     thread.start()
