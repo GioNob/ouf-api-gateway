@@ -59,28 +59,83 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 256
+            },
+            "view": {
+              "type": "string",
+              "enum": [
+                "GRANTS",
+                "ROLES"
+              ]
             }
           },
           "oneOf": [
             {
               "required": [
-                "subjectId"
+                "view"
               ],
+              "properties": {
+                "view": {
+                  "const": "ROLES"
+                }
+              },
               "not": {
-                "required": [
-                  "externalRoleRef"
+                "anyOf": [
+                  {
+                    "required": [
+                      "subjectId"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "externalRoleRef"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "limit"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "after"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "policyRef"
+                    ]
+                  }
                 ]
               }
             },
             {
-              "required": [
-                "externalRoleRef"
-              ],
-              "not": {
-                "required": [
-                  "subjectId"
-                ]
-              }
+              "properties": {
+                "view": {
+                  "const": "GRANTS"
+                }
+              },
+              "oneOf": [
+                {
+                  "required": [
+                    "subjectId"
+                  ],
+                  "not": {
+                    "required": [
+                      "externalRoleRef"
+                    ]
+                  }
+                },
+                {
+                  "required": [
+                    "externalRoleRef"
+                  ],
+                  "not": {
+                    "required": [
+                      "subjectId"
+                    ]
+                  }
+                }
+              ]
             }
           ]
         },
@@ -193,14 +248,14 @@
           "additionalProperties": false,
           "required": [
             "operation",
-            "grantId",
             "reason"
           ],
           "properties": {
             "operation": {
               "enum": [
                 "UPSERT",
-                "REVOKE"
+                "REVOKE",
+                "REPLACE_ROLES"
               ]
             },
             "grantId": {
@@ -361,8 +416,270 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 1000
+            },
+            "roleCatalogue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "issuer",
+                "roles",
+                "assignments"
+              ],
+              "properties": {
+                "issuer": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1024
+                },
+                "roles": {
+                  "type": "array",
+                  "maxItems": 100,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "roleId",
+                      "displayName",
+                      "permissions"
+                    ],
+                    "properties": {
+                      "roleId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                      },
+                      "displayName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "permissions": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "capabilityId"
+                          ],
+                          "properties": {
+                            "capabilityId": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "constraints": {
+                              "type": [
+                                "object",
+                                "null"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "effect": {
+                                  "enum": [
+                                    "ALLOW",
+                                    "DENY"
+                                  ]
+                                },
+                                "externalRoleRef": {
+                                  "type": "null"
+                                },
+                                "resourceType": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "maxLength": 128
+                                },
+                                "resourceId": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "maxLength": 256
+                                },
+                                "resourceAttributes": {
+                                  "type": "object",
+                                  "maxProperties": 32,
+                                  "additionalProperties": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 512
+                                  }
+                                },
+                                "allowedDataLabels": {
+                                  "type": "array",
+                                  "maxItems": 32,
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  }
+                                },
+                                "allowedDetailLevels": {
+                                  "type": "array",
+                                  "maxItems": 16,
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  }
+                                },
+                                "requiredAcr": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "maxLength": 128
+                                },
+                                "requiredAmr": {
+                                  "type": "array",
+                                  "maxItems": 32,
+                                  "uniqueItems": true,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 128
+                                  }
+                                },
+                                "maxAuthenticationAgeSeconds": {
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ],
+                                  "minimum": 1,
+                                  "maximum": 86400
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "assignments": {
+                  "type": "array",
+                  "maxItems": 1000,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "assignmentId",
+                      "roleId",
+                      "validFrom",
+                      "validUntil"
+                    ],
+                    "properties": {
+                      "assignmentId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                      },
+                      "roleId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                      },
+                      "subjectId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[!-~]{1,255}$"
+                      },
+                      "externalRoleRef": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                      },
+                      "validFrom": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "validUntil": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "oneOf": [
+                      {
+                        "required": [
+                          "subjectId"
+                        ],
+                        "properties": {
+                          "subjectId": {
+                            "type": "string"
+                          },
+                          "externalRoleRef": {
+                            "type": "null"
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "externalRoleRef"
+                        ],
+                        "properties": {
+                          "externalRoleRef": {
+                            "type": "string"
+                          },
+                          "subjectId": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
             }
-          }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "grantId"
+              ],
+              "properties": {
+                "operation": {
+                  "enum": [
+                    "UPSERT",
+                    "REVOKE"
+                  ]
+                }
+              },
+              "not": {
+                "required": [
+                  "roleCatalogue"
+                ]
+              }
+            },
+            {
+              "required": [
+                "roleCatalogue"
+              ],
+              "properties": {
+                "operation": {
+                  "const": "REPLACE_ROLES"
+                }
+              },
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "grantId"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "grant"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
         },
         "Identity": {
           "type": "object",

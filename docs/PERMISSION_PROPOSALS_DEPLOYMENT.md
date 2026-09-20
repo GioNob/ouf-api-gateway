@@ -48,3 +48,38 @@ Check: unauthenticated MCP remains 401; invalid owner proof is 403; propose retu
 Tests cover actual APISIX 3.18 OIDC/JWKS/Lua, altered identities/scopes/proofs, a separate owner signing key, and closed request schemas. Onboarding CI independently consumes an immutable Gateway Lua fixture to validate JVM interoperability. Browser tests use an API fixture; they do not certify a live IAM installation or close PET/roadmap gaps automatically.
 
 Rollback removes the new permission/THS route IDs and restores saved original MCP route definitions plus the prior containers. Published policy changes are separate governed operations; do not delete audit/proposal history or roll back the database migration destructively.
+
+## 2026-09-20: align role-catalogue inputs before deployment
+
+Gateway `d78f6aa` rejected `authorization.permissions.read` with `view=GRANTS`
+although MCP `5615fdc` and Onboarding `4f7ff50` supported it. The public `/mcp`
+request returned 200 carrying an error, while the internal permission route
+returned 400: `additional properties forbidden, found view`. Reauthentication
+and policy grants cannot repair a request-schema mismatch.
+
+The permission dispatch schema now matches the MCP input schemas pinned at
+`5615fdcad8cbcad9ff41ec3d0ad2ccbf9423c042`: legacy grant reads, explicit
+`GRANTS`, `ROLES` without grant selectors, and `REPLACE_ROLES` with bounded
+nominal or organizational assignments. Unknown fields, ambiguous selectors,
+and confirmation/publication arguments remain forbidden. Owner validation,
+policy checks and human confirmation remain mandatory. The APISIX integration
+gate exercises both accepted and rejected inputs through the materialized
+routes and verifies the exact arguments forwarded to the owner.
+
+Deploy this Gateway schema with those MCP/Onboarding versions. Regenerate both
+the compiled runtime and permission materialization, back up all affected route
+IDs, then replace the reviewed routes. Updating repository files alone does not
+update the schemas already stored in APISIX. No container rebuild or Keycloak
+change is needed for this schema correction. Do not disable request-validation
+or set additionalProperties=true. Rollback restores the prior route snapshot;
+it also restores the older contract limitation.
+
+Fetch and merge the exact verified commit. A restricted remote fetch mapping
+can leave `origin/main` stale even after `git fetch origin main` updates
+`FETCH_HEAD`; verify HEAD and the required materializer before compilation.
+
+For a nominal human admin, verify the `ouf-chatgpt` access token includes
+`ouf_actor_type=HUMAN`, tenant, subject, audience and scopes before refreshing
+the plugin. A missing actor claim causes Gateway 401 even after OAuth login
+succeeds. Confirm the selected linked account and obtain a fresh token after
+correcting an IAM attribute. Never log bearer tokens or relax actor validation.
