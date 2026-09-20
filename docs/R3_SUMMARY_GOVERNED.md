@@ -45,7 +45,12 @@ redaction, producer denial and fixed Gateway path/delegation tests.
 Gateway's companion PR supplies generated Lua tests and extends its real
 APISIX/OIDC CI test; that is separate from a live OUF installation.
 
-## Release gates still required
+## Gateway evidence freshness
+
+The Gateway candidate now contains a persistent collector adapter and a freshness contract. The collector writes normalized APISIX/etcd incidents plus independent APISIX/ETCD observation timestamps. The Java summary owner remains read-only and refuses to infer HEALTHY when either collector source is missing or older than the configured evidence-age bound. This closes the code-level false-healthy gap; it does **not** yet close the live-installation gate. Real fault/recovery/restart/reboot evidence is still required.
+
+The APISIX adapter uses only fixed logical endpoint categories and never stores raw lines. The etcd adapter currently verifies endpoint health; storage-latency and proposal-backpressure evidence continues to be produced by the publication resilience gate and still needs a representative production binding. No authorization rule, grant or THS behavior is relaxed by the collector.
+
 
 Deploy compatible owner implementations before enabling the new routes. The
 Gateway operational owner now has a private Java host and producer receipt/SDK
