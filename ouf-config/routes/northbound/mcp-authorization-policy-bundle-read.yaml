@@ -20,6 +20,7 @@ spec:
     identity: M2M
     allowedServiceIdentities:
       - installation://iam.workloadClients.mcpServer
+      - installation://iam.workloadClients.ingestion
     allowedActorTypes:
       - SERVICE
     maxRequestBytes: 65536
