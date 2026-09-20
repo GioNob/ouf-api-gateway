@@ -127,7 +127,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: GioNob/ouf-mcp-server
-          ref: 4fbd99e8c78435f959e0accfdec6690d99a4e142
+          ref: a7e534e656a0601f44eeed6c59d182166e1fe33f
           path: .pairwise/mcp
       - uses: actions/checkout@v4
         with:
