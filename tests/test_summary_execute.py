@@ -13,7 +13,8 @@ def summary_envelope(cap=CAP,owner='mcp'):
 def run(e=None,p=None,**kwargs):
     e=e or summary_envelope()
     engine=Engine(workload(),{'X-OUF-Delegation':p or proof(),'X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':e['AttemptID'],'Cookie':'secret'},e,**kwargs)
-    engine.lua.globals()[b'ngx'][b'var'][b'uri']=('/internal/capabilities/v1/execute/'+e['CapabilityID']).encode()
+    engine.lua.globals()[b'ngx'][b'var'][b'request_uri']=('/internal/capabilities/v1/execute/'+e['CapabilityID']).encode()
+    engine.lua.globals()[b'ngx'][b'var'][b'uri']=('/api/internal/v1/'+e['Owner']+'/operations/summary').encode()
     engine.run('execute_summary')
     return engine
 

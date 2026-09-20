@@ -36,9 +36,11 @@ local paths = {
  ['ouf.ingestion.operations.summary']={'ingestion','/api/internal/v1/ingestion/operations/summary'},
  ['ouf.gateway.operations.summary']={'gateway','/api/internal/v1/gateway/operations/summary'}
 }
+-- proxy-rewrite runs before this access-phase check; request_uri is immutable.
+local original_path = (ngx.var.request_uri or ""):match("^[^?]*")
 local target = paths[e.CapabilityID]
 if not target or e.Owner ~= target[1] or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID
- or e.OperationClass ~= 'READ' or ngx.var.uri ~= '/internal/capabilities/v1/execute/' .. e.CapabilityID then return fail(403) end
+ or e.OperationClass ~= 'READ' or original_path ~= '/internal/capabilities/v1/execute/' .. e.CapabilityID then return fail(403) end
 if type(e.Arguments) ~= 'table' then return fail(400) end
 for k,_ in pairs(e.Arguments) do if k~='limit' and k~='since' and k~='sourceId' then return fail(400) end end
 local q=e.Arguments
