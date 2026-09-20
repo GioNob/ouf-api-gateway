@@ -79,3 +79,16 @@ requires the actual mounted keys, ACTIVE policy refresh, network isolation/TLS,
 compatible image versions and approved grants. Rotate keys and deploy owners
 before enabling the summary profile; retain the previous route snapshot for
 rollback. End-to-end lab evidence is not evidence from the live OUF installation.
+
+
+### InstallationProjection binding for policy readers
+
+The governed policy-bundle route resolves two explicit service identities:
+`installation://iam.workloadClients.mcpServer` and
+`installation://iam.workloadClients.ingestion`. The projection must therefore contain
+`iam.workloadClients.mcpServer` and `iam.workloadClients.ingestion`. The MCP-specific
+`mcp.environment.MCP_OIDC_CLIENT_ID` must agree with the generic MCP workload binding or
+projection fails closed. Existing installations that have not yet exported the Ingestion
+binding must create a new governed InstallationConfiguration revision before materializing
+this route; do not hand-edit the ACTIVE projection and do not fall back to the unresolved
+logical reference.
