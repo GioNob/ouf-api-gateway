@@ -70,6 +70,7 @@ jobs:
             tools/identity_boundary.py
             tools/authorization_boundary.py
             tools/operational_incidents.py
+            tools/gateway_operational_collector.py
             tools/gateway_operational_api.py
             tools/publication.py
             tools/etcd_resilience.py
@@ -78,6 +79,7 @@ jobs:
             tests/test_operational_awareness_routes.py
             tests/test_channel_neutral_system_status.py
             tests/test_gateway_operational_incidents.py
+            tests/test_gateway_operational_collector.py
             tests/test_gateway_operational_owner_api.py
             tests/test_gateway_operational_routes.py
             tests/test_runtime_catalog_closure.py
