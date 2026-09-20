@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: authorization.proposal.read, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: authorization
+  operationType: READ
+  scope: authorization.proposal.read
+  classification: [RESTRICTED_OPERATIONAL]
+  mcp: {toolEligible: true, humanRequired: false}

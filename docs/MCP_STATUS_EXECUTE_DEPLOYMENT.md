@@ -308,3 +308,7 @@ dell'amministrazione conversazionale sono nella
 [guida MCP per ruoli](https://github.com/GioNob/ouf-mcp-server/blob/main/docs/ACCESSO_PER_RUOLI_E_AMMINISTRAZIONE.md).
 Il nuovo codice non pubblica grant, non gestisce utenti IAM e non apre
 l'execute a capability ulteriori rispetto a `ouf.system.status`.
+
+## Permission proposals
+
+For chatbot permission proposals and the separate human session routes, use [PERMISSION_PROPOSALS_DEPLOYMENT.md](PERMISSION_PROPOSALS_DEPLOYMENT.md). The status-only deploy helper does not install these new routes.

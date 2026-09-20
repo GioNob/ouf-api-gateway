@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: authorization.permissions.propose, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: authorization
+  operationType: COMMAND
+  scope: authorization.permissions.propose
+  classification: [RESTRICTED_OPERATIONAL]
+  mcp: {toolEligible: true, humanRequired: false}
