@@ -63,6 +63,15 @@ class SQLiteOperationalIncidentStore:
             )
             """
         )
+        self.db.execute(
+            """
+            create table if not exists gateway_operational_collector_state(
+              source text primary key,
+              last_observed_at text not null,
+              last_event_at text
+            )
+            """
+        )
         self.db.commit()
 
     def close(self) -> None:
@@ -167,6 +176,40 @@ class SQLiteOperationalIncidentStore:
 
     def has_restricted_incidents(self) -> bool:
         return self.db.execute("select 1 from gateway_operational_incident where visibility_class not in ('PUBLIC_OPERATIONAL','TENANT_OPERATIONAL') limit 1").fetchone() is not None
+
+    def mark_collector_observed(self, source: str, *, event: bool = False) -> None:
+        if source not in {"APISIX", "ETCD"}:
+            raise ValueError("unknown collector source")
+        now = self._now()
+        self.db.execute(
+            """insert into gateway_operational_collector_state(source,last_observed_at,last_event_at)
+               values(?,?,?)
+               on conflict(source) do update set
+                 last_observed_at=excluded.last_observed_at,
+                 last_event_at=case when excluded.last_event_at is not null then excluded.last_event_at else gateway_operational_collector_state.last_event_at end""",
+            (source, now, now if event else None),
+        )
+        self.db.commit()
+
+    def collector_freshness(self, max_age_seconds: int, required_sources=("APISIX", "ETCD")) -> dict[str, bool]:
+        if type(max_age_seconds) is not int or not 1 <= max_age_seconds <= 3600:
+            raise ValueError("invalid collector freshness")
+        now = self.clock().astimezone(timezone.utc)
+        rows = {
+            row["source"]: row["last_observed_at"]
+            for row in self.db.execute(
+                "select source,last_observed_at from gateway_operational_collector_state"
+            ).fetchall()
+        }
+        result = {}
+        for source in required_sources:
+            value = rows.get(source)
+            try:
+                observed = datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+            except ValueError:
+                observed = None
+            result[source] = bool(observed and observed.tzinfo is not None and now - observed <= timedelta(seconds=max_age_seconds))
+        return result
 
     def summary(self, limit: int = 100, since: str | None = None) -> dict:
         if type(limit) is not int or not 1 <= limit <= 100:
