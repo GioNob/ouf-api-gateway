@@ -90,3 +90,13 @@ for two bounded producer calls; producer hops receive no human bearer/proof.
 Do not activate this candidate until the owner-adapter gates above are met.
 Keep the previous route snapshot for rollback. The installer, secrets, IAM and
 current published policy were not changed by this PR.
+
+
+## Collector packaging for the Netcup acceptance
+
+The branch packages systemd templates under `ops/systemd/` for a persistent APISIX log
+collector and a periodic etcd health probe. They share the Gateway-owned SQLite file under
+a systemd `StateDirectory` and group 10001, so the Java owner can mount that file read-only.
+The units are deployment candidates only: they have not been installed by this change.
+Docker-log access is a laboratory adapter with host-level privilege and is not claimed as
+the generic production observability architecture.
