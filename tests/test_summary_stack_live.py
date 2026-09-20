@@ -97,7 +97,7 @@ def test_summary_through_real_stack(tmp_path):
             def invoke(roles):
                 meta={'io.modelcontextprotocol/clientCapabilities':{},'io.modelcontextprotocol/clientInfo':{'name':'summary-stack','version':'1'},'io.modelcontextprotocol/protocolVersion':'2026-07-28'}
                 body={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'ouf.operations.summary','arguments':{'limit':5},'_meta':meta}}
-                headers={'Authorization':'Bearer '+token(roles),'Content-Type':'application/json','Accept':'application/json, text/event-stream','Mcp-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Idempotency-Key':str(uuid.uuid4()),'X-Correlation-ID':str(uuid.uuid4()),'X-OUF-External-Role-Refs':'ouf:viewer'}
+                headers={'Authorization':'Bearer '+token(roles),'Content-Type':'application/json','Accept':'application/json, text/event-stream','Mcp-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':'ouf.operations.summary','Idempotency-Key':str(uuid.uuid4()),'X-Correlation-ID':str(uuid.uuid4()),'X-OUF-External-Role-Refs':'ouf:viewer'}
                 req=urllib.request.Request(f'http://127.0.0.1:{api_port}/mcp',data=json.dumps(body).encode(),headers=headers)
                 try:
                     with urllib.request.urlopen(req,timeout=15) as response:return response.status,response.read()
