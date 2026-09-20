@@ -118,6 +118,7 @@ def test_policy_bundle_route_is_real_authorization_capability():
     assert route["x-ouf-capability"]["owner"]=="authorization"
     assert route["x-ouf-policy"]["requiredScope"]=="authorization.bundle.read"
     assert route["x-ouf-policy"]["allowedServiceIdentities"]==[
-        "installation://iam.workloadClients.mcpServer"
+        "installation://iam.workloadClients.mcpServer",
+        "installation://iam.workloadClients.ingestion",
     ]
     assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]
