@@ -50,8 +50,8 @@ Both Java producers require these properties (there are no permissive defaults):
 
 Gateway also requires `ouf.summary.database-file`, an **existing** incident store.
 It opens SQLite with `mode=ro`; missing files/tables return unavailable, never
-an invented healthy empty store. Counts, restricted visibility and catch-up page
-are read in one database snapshot. Source filters are unsupported for Gateway;
+an invented healthy empty store. Counts, collector freshness, restricted visibility and catch-up page
+are read in one database snapshot. Missing collector state, a pre-collector store or stale APISIX/ETCD observations produce UNKNOWN/partial rather than HEALTHY. Source filters are unsupported for Gateway;
 its fixed API accepts only limit/since. Ingestion enforces the requested source
 before the database query and preserves tenant/source filtering for returned rows.
 
