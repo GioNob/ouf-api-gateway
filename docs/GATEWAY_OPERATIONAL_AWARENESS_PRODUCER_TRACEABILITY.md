@@ -19,7 +19,14 @@ Normative baseline: OUF Reality Baseline Package v1.7, Gateway PET v1.5 §34 and
 - `tools/gateway_operational_api.py`: private owner projection requiring verified Gateway and Authorization context.
 - `ouf.gateway.operations.incidents` / `ouf.gateway.operations.summary`: internal, non-MCP-tool producer capabilities for MCP aggregation.
 
-## Test evidence
+## Live collection increment
+
+- `tools/gateway_operational_collector.py` is the first deployment-target collector for the current Netcup/Docker topology. It tails the real APISIX access stream, maps only fixed governed paths to logical endpoint references, debounces repeated 502/503/504 responses into one `GATEWAY_UPSTREAM_UNREACHABLE` incident and resolves that same incident after a successful observation.
+- The same collector has an etcd probe mode that runs the real `etcdctl endpoint health` inside the deployed etcd container. A failed probe opens/updates one `GATEWAY_ETCD_DEGRADED` incident and a later healthy probe resolves it.
+- Collector liveness is persisted separately in `gateway_operational_collector_state` for APISIX and ETCD. The Java owner requires both observations to be fresh; missing or stale collector state yields `UNKNOWN` with `partial=true`, even if the incident table is empty.
+- The collector never persists raw access lines, request bodies, JWTs, headers or etcd command output. Only normalized incident fields and collector timestamps enter the SQLite store.
+- This increment does not make Docker-log access a product-wide architecture. It is an installation adapter for the current laboratory. A production packaging must give the collector least-privilege access to an approved log/event source and a durable store without introducing a central incident service.
+
 
 - Persistence survives store reopen.
 - Equivalent faults deduplicate into one incident timeline and increment occurrence count.
@@ -31,5 +38,6 @@ Normative baseline: OUF Reality Baseline Package v1.7, Gateway PET v1.5 §34 and
 ## Evidence pending
 
 - SQLite is the deterministic CI/reference durable adapter, not yet evidence of the production HA persistence backend. Production shared persistence/backup/retention and multi-replica behavior remain `EVIDENCE PENDING`.
-- Real APISIX/etcd fault injection, CNI/NetworkPolicy enforcement and deployed Authorization decision propagation remain `EVIDENCE PENDING`.
+- Real APISIX/etcd fault injection, collector restart/reboot behavior, CNI/NetworkPolicy enforcement and deployed Authorization decision propagation remain `EVIDENCE PENDING` until exercised on the installation.
+- The etcd probe covers endpoint health. The existing publication gate still owns storage-slow and proposal-backpressure semantics; a production metrics binding for those signals remains evidence pending and must not be inferred from endpoint health alone.
 - MCP cross-producer aggregation of Gateway + Ingestion + MCP state is a following increment.
