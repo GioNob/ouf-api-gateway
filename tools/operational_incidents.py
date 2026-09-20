@@ -177,6 +177,18 @@ class SQLiteOperationalIncidentStore:
     def has_restricted_incidents(self) -> bool:
         return self.db.execute("select 1 from gateway_operational_incident where visibility_class not in ('PUBLIC_OPERATIONAL','TENANT_OPERATIONAL') limit 1").fetchone() is not None
 
+    def active_incident_keys(self, prefix: str | None = None) -> set[str]:
+        if prefix is None:
+            rows = self.db.execute(
+                "select dedup_key from gateway_operational_incident where lifecycle_state in ('OPEN','RECOVERING')"
+            ).fetchall()
+        else:
+            rows = self.db.execute(
+                "select dedup_key from gateway_operational_incident where lifecycle_state in ('OPEN','RECOVERING') and dedup_key like ?",
+                (prefix + "%",),
+            ).fetchall()
+        return {row["dedup_key"] for row in rows}
+
     def mark_collector_observed(self, source: str, *, event: bool = False) -> None:
         if source not in {"APISIX", "ETCD"}:
             raise ValueError("unknown collector source")
