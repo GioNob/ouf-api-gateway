@@ -16,7 +16,7 @@ def request():
 
 def execute(body=None,claims=None,delegation=None):
     e=request() if body is None else body
-    if delegation is None:delegation=proof(human(scope='mcp.connect '+CAP,externalRoleRefs=['ente:staff']))
+    if delegation is None:delegation=proof(dict(human(),scope='mcp.connect '+CAP,externalRoleRefs=['ente:staff']))
     h={'X-OUF-Delegation':delegation,'X-Correlation-ID':e['CorrelationID'],'Idempotency-Key':e['IdempotencyKey'],'X-Tool-Attempt-ID':e['AttemptID']}
     engine=Engine(workload() if claims is None else claims,h,e)
     engine.modules[b'resty.openssl.digest']=engine.lua.table_from({b'new':lambda algorithm:engine.lua.table_from({b'final':lambda _,data:hashlib.sha256(data).digest()})})
@@ -37,7 +37,7 @@ def test_lua_receipt_binds_identity_capability_path_body_and_expiry():
 @pytest.mark.parametrize('kind',['scope','workload','identity','confirm','owner'])
 def test_actual_lua_rejects_escalation(kind):
     e=request();claims=workload();delegation=None
-    if kind=='scope':delegation=proof(human(scope='mcp.connect'))
+    if kind=='scope':delegation=proof(dict(human(),scope='mcp.connect'))
     if kind=='workload':claims['azp']='attacker'
     if kind=='identity':e['Identity']['PrincipalID']='admin'
     if kind=='confirm':e['CapabilityID']='authorization.policy.publish'
