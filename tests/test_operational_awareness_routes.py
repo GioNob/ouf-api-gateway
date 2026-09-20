@@ -72,3 +72,15 @@ def test_compiled_operational_routes_preserve_owner_boundaries():
     assert routes["mcp-ingestion-operations-summary-producer"]["service_id"] == "ouf-ingestion-runtime"
     assert routes["mcp-gateway-operations-incidents"]["service_id"] == "ouf-gateway-control-plane"
     assert routes["mcp-gateway-operations-summary"]["service_id"] == "ouf-gateway-control-plane"
+
+
+def test_policy_bundle_read_allows_only_governed_workloads():
+    route = load("ouf-config/routes/northbound/mcp-authorization-policy-bundle-read.yaml")
+    assert route["spec"]["capabilityRef"] == "authorization.bundle.read@1.0.0"
+    assert route["spec"]["policy"]["identity"] == "M2M"
+    assert route["spec"]["policy"]["allowedActorTypes"] == ["SERVICE"]
+    assert route["spec"]["policy"]["allowedServiceIdentities"] == [
+        "installation://iam.workloadClients.mcpServer",
+        "installation://iam.workloadClients.ingestion",
+    ]
+    assert "*" not in route["spec"]["policy"]["allowedServiceIdentities"]
