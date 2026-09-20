@@ -27,8 +27,11 @@ def java_owner(jar, folder, installation, policy_bundle=None):
     db=folder/'gateway.db'
     with contextlib.closing(SQLiteOperationalIncidentStore(db)) as store:
         store.open_incident(dedup_key='visible',event_type='FAILURE',severity='ERROR',error_code='SAFE',impact_summary='A normalized failure',visibility_class='TENANT_OPERATIONAL')
+        store.mark_collector_observed('APISIX')
+        store.mark_collector_observed('ETCD')
     args=['java','-jar',str(Path(jar).resolve()),f'--server.port={port}',
           f'--ouf.summary.database-file={db}',f'--ouf.summary.receipt-key-file={key}',
+          '--ouf.summary.max-evidence-age-seconds=120',
           '--ouf.summary.tenant-id=tenant-a',f"--ouf.summary.issuer={installation['issuerUrl']}",
           f"--ouf.summary.audience={installation['gatewayAudience']}",f"--ouf.summary.workload={installation['mcpServiceIdentity']}",
           f'--ouf.authorization.bundle-file={policy}','--ouf.authorization.bundle-id=bundle','--ouf.authorization.bundle-version=6',
