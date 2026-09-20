@@ -122,6 +122,24 @@ def test_real_apisix_oidc_delegation_and_execute():
             assert code==400,(code,raw)
             code,_=post('/internal/capabilities/v1/execute/authorization/confirm',permission_request(),token('SERVICE'),delegated)
             assert code==404
+            # Reproduce the deployed view=GRANTS rejection with actual APISIX,
+            # and exercise the same contract for role catalogue proposals.
+            from tests.test_permission_role_contract import cases, dispatch, READ
+            proofs = {}
+            for capability, arguments, allowed in cases():
+                if capability not in proofs:
+                    code, raw = post('/mcp', {}, token(scope='mcp.connect '+capability))
+                    assert code == 200, (code, raw)
+                    proofs[capability] = json.loads(raw)['proof']
+                mode = 'read' if capability == READ else 'propose'
+                body = dispatch(capability, arguments)
+                code, raw = post('/internal/capabilities/v1/execute/authorization/'+mode,
+                                 body, token('SERVICE'), proofs[capability])
+                assert code == (200 if allowed else 400), (arguments, code, raw)
+                if allowed:
+                    forwarded = json.loads(raw)
+                    assert json.loads(forwarded['body'])['Arguments'] == arguments
+                    assert forwarded['authorization'] is None
         except Exception:
             subprocess.run(['docker','logs','--tail','60',name],check=False)
             raise
