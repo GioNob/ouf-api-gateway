@@ -11,7 +11,7 @@ from pathlib import Path
 from tools.operational_incidents import SQLiteOperationalIncidentStore
 
 @contextlib.contextmanager
-def java_owner(jar, folder, installation):
+def java_owner(jar, folder, installation, policy_bundle=None):
     folder=Path(folder)
     with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
     now=datetime.now(timezone.utc)
@@ -21,7 +21,8 @@ def java_owner(jar, folder, installation):
             'grants':[{'grantId':'synthetic-viewer','capabilityId':cap,'tenantId':'tenant-a',
                        'validFrom':(now-timedelta(minutes=5)).isoformat(),'validUntil':(now+timedelta(hours=1)).isoformat(),
                        'constraints':{'externalRoleRef':'ouf:viewer','resourceType':'capability','allowedDetailLevels':['TENANT_OPERATIONAL']}}]}
-    raw=json.dumps(bundle).encode();policy=folder/'policy.json';policy.write_bytes(raw)
+    if policy_bundle is not None:bundle=policy_bundle
+    raw=json.dumps(bundle,separators=(',',':')).encode();policy=folder/'policy.json';policy.write_bytes(raw)
     key=folder/'receipt.key';key.write_text('12'*32);key.chmod(0o600)
     db=folder/'gateway.db'
     with contextlib.closing(SQLiteOperationalIncidentStore(db)) as store:
