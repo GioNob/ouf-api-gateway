@@ -4,7 +4,7 @@ import json
 import sqlite3
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
@@ -165,18 +165,27 @@ class SQLiteOperationalIncidentStore:
         ).fetchall()
         return [self._incident(row) for row in rows]
 
-    def summary(self, limit: int = 100) -> dict:
-        items = self.list_incidents(limit=limit)
-        open_count = sum(i.lifecycle_state == "OPEN" for i in items)
-        recovering_count = sum(i.lifecycle_state == "RECOVERING" for i in items)
-        return {
-            "module": "GATEWAY",
-            "status": "DEGRADED" if open_count else ("RECOVERING" if recovering_count else "HEALTHY"),
-            "openIncidents": open_count,
-            "recoveringIncidents": recovering_count,
-            "items": [asdict(i) for i in items],
-            "partial": False,
-        }
+    def has_restricted_incidents(self) -> bool:
+        return self.db.execute("select 1 from gateway_operational_incident where visibility_class not in ('PUBLIC_OPERATIONAL','TENANT_OPERATIONAL') limit 1").fetchone() is not None
+
+    def summary(self, limit: int = 100, since: str | None = None) -> dict:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("invalid limit")
+        if since is not None and not isinstance(since, str):
+            raise ValueError("invalid time window")
+        now = self.clock().astimezone(timezone.utc)
+        start = now - timedelta(days=1) if since is None else datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if start.tzinfo is None or start > now or start < now - timedelta(days=30):
+            raise ValueError("invalid time window")
+        # Current health is independent of the catch-up page and time filter.
+        counts = dict(self.db.execute("select lifecycle_state,count(*) from gateway_operational_incident group by lifecycle_state").fetchall())
+        rows = self.db.execute("select * from gateway_operational_incident where julianday(last_seen_at)>=julianday(?) and julianday(last_seen_at)<=julianday(?) order by last_seen_at desc,incident_id limit ?", (start.isoformat(), now.isoformat(), limit+1)).fetchall()
+        partial = len(rows)>limit
+        open_count = counts.get("OPEN", 0); recovering_count = counts.get("RECOVERING", 0)
+        result = {"module":"GATEWAY", "status":"DEGRADED" if open_count else "RECOVERING" if recovering_count else "HEALTHY",
+                  "items":[asdict(self._incident(row)) for row in rows[:limit]], "partial":partial}
+        result.update(openIncidents=open_count, recoveringIncidents=recovering_count)
+        return result
 
     @staticmethod
     def _incident(row: sqlite3.Row) -> OperationalIncident:

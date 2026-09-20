@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.materialize_permission_proposals import materialize
+from tools.materialize_summary import materialize
 from tests.test_execute_delegation import runtime, envelope
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
@@ -46,7 +46,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
+            elif self.path in ['/api/internal/v1/mcp/operations/summary','/api/internal/v1/ingestion/operations/summary','/api/internal/v1/gateway/operations/summary']:
+                self.reply({'body':json.loads(body),'proof':self.headers.get('X-OUF-Delegation'),'client':self.headers.get('X-OUF-Service-Principal'),'authorization':self.headers.get('Authorization')})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
+
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             else:self.send_error(404)
         def reply(self,value):
@@ -98,6 +101,18 @@ def test_real_apisix_oidc_delegation_and_execute():
             h={k.lower():v for k,v in calls[0][0].items()}
             assert h['x-ouf-principal-id']=='human-a' and h['x-ouf-service-principal']==workload
             assert h['x-ouf-external-role-refs']=='ouf:viewer'
+            from tests.test_summary_execute import summary_envelope
+            for cap,owner in [('ouf.operations.summary','mcp'),('ouf.ingestion.operations.summary','ingestion'),('ouf.gateway.operations.summary','gateway')]:
+                summary_path='/internal/capabilities/v1/execute/'+cap
+                code,raw=post(summary_path,summary_envelope(cap,owner),token('SERVICE'),proof)
+                assert code==200,(code,raw)
+                observed=json.loads(raw)
+                assert observed['client']=='chatgpt' and observed['authorization'] is None
+                assert observed['body']=={'limit':5}
+                assert observed['proof']==(proof if owner=='mcp' else None)
+                wrong=summary_envelope(cap,owner);wrong['Owner']='udp'
+                code,_=post(summary_path,wrong,token('SERVICE'),proof);assert code in (400,403)
+
             assert 'authorization' not in h and 'x-ouf-delegation' not in h
             bad=envelope();bad['Identity']['TenantID']='other'
             cases=[(envelope(),None,proof),(envelope(),token('SERVICE')+'broken',proof),(envelope(),token('SERVICE',aud='wrong'),proof),(envelope(),token('SERVICE',azp='other'),proof),(envelope(),token('SERVICE'),proof[:-2]+'zz'),(bad,token('SERVICE'),proof)]
