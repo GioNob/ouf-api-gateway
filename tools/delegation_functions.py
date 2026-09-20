@@ -12,6 +12,9 @@ def function(kind, installation, key_env, owner_key_env=None):
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
+    if kind == 'execute_summary':
+        values['INGESTION_RECEIPT_KEY_ENV'] = 'INGESTION_SUMMARY_RECEIPT_KEY'
+        values['GATEWAY_RECEIPT_KEY_ENV'] = 'GATEWAY_SUMMARY_RECEIPT_KEY'
     if kind == 'execute_permissions':
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')

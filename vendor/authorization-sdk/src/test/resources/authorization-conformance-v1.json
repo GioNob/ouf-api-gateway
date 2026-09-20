@@ -1,0 +1,1804 @@
+{
+  "schemaVersion": "1",
+  "bundle": {
+    "bundleId": "conformance",
+    "version": 7,
+    "publishedAt": "2026-09-16T00:00:00Z",
+    "capabilities": [
+      {
+        "capabilityId": "read",
+        "operation": "READ",
+        "requiredScope": "read",
+        "allowedActors": [
+          "HUMAN",
+          "SERVICE"
+        ]
+      }
+    ],
+    "grants": [
+      {
+        "grantId": "g-human",
+        "capabilityId": "read",
+        "tenantId": "tenant-a",
+        "subjectId": "alice",
+        "servicePrincipalId": null,
+        "organizationId": "org-a",
+        "validFrom": "2026-09-16T00:00:00Z",
+        "validUntil": "2026-09-17T00:00:00Z"
+      },
+      {
+        "grantId": "g-service",
+        "capabilityId": "read",
+        "tenantId": "tenant-a",
+        "subjectId": null,
+        "servicePrincipalId": "svc",
+        "organizationId": "org-a",
+        "validFrom": "2026-09-16T00:00:00Z",
+        "validUntil": "2026-09-17T00:00:00Z"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "allow-human",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "ALLOW"
+    },
+    {
+      "id": "tenant-mismatch",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-b",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "TENANT_MISMATCH"
+    },
+    {
+      "id": "actor-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "AI_AGENT",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "ACTOR_NOT_ALLOWED"
+    },
+    {
+      "id": "scope-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": []
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "SCOPE_MISSING"
+    },
+    {
+      "id": "organization-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-b",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT"
+    },
+    {
+      "id": "subject-deny",
+      "principal": {
+        "subjectId": "bob",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT"
+    },
+    {
+      "id": "expired",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-17T00:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT"
+    },
+    {
+      "id": "unknown",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "unknown",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "CAPABILITY_NOT_DECLARED"
+    },
+    {
+      "id": "wrong-operation",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "WRITE",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "CAPABILITY_NOT_DECLARED"
+    },
+    {
+      "id": "service-allow",
+      "principal": {
+        "subjectId": "client",
+        "tenantId": "tenant-a",
+        "actorType": "SERVICE",
+        "servicePrincipalId": "svc",
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "ALLOW"
+    },
+    {
+      "id": "service-deny",
+      "principal": {
+        "subjectId": "client",
+        "tenantId": "tenant-a",
+        "actorType": "SERVICE",
+        "servicePrincipalId": "other",
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ]
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {}
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT"
+    },
+    {
+      "id": "scoped-assured-allow",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "ALLOW",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "missing-role",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "directory-unavailable-claims-absent",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": null
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wrong-resource",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "43",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wrong-source",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:2",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "label-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "SENSITIVE",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "missing-label",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "detail-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "SECURITY_SENSITIVE"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "acr-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "password",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "amr-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "assurance-expired",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:58:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "future-authentication",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T12:01:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "deny-overrides",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "module": "udp",
+          "sourceRef": "source:1",
+          "dataAccessLabel": "PERSONAL",
+          "detailLevel": "TENANT_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "EXPLICIT_DENY",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "ALLOW",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          },
+          {
+            "grantId": "explicit-deny",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "effect": "DENY",
+              "externalRoleRef": "role:reviewer",
+              "resourceType": "object",
+              "resourceId": "42",
+              "resourceAttributes": {
+                "module": "udp",
+                "sourceRef": "source:1"
+              },
+              "allowedDataLabels": [
+                "PERSONAL"
+              ],
+              "allowedDetailLevels": [
+                "TENANT_OPERATIONAL"
+              ],
+              "requiredAcr": "mfa",
+              "requiredAmr": [
+                "otp"
+              ],
+              "maxAuthenticationAgeSeconds": 120
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "unconstrained-personal-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "dataAccessLabel": "PERSONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "unconstrained-restricted-detail-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "detailLevel": "RESTRICTED_OPERATIONAL"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "NO_APPLICABLE_GRANT",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "required-label-absent",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "HUMAN",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "requiresDataAccessLabel": "true"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "DATA_LABEL_REQUIRED",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": null
+          }
+        ]
+      }
+    },
+    {
+      "id": "machine-security-sensitive-deny",
+      "principal": {
+        "subjectId": "alice",
+        "tenantId": "tenant-a",
+        "actorType": "AI_AGENT",
+        "servicePrincipalId": null,
+        "authenticationContextRef": "fixture:auth",
+        "issuer": "fixture:issuer",
+        "audience": "fixture:audience",
+        "scopes": [
+          "read"
+        ],
+        "claims": {
+          "externalRoleRefs": [
+            "role:reviewer"
+          ],
+          "acr": "mfa",
+          "amr": [
+            "pwd",
+            "otp"
+          ],
+          "authenticatedAt": "2026-09-16T11:59:00Z"
+        }
+      },
+      "resource": {
+        "resourceType": "object",
+        "resourceId": "42",
+        "tenantId": "tenant-a",
+        "organizationId": "org-a",
+        "attributes": {
+          "detailLevel": "SECURITY_SENSITIVE"
+        }
+      },
+      "capabilityId": "read",
+      "operation": "READ",
+      "now": "2026-09-16T12:00:00Z",
+      "decisionCode": "HUMAN_REQUIRED",
+      "bundle": {
+        "bundleId": "conformance",
+        "version": 7,
+        "publishedAt": "2026-09-16T00:00:00Z",
+        "capabilities": [
+          {
+            "capabilityId": "read",
+            "operation": "READ",
+            "requiredScope": "read",
+            "allowedActors": [
+              "HUMAN",
+              "SERVICE",
+              "AI_AGENT"
+            ]
+          }
+        ],
+        "grants": [
+          {
+            "grantId": "g-human",
+            "capabilityId": "read",
+            "tenantId": "tenant-a",
+            "subjectId": "alice",
+            "servicePrincipalId": null,
+            "organizationId": "org-a",
+            "validFrom": "2026-09-16T00:00:00Z",
+            "validUntil": "2026-09-17T00:00:00Z",
+            "constraints": {
+              "allowedDetailLevels": [
+                "SECURITY_SENSITIVE"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

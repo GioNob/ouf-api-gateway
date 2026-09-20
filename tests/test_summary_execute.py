@@ -7,7 +7,7 @@ from tools.materialize_summary import materialize
 
 CAP='ouf.operations.summary'
 def summary_envelope(cap=CAP,owner='mcp'):
-    e=envelope();e.update(CapabilityID=cap,Owner=owner,GatewayBindingRef='capability://'+cap,Arguments={'limit':5},MaxResultBytes=524288)
+    e=envelope();e.update(CapabilityID=cap,Owner=owner,GatewayBindingRef='capability://'+cap,Arguments={'limit':5},MaxResultBytes=524288,AuthorizationDecisionRef='bundle:6:'+cap)
     return e
 
 def run(e=None,p=None,**kwargs):

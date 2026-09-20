@@ -73,5 +73,22 @@ if roles ~= '' then ngx.req.set_header('X-OUF-External-Role-Refs', roles) end
 -- Preserve only the verified proof, on the private MCP owner hop, so its
 -- bounded producer invocations can use the original delegated identity.
 if e.CapabilityID == 'ouf.operations.summary' then ngx.req.set_header('X-OUF-Delegation',proof) end
-ngx.req.set_body_data(cjson.encode(e.Arguments))
+local args = cjson.encode(e.Arguments)
+if e.Owner ~= 'mcp' then
+    local env = e.Owner == 'ingestion' and INGESTION_RECEIPT_KEY_ENV or GATEWAY_RECEIPT_KEY_ENV
+    local key = os.getenv(env)
+    if type(key) ~= 'string' or #key ~= 64 or key:find('[^0-9a-fA-F]') then return fail(503) end
+    local digest = require('resty.openssl.digest').new('sha256')
+    local receipt = {v=1,purpose='operational-summary-owner',method='POST',path=target[2],
+        capability=e.CapabilityID,bodyHash=require('resty.string').to_hex(digest:final(args)),
+        iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,workload=MCP_WORKLOAD,
+        subject=p.principal,tenant=p.tenant,client=p.client,acr=p.acr,roles=roles,scope=p.scope,
+        decisionRef=e.AuthorizationDecisionRef}
+    local encoded = encode64(cjson.encode(receipt))
+    local hmac = require('resty.openssl.hmac').new(key,'sha256')
+    local signature = hmac and hmac:final('ouf-operational-owner-v1.'..encoded)
+    if not signature then return fail(503) end
+    ngx.req.set_header('X-OUF-Operational-Receipt',encoded..'.'..encode64(signature))
+end
+ngx.req.set_body_data(args)
 ngx.req.set_header('Content-Type','application/json')

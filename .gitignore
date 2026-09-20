@@ -5,3 +5,5 @@ generated/
 pip-metadata-*/
 pip-unpack-*/
 pytest-of-root/
+
+**/target/

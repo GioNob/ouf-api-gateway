@@ -57,6 +57,8 @@ class Engine:
         def new(key,algorithm):
             return self.lua.table_from({b'final':lambda _,data:hmac.new(key,data,hashlib.sha256).digest()})
         self.modules[b'resty.openssl.hmac']=self.lua.table_from({b'new':new})
+        self.modules[b'resty.openssl.digest']=self.lua.table_from({b'new':lambda _:self.lua.table_from({b'final':lambda _,data:hashlib.sha256(data).digest()})})
+        self.modules[b'resty.string']=self.lua.table_from({b'to_hex':lambda data:data.hex().encode()})
         self.modules[b'bit']=self.lua.eval(b'{bor=function(a,b) return a|b end,bxor=function(a,b) return a~b end}')
         self.lua.globals()[b'require']=lambda name:self.modules[name]
         self.lua.execute(b'os.getenv=function(name) return TEST_KEY end')

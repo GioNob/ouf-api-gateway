@@ -87,3 +87,28 @@ jobs:
             tests/test_apisix_control_plane.py
             tests/test_mcp_evidence_ingress.py
           retention-days: 30
+
+  operational-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - name: Verify pinned SDK and build authenticated producer
+        run: |
+          (cd vendor/authorization-sdk && sha256sum -c SOURCE_SHA256SUMS)
+          mvn -B -ntp -f vendor/authorization-sdk/pom.xml install
+          mvn -B -ntp -f operational-owner/pom.xml verify
+      - name: Real APISIX to real Java producer with role revocation
+        run: OUF_APISIX_LIVE_TEST=1 OUF_GATEWAY_OWNER_JAR="$PWD/operational-owner/target/gateway-operational-owner-1.0.0-SNAPSHOT.jar" python -m pytest -q tests/test_execute_apisix_live.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-owner-evidence-${{ github.run_id }}
+          path: |
+            operational-owner/target/surefire-reports/
+            operational-owner/target/bom.json

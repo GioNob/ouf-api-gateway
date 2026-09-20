@@ -48,11 +48,11 @@ APISIX/OIDC CI test; that is separate from a live OUF installation.
 ## Release gates still required
 
 Deploy compatible owner implementations before enabling the new routes. The
-Gateway operational owner currently exposes a Python hosting contract, not a
-complete production server; the new summary path refuses operation without a
-local authorization adapter and an explicitly bound tenant. Ingestion needs
-its genuine authenticated principal/SDK binding; reconstructed HTTP headers
-alone do not constitute that binding. Do not replace these with test actors.
+Gateway operational owner now has a private Java host and producer receipt/SDK
+adapter; Ingestion has the matching receipt-to-principal filter. See
+R3_PRODUCER_IDENTITY.md for configuration and integration evidence. The summary
+path refuses operation without verified identity, local policy and an explicitly
+bound tenant. Reconstructed HTTP headers alone never constitute that binding.
 These are explicit integration gates, not a reason to broaden grants.
 
 Use the current Onboarding policy workflow for summary and producer grants,
