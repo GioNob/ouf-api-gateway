@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: mcp-permissions-status, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: authorization.proposal.read@1.0.0
+  sourceRef: r2b-onboarding@1.0.0
+  match: {method: POST, path: /internal/capabilities/v1/execute/authorization.proposal.read}
+  backendBinding: {service: ouf-source-onboarding, port: 8080, path: /api/internal/v1/authorization/permissions/status}
+  policy:
+    identity: M2M
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
+    timeoutSeconds: 3

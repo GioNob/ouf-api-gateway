@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.materialize_apisix_execute_runtime import materialize
+from tools.materialize_permission_proposals import materialize
 from tests.test_execute_delegation import runtime, envelope
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
@@ -46,6 +46,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
+            elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
+                self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             else:self.send_error(404)
         def reply(self,value):
             data=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
@@ -67,16 +69,16 @@ def test_real_apisix_oidc_delegation_and_execute():
         with res:return res.status,res.read()
     with tempfile.TemporaryDirectory() as folder:
         os.chmod(folder,0o755)
-        doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY')
+        doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
         for r in doc['routes']:
             oidc=r['plugins'].get('openid-connect')
             if oidc:oidc['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
             if 'upstream' in r:r['upstream']['nodes']={f'127.0.0.1:{server.server_port}':1}
-        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY']}}
+        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         name='ouf-execute-ci-'+str(os.getpid())
-        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
         try:
             for _ in range(60):
                 try:
@@ -102,6 +104,24 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
+            from tests.test_permission_proposals import request as permission_request
+            cap='authorization.permissions.propose'
+            code,raw=post('/mcp',{},token(scope='mcp.connect '+cap,externalRoleRefs=['ente:staff']))
+            assert code==200,(code,raw)
+            delegated=json.loads(raw)['proof']
+            code,raw=post('/internal/capabilities/v1/execute/authorization/propose',permission_request(),token('SERVICE'),delegated)
+            assert code==200,(code,raw)
+            import hashlib,hmac
+            data=json.loads(raw);encoded,signature=data['receipt'].split('.');pad=lambda s:s+'='*((4-len(s)%4)%4)
+            assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('cd'*32).encode(),('ouf-authorization-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
+            receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
+            assert receipt['bodyHash']==hashlib.sha256(data['body'].encode()).hexdigest()
+            assert receipt['roles']=='ente:staff' and data['authorization'] is None
+            bad=permission_request();bad['Arguments']['confirm']=True
+            code,raw=post('/internal/capabilities/v1/execute/authorization/propose',bad,token('SERVICE'),delegated)
+            assert code==400,(code,raw)
+            code,_=post('/internal/capabilities/v1/execute/authorization/confirm',permission_request(),token('SERVICE'),delegated)
+            assert code==404
         except Exception:
             subprocess.run(['docker','logs','--tail','60',name],check=False)
             raise

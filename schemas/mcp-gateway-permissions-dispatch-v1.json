@@ -1,0 +1,558 @@
+{
+  "oneOf": [
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://authorization.permissions.read"
+        },
+        "CapabilityID": {
+          "const": "authorization.permissions.read"
+        },
+        "Owner": {
+          "const": "authorization"
+        },
+        "OperationClass": {
+          "const": "READ"
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "subjectId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "externalRoleRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "after": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "policyRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "subjectId"
+              ],
+              "not": {
+                "required": [
+                  "externalRoleRef"
+                ]
+              }
+            },
+            {
+              "required": [
+                "externalRoleRef"
+              ],
+              "not": {
+                "required": [
+                  "subjectId"
+                ]
+              }
+            }
+          ]
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://authorization.permissions.propose"
+        },
+        "CapabilityID": {
+          "const": "authorization.permissions.propose"
+        },
+        "Owner": {
+          "const": "authorization"
+        },
+        "OperationClass": {
+          "const": "COMMAND"
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "grantId",
+            "reason"
+          ],
+          "properties": {
+            "operation": {
+              "enum": [
+                "UPSERT",
+                "REVOKE"
+              ]
+            },
+            "grantId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+            },
+            "grant": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "grantId",
+                "capabilityId",
+                "tenantId",
+                "validFrom",
+                "validUntil"
+              ],
+              "properties": {
+                "grantId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "capabilityId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "tenantId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "subjectId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 256
+                },
+                "servicePrincipalId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 256
+                },
+                "organizationId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 256
+                },
+                "validFrom": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "validUntil": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "constraints": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "effect": {
+                      "enum": [
+                        "ALLOW",
+                        "DENY"
+                      ]
+                    },
+                    "externalRoleRef": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 128
+                    },
+                    "resourceType": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 128
+                    },
+                    "resourceId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 256
+                    },
+                    "resourceAttributes": {
+                      "type": "object",
+                      "maxProperties": 32,
+                      "additionalProperties": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      }
+                    },
+                    "allowedDataLabels": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "allowedDetailLevels": {
+                      "type": "array",
+                      "maxItems": 16,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "requiredAcr": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "maxLength": 128
+                    },
+                    "requiredAmr": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "maxAuthenticationAgeSeconds": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 1,
+                      "maximum": 86400
+                    }
+                  }
+                }
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      }
+    },
+    {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://authorization.proposal.read"
+        },
+        "CapabilityID": {
+          "const": "authorization.proposal.read"
+        },
+        "Owner": {
+          "const": "authorization"
+        },
+        "OperationClass": {
+          "const": "READ"
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "proposalId"
+          ],
+          "properties": {
+            "proposalId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        }
+      }
+    }
+  ]
+}
