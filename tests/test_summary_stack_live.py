@@ -112,11 +112,12 @@ def test_summary_through_real_stack(tmp_path):
             code,body=invoke(['ouf:viewer']);assert code==200,(code,body)
             result=json.loads(body)['result'];assert not result.get('isError'),body
             summary=json.loads(result['content'][0]['text'])
-            assert summary['status']=='DEGRADED' and summary['partial'] is False,summary
+            assert summary['status']=='DEGRADED' and summary['partial'] is False,json.dumps(summary)
             assert {m['module'] for m in summary['modules']}=={'MCP','GATEWAY','INGESTION'},summary
             code,body=invoke([]);assert code==200,(code,body)
             result=json.loads(body)['result'];assert result.get('isError') is True,body
-            assert 'NOT_AUTHORIZED' in str(result) and 'modules' not in str(result),body
+            assert json.loads(result['content'][0]['text'])['code']=='authorization denied',body
+            assert 'modules' not in str(result),body
     except Exception:
         subprocess.run(['docker','logs','--tail','40',name],check=False)
         for log in tmp_path.glob('*.log'):print(log.name,log.read_text()[-6000:])
