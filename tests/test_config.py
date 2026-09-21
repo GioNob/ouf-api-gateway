@@ -112,7 +112,7 @@ def test_policy_bundle_route_is_real_authorization_capability():
     result=compile_config(ROOT/"ouf-config")
     route=next(r for r in result["routes"] if r["id"]=="mcp-authorization-policy-bundle-read")
     assert route["uri"]=="/internal/capabilities/v1/authorization/policy-bundle/active"
-    assert route["service_id"]=="ouf-source-onboarding"
+    assert route["service_id"]=="ouf-onboarding"
     assert route["plugins"]["proxy-rewrite"]["uri"]=="/api/internal/v1/authorization/policy-bundle/active"
     assert route["x-ouf-capability"]["capabilityId"]=="authorization.bundle.read"
     assert route["x-ouf-capability"]["owner"]=="authorization"
