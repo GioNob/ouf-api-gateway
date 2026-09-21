@@ -49,7 +49,7 @@ def test_materialized_routes_are_closed_and_have_no_confirmation_backend():
     routes=[r for r in doc['routes'] if '/execute/authorization/' in r.get('uri','')]
     assert len(routes)==3
     for r in routes:
-        assert r['upstream']['nodes']=={'ouf-source-onboarding:8080':1}
+        assert r['upstream']['nodes']=={'ouf-onboarding:8080':1}
         assert r['plugins']['proxy-rewrite']['uri'].split('/')[-1] in ('read','propose','status')
         assert r['upstream']['retries']==0
         if r['uri'].endswith('/propose'):
@@ -62,6 +62,6 @@ def test_materialized_routes_are_closed_and_have_no_confirmation_backend():
 def test_ths_routes_only_forward_to_session_owner():
     routes=[r for r in materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')['routes'] if r['id'].startswith('authorization-ths-')]
     assert len(routes)==3
-    assert all(r['upstream']['nodes']=={'ouf-source-onboarding:8080':1} for r in routes)
+    assert all(r['upstream']['nodes']=={'ouf-onboarding:8080':1} for r in routes)
     assert all('openid-connect' not in r['plugins'] for r in routes)
     assert all('/api/trusted-human/v1/authorization/*' not in r['uris'] for r in routes)
