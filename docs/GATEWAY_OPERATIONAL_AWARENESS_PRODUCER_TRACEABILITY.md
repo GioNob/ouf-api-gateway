@@ -110,3 +110,35 @@ Live deployed Authorization decision propagation and MCP cross-producer summary
 are now positively evidenced for the tested path. This does not close the
 separate R3 acceptance gates for deny/revocation, staleness/partial behavior,
 real fault injection/recovery, restart/reboot or final correlation/audit.
+
+
+### Live route consolidation completed
+
+The stale Onboarding upstream was subsequently reconciled from the verified R3
+Gateway source at commit
+`1629652163edce7b3bc4c8f80bf29a3ef1b1ab8a`.
+
+Compilation plus InstallationProjection application and
+`tools.materialize_permission_proposals` produced
+`ouf-onboarding:8080` for:
+
+- `mcp-permissions-read`;
+- `mcp-permissions-propose`;
+- `mcp-permissions-status`;
+- `authorization-ths-page`;
+- `authorization-ths-api`;
+- `authorization-ths-login`.
+
+The live pre-deploy comparison showed `mcp-permissions-read` already fixed and
+the remaining five routes still pointing to `ouf-source-onboarding:8080`.
+Those five live route documents were backed up and only those five IDs were
+updated through the APISIX Admin API.
+
+The post-deploy etcd read-back confirmed all six routes on
+`ouf-onboarding:8080`. A read-only MCP smoke test,
+`authorization.permissions.read` with `view=ROLES` under the governed
+`ouf-admin` identity, succeeded and returned the expected role catalogue.
+
+This is deployed evidence that the runtime route drift was removed without
+requiring a schema relaxation, body-forwarding change, container rebuild or
+Keycloak change.
