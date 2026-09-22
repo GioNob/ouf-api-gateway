@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -72,6 +74,14 @@ class SQLiteOperationalIncidentStore:
             )
             """
         )
+        self.db.execute("create table if not exists gateway_incident_transition(sequence_id integer primary key autoincrement, incident_id text not null, projection text not null)")
+        fields=list(OperationalIncident.__dataclass_fields__)
+        pairs=",".join("'%s',new.%s" % (k,k) for k in fields)
+        for event in ("insert","update"):
+            self.db.execute(f"create trigger if not exists gateway_incident_capture_{event} after {event} on gateway_operational_incident begin insert into gateway_incident_transition(incident_id,projection) values(new.incident_id,json_object({pairs})); end")
+        # Existing incidents get one baseline snapshot, without inventing earlier transitions.
+        old_pairs=",".join("'%s',i.%s" % (k,k) for k in fields)
+        self.db.execute(f"insert into gateway_incident_transition(incident_id,projection) select incident_id,json_object({old_pairs}) from gateway_operational_incident i where not exists(select 1 from gateway_incident_transition t where t.incident_id=i.incident_id)")
         self.db.commit()
 
     def close(self) -> None:
@@ -173,6 +183,59 @@ class SQLiteOperationalIncidentStore:
             f"select * from gateway_operational_incident{where} order by last_seen_at desc limit ?", params
         ).fetchall()
         return [self._incident(row) for row in rows]
+
+    def incident_page(self, query: dict, principal_binding: str) -> dict:
+        allowed={"limit","state","sourceId","jobId","severity","since","until","cursor"}
+        if set(query)-allowed:
+            raise ValueError("unknown query field")
+        limit=query.get("limit",50); state=query.get("state"); severity=query.get("severity")
+        if type(limit) is not int or not 1<=limit<=100 or state not in {None,"OPEN","RECOVERING","RESOLVED"} or severity not in {None,"INFO","WARNING","ERROR","CRITICAL"}:
+            raise ValueError("invalid filter")
+        if query.get("sourceId") is not None or query.get("jobId") is not None:
+            # Gateway incidents have endpoint references, never ingestion source/job identifiers.
+            return {"items":[],"partial":False,"hasMore":False,"authorization":"AUTHORIZED"}
+        now=self.clock().astimezone(timezone.utc)
+        binding=hashlib.sha256(json.dumps([principal_binding,state,severity,limit],separators=(",",":")).encode()).hexdigest()
+        def timestamp(value):
+            if not isinstance(value,str): raise ValueError("timestamp required")
+            parsed=datetime.fromisoformat(value.replace("Z","+00:00"))
+            if parsed.tzinfo is None: raise ValueError("timezone required")
+            return parsed
+        token=query.get("cursor")
+        if token is not None:
+            try:
+                if not isinstance(token,str) or len(token)>4096: raise ValueError("invalid cursor")
+                c=json.loads(base64.urlsafe_b64decode(token+"="*((-len(token))%4)))
+                if c["binding"]!=binding or not now<timestamp(c["expires"])<=now+timedelta(minutes=16): raise ValueError("cursor expired")
+                if type(c["snapshot"]) is not int or c["snapshot"]<0 or type(c["before"]) is not int or c["before"]<1: raise ValueError("invalid cursor")
+                for field in ("since","until"):
+                    if query.get(field) is not None and timestamp(query[field])!=timestamp(c[field]): raise ValueError("cursor filter changed")
+            except (KeyError,TypeError,ValueError,OverflowError) as e: raise ValueError("invalid cursor") from e
+        else:
+            until=timestamp(query["until"]) if query.get("until") else now
+            since=timestamp(query["since"]) if query.get("since") else until-timedelta(days=1)
+            c={"snapshot":self.db.execute("select coalesce(max(sequence_id),0) from gateway_incident_transition").fetchone()[0],"before":9223372036854775807,
+               "since":since.isoformat(),"until":until.isoformat(),"expires":(now+timedelta(minutes=15)).isoformat(),"binding":binding}
+        since=timestamp(c["since"]);until=timestamp(c["until"])
+        if not since<=until<=now+timedelta(seconds=1) or until-since>timedelta(days=30): raise ValueError("invalid window")
+        rows=self.db.execute("""with latest as (
+            select max(sequence_id) sequence_id from gateway_incident_transition where sequence_id<=?
+             and julianday(json_extract(projection,'$.last_seen_at'))<=julianday(?) group by incident_id)
+            select t.sequence_id,t.projection from gateway_incident_transition t join latest l using(sequence_id)
+             where t.sequence_id<? and julianday(json_extract(projection,'$.last_seen_at'))>=julianday(?)
+             and (? is null or json_extract(projection,'$.lifecycle_state')=?)
+             and (? is null or json_extract(projection,'$.severity')=?) order by t.sequence_id desc limit ?""",
+             (c["snapshot"],c["until"],c["before"],c["since"],state,state,severity,severity,limit+1)).fetchall()
+        items=[];partial=False
+        for row in rows[:limit]:
+            item=json.loads(row["projection"])
+            if item["visibility_class"] not in {"PUBLIC_OPERATIONAL","TENANT_OPERATIONAL"}: partial=True;continue
+            item["action_required"]=bool(item["action_required"]);items.append(item)
+        out={"items":items,"partial":partial,"authorization":"REDACTED" if partial else "AUTHORIZED","hasMore":len(rows)>limit,"since":c["since"],"until":c["until"]}
+        if len(rows)>limit:
+            c["before"]=rows[limit-1]["sequence_id"]
+            out["nextCursor"]=base64.urlsafe_b64encode(json.dumps(c,separators=(",",":")).encode()).decode().rstrip("=")
+        return out
 
     def has_restricted_incidents(self) -> bool:
         return self.db.execute("select 1 from gateway_operational_incident where visibility_class not in ('PUBLIC_OPERATIONAL','TENANT_OPERATIONAL') limit 1").fetchone() is not None

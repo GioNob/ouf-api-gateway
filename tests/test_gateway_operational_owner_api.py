@@ -6,6 +6,7 @@ def trusted_headers():
     return {
         "X-OUF-Gateway-Verified": "true",
         "X-OUF-Principal-ID": "operator",
+        "X-OUF-Tenant-ID": "tenant-a",
         "X-OUF-Authorization-Decision-Ref": "authz://decision/1",
     }
 
@@ -32,8 +33,9 @@ def test_owner_api_returns_safe_persisted_incident_projection(tmp_path):
         impact_summary="Gateway configuration publication is blocked.",
         correlation_id="publication-1",
         endpoint_ref="gateway://control-plane/publication",
+        visibility_class="TENANT_OPERATIONAL",
     )
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, tenant_id="tenant-a", summary_authorizer=lambda *args: True)
     status, body = api.handle(api.INCIDENTS_PATH, trusted_headers(), '{"limit":10}')
     assert status == 200
     assert body["partial"] is False
