@@ -26,3 +26,15 @@ def test_closed_routes_and_scope():
 @pytest.mark.parametrize('args',[{'limit':101},{'url':'https://attacker'},{'cursor':'x'*8193},{'state':'HEALTHY'},{'severity':'DEBUG'}])
 def test_rejects_unbounded_or_unknown_input(args):
     with pytest.raises(Denied):execute(arguments=args)
+
+@pytest.mark.parametrize('severity',['INFO','WARNING','ERROR','CRITICAL'])
+def test_all_normative_severities_cross_schema_and_lua(severity):
+    import jsonschema
+    doc=materialize(runtime(),'$ENV://OIDC','DELEGATION_KEY','OWNER_KEY')
+    for owner in ['mcp','gateway','ingestion']:
+        result=execute(owner,{'severity':severity})
+        assert json.loads(result.body)['severity']==severity
+    for route in doc['routes']:
+        if route.get('labels',{}).get('ouf-mediation')=='incidents-execute-v1':
+            args=route['plugins']['request-validation']['body_schema']['properties']['Arguments']
+            jsonschema.validate({'severity':severity},args)

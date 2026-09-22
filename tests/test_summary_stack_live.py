@@ -139,6 +139,17 @@ def test_summary_through_real_stack(tmp_path):
             assert last['items'][0]['incident_id']!=page['items'][0]['incident_id']
             code,body=invoke([],'ouf.operations.incidents',{'limit':1,'cursor':page['nextCursor']})
             assert code==200 and json.loads(body)['result'].get('isError') is True,body
+            for severity in ('INFO','CRITICAL'):
+                with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                    store.open_incident(dedup_key=severity,event_type='FAILURE',severity=severity,error_code='SAFE',impact_summary='Severity fixture',visibility_class='TENANT_OPERATIONAL')
+                start=incidents({'limit':1,'severity':severity})
+                filtered=incidents({'limit':1,'severity':severity,'cursor':start['nextCursor']})
+                assert filtered['partial'] is False and filtered['hasMore'] is False,filtered
+                assert len(filtered['items'])==1 and filtered['items'][0]['severity']==severity,filtered
+            with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                store.open_incident(dedup_key='visible',event_type='FAILURE',severity='ERROR',error_code='SAFE',impact_summary='Restricted now',visibility_class='RESTRICTED_OPERATIONAL')
+            restricted=incidents({'limit':1,'cursor':page['nextCursor']})
+            assert restricted['items']==[] and restricted['partial'] is True and restricted['hasMore'] is False,restricted
     except Exception:
         subprocess.run(['docker','logs','--tail','40',name],check=False)
         for log in tmp_path.glob('*.log'):print(log.name,log.read_text()[-6000:])

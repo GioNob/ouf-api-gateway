@@ -38,7 +38,7 @@ public class GatewayIncidents {
     if(q.has("limit")){if(!q.get("limit").isIntegralNumber()||!q.get("limit").canConvertToInt())throw bad();limit=q.get("limit").asInt();}
     if(limit<1||limit>100)throw bad();
     String state=field(q,"state"),severity=field(q,"severity"),source=field(q,"sourceId"),job=field(q,"jobId");
-    if(state!=null&&!Set.of("OPEN","RECOVERING","RESOLVED").contains(state)||severity!=null&&!Set.of("WARNING","ERROR").contains(severity))throw bad();
+    if(state!=null&&!Set.of("OPEN","RECOVERING","RESOLVED").contains(state)||severity!=null&&!Set.of("INFO","WARNING","ERROR","CRITICAL").contains(severity))throw bad();
     if(source!=null&&(source.isBlank()||source.length()>200))throw bad();
     if(job!=null&&!job.matches("[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}"))throw bad();
     try{
@@ -67,7 +67,10 @@ public class GatewayIncidents {
         String sql="""
           with latest as (select incident_id,max(sequence_id) seq from gateway_incident_transition
             where sequence_id<=? and julianday(json_extract(projection,'$.last_seen_at'))<=julianday(?) group by incident_id)
-          select t.sequence_id,t.projection from gateway_incident_transition t join latest l on l.seq=t.sequence_id
+          select t.sequence_id,t.projection,
+            (select json_extract(current.projection,'$.visibility_class') from gateway_incident_transition current
+              where current.incident_id=t.incident_id order by current.sequence_id desc limit 1) current_visibility
+          from gateway_incident_transition t join latest l on l.seq=t.sequence_id
           where t.sequence_id<? and julianday(json_extract(projection,'$.last_seen_at'))>=julianday(?)
           and (? is null or json_extract(projection,'$.lifecycle_state')=?)
           and (? is null or json_extract(projection,'$.severity')=?) order by t.sequence_id desc limit ?
@@ -79,7 +82,7 @@ public class GatewayIncidents {
           try(var rows=stmt.executeQuery()){while(rows.next()){
             if(scanned++==limit){more=true;break;}before=rows.getLong(1);
             JsonNode row=json.readTree(rows.getString(2));
-            if(!Set.of("TENANT_OPERATIONAL","PUBLIC_OPERATIONAL").contains(row.path("visibility_class").asText())){partial=true;continue;}
+            if(!Set.of("TENANT_OPERATIONAL","PUBLIC_OPERATIONAL").contains(Objects.toString(rows.getString("current_visibility"),"")) || !Set.of("TENANT_OPERATIONAL","PUBLIC_OPERATIONAL").contains(row.path("visibility_class").asText())){partial=true;continue;}
             var item=new LinkedHashMap<String,Object>();
             for(String key:List.of("incident_id","module","event_type","lifecycle_state","severity","first_seen_at","last_seen_at","resolved_at","error_code","impact_summary","visibility_class","correlation_id","endpoint_ref")){
               JsonNode value=row.get(key);if(value!=null&&!value.isNull()){if(!value.isTextual()||value.asText().length()>2048)throw unavailable();item.put(key,value.asText());}

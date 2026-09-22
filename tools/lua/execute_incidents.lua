@@ -51,7 +51,7 @@ if q['until'] ~= nil and (type(q['until'])~='string' or #q['until']>40) then ret
 if q.cursor ~= nil and (not text(q.cursor) or #q.cursor>8192) then return fail(400) end
 if q.jobId ~= nil and (not text(q.jobId) or #q.jobId~=36) then return fail(400) end
 if q.state ~= nil and q.state~='OPEN' and q.state~='RECOVERING' and q.state~='RESOLVED' then return fail(400) end
-if q.severity ~= nil and q.severity~='WARNING' and q.severity~='ERROR' then return fail(400) end
+if q.severity ~= nil and q.severity~='INFO' and q.severity~='WARNING' and q.severity~='ERROR' and q.severity~='CRITICAL' then return fail(400) end
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
     or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end

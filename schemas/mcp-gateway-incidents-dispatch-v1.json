@@ -80,8 +80,10 @@
             },
             "severity": {
               "enum": [
+                "INFO",
                 "WARNING",
-                "ERROR"
+                "ERROR",
+                "CRITICAL"
               ]
             }
           }
@@ -240,8 +242,10 @@
             },
             "severity": {
               "enum": [
+                "INFO",
                 "WARNING",
-                "ERROR"
+                "ERROR",
+                "CRITICAL"
               ]
             }
           }
@@ -400,8 +404,10 @@
             },
             "severity": {
               "enum": [
+                "INFO",
                 "WARNING",
-                "ERROR"
+                "ERROR",
+                "CRITICAL"
               ]
             }
           }

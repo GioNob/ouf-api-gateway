@@ -75,6 +75,7 @@ class SQLiteOperationalIncidentStore:
             """
         )
         self.db.execute("create table if not exists gateway_incident_transition(sequence_id integer primary key autoincrement, incident_id text not null, projection text not null)")
+        self.db.execute("create index if not exists gateway_incident_current on gateway_incident_transition(incident_id,sequence_id desc)")
         fields=list(OperationalIncident.__dataclass_fields__)
         pairs=",".join("'%s',new.%s" % (k,k) for k in fields)
         for event in ("insert","update"):
@@ -221,7 +222,10 @@ class SQLiteOperationalIncidentStore:
         rows=self.db.execute("""with latest as (
             select max(sequence_id) sequence_id from gateway_incident_transition where sequence_id<=?
              and julianday(json_extract(projection,'$.last_seen_at'))<=julianday(?) group by incident_id)
-            select t.sequence_id,t.projection from gateway_incident_transition t join latest l using(sequence_id)
+            select t.sequence_id,t.projection,
+             (select json_extract(current.projection,'$.visibility_class') from gateway_incident_transition current
+              where current.incident_id=t.incident_id order by current.sequence_id desc limit 1) current_visibility
+            from gateway_incident_transition t join latest l using(sequence_id)
              where t.sequence_id<? and julianday(json_extract(projection,'$.last_seen_at'))>=julianday(?)
              and (? is null or json_extract(projection,'$.lifecycle_state')=?)
              and (? is null or json_extract(projection,'$.severity')=?) order by t.sequence_id desc limit ?""",
@@ -229,7 +233,7 @@ class SQLiteOperationalIncidentStore:
         items=[];partial=False
         for row in rows[:limit]:
             item=json.loads(row["projection"])
-            if item["visibility_class"] not in {"PUBLIC_OPERATIONAL","TENANT_OPERATIONAL"}: partial=True;continue
+            if row["current_visibility"] not in {"PUBLIC_OPERATIONAL","TENANT_OPERATIONAL"} or item["visibility_class"] not in {"PUBLIC_OPERATIONAL","TENANT_OPERATIONAL"}: partial=True;continue
             item["action_required"]=bool(item["action_required"]);items.append(item)
         out={"items":items,"partial":partial,"authorization":"REDACTED" if partial else "AUTHORIZED","hasMore":len(rows)>limit,"since":c["since"],"until":c["until"]}
         if len(rows)>limit:

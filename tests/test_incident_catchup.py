@@ -51,3 +51,18 @@ def test_cursor_bound_to_filters_and_principal(tmp_path):
     with pytest.raises(ValueError):store.incident_page({"limit":1,"state":"RESOLVED","cursor":page["nextCursor"]},"tenant:user")
     with pytest.raises(ValueError):store.incident_page({"limit":1,"until":"not-a-date"},"tenant:user")
     store.close()
+
+
+def test_reclassification_applies_to_old_cursor_and_historical_window(tmp_path):
+    clock=[datetime(2026,9,22,8,tzinfo=timezone.utc)]
+    store=SQLiteOperationalIncidentStore(tmp_path/'incidents.sqlite',clock=lambda:clock[0])
+    open_incident(store,'a');open_incident(store,'b')
+    first=store.incident_page({'limit':1},'tenant:user')
+    until=clock[0].isoformat()
+    clock[0]+=timedelta(seconds=2)
+    open_incident(store,'a','RESTRICTED_OPERATIONAL')
+    second=store.incident_page({'limit':1,'cursor':first['nextCursor']},'tenant:user')
+    assert second['items']==[] and second['partial'] is True and second['hasMore'] is False
+    historical=store.incident_page({'until':until},'tenant:user')
+    assert len(historical['items'])==1 and historical['partial'] is True
+    store.close()

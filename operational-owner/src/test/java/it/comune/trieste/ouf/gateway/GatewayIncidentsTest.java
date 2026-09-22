@@ -40,4 +40,16 @@ class GatewayIncidentsTest {
   var req=new MockHttpServletRequest();req.addHeader("X-OUF-Gateway-Verified","true");req.addHeader("X-OUF-Principal-ID","admin");
   assertThatThrownBy(()->owner.incidents(json.readTree("{}"),req)).isInstanceOf(ResponseStatusException.class);
  }
+ @Test void visibilityRestrictionMustApplyToExistingCursor()throws Exception{
+  emit("a","OPEN","TENANT_OPERATIONAL");emit("b","OPEN","TENANT_OPERATIONAL");
+  var first=owner.page(json.readTree("{\"limit\":1}"),"tenant:reader");
+  emit("a","OPEN","RESTRICTED_OPERATIONAL");
+  var query=json.createObjectNode().put("limit",1).put("cursor",(String)first.get("nextCursor"));
+  var second=owner.page(query,"tenant:reader");
+  assertThat(second.get("items")).isEqualTo(List.of());
+  assertThat(second.get("partial")).isEqualTo(true);
+ }
+ @Test void criticalFilterMustBeAccepted()throws Exception{
+  assertThatCode(()->owner.page(json.readTree("{\"severity\":\"CRITICAL\"}"),"tenant:reader")).doesNotThrowAnyException();
+ }
 }
