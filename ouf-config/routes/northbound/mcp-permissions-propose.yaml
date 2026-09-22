@@ -7,7 +7,7 @@ spec:
   capabilityRef: authorization.permissions.propose@1.0.0
   sourceRef: r2b-onboarding@1.0.0
   match: {method: POST, path: /internal/capabilities/v1/execute/authorization.permissions.propose}
-  backendBinding: {service: ouf-source-onboarding, port: 8080, path: /api/internal/v1/authorization/permissions/propose}
+  backendBinding: {service: ouf-onboarding, port: 8080, path: /api/internal/v1/authorization/permissions/propose}
   policy:
     identity: M2M
     allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]

@@ -3,6 +3,7 @@
 Synthetic issuer and owner use HTTP only inside the isolated CI job. Production
 materialization keeps HTTPS discovery with certificate verification enabled.
 """
+import contextlib
 import base64
 import copy
 import json
@@ -20,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.materialize_permission_proposals import materialize
+from tools.materialize_summary import materialize
 from tests.test_execute_delegation import runtime, envelope
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
@@ -46,7 +47,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
+            elif self.path in ['/api/internal/v1/mcp/operations/summary','/api/internal/v1/ingestion/operations/summary','/api/internal/v1/gateway/operations/summary']:
+                self.reply({'body':json.loads(body),'proof':self.headers.get('X-OUF-Delegation'),'client':self.headers.get('X-OUF-Service-Principal'),'authorization':self.headers.get('Authorization')})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
+
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             else:self.send_error(404)
         def reply(self,value):
@@ -67,18 +71,24 @@ def test_real_apisix_oidc_delegation_and_execute():
         try:res=urllib.request.urlopen(req,timeout=5)
         except urllib.error.HTTPError as e:res=e
         with res:return res.status,res.read()
-    with tempfile.TemporaryDirectory() as folder:
+    with tempfile.TemporaryDirectory() as folder, contextlib.ExitStack() as owners:
+        owner_port=None
+        if os.environ.get('OUF_GATEWAY_OWNER_JAR'):
+            from tests.summary_java_owner import java_owner
+            owner_port,owner_db=owners.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'],folder,installation))
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
         for r in doc['routes']:
             oidc=r['plugins'].get('openid-connect')
             if oidc:oidc['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
             if 'upstream' in r:r['upstream']['nodes']={f'127.0.0.1:{server.server_port}':1}
-        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY']}}
+            if owner_port and r.get('uri','').endswith('/execute/ouf.gateway.operations.summary'):
+                r['upstream']['nodes']={f'127.0.0.1:{owner_port}':1}
+        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         name='ouf-execute-ci-'+str(os.getpid())
-        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','INGESTION_SUMMARY_RECEIPT_KEY='+'ef'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
         try:
             for _ in range(60):
                 try:
@@ -98,6 +108,38 @@ def test_real_apisix_oidc_delegation_and_execute():
             h={k.lower():v for k,v in calls[0][0].items()}
             assert h['x-ouf-principal-id']=='human-a' and h['x-ouf-service-principal']==workload
             assert h['x-ouf-external-role-refs']=='ouf:viewer'
+            from tests.test_summary_execute import summary_envelope
+            for cap,owner in [('ouf.operations.summary','mcp'),('ouf.ingestion.operations.summary','ingestion'),('ouf.gateway.operations.summary','gateway')]:
+                summary_path='/internal/capabilities/v1/execute/'+cap
+                code,raw=post(summary_path,summary_envelope(cap,owner),token('SERVICE'),proof)
+                assert code==200,(code,raw)
+                observed=json.loads(raw)
+                if owner=='gateway' and owner_port:
+                    assert observed['module']=='GATEWAY' and observed['status']=='DEGRADED'
+                    assert observed['partial'] is False and len(observed['items'])==1
+                    assert 'correlation_id' not in observed['items'][0]
+                    code,raw=post('/mcp',{},token(externalRoleRefs=[]))
+                    assert code==200
+                    revoked=json.loads(raw)['proof']
+                    code,_=post(summary_path,summary_envelope(cap,owner),token('SERVICE'),revoked)
+                    assert code==403  # Same IAM subject after role removal.
+                    direct=urllib.request.Request(f'http://127.0.0.1:{owner_port}/api/internal/v1/gateway/operations/summary',data=b'{"limit":5}',headers={'Content-Type':'application/json','X-OUF-Gateway-Verified':'true','X-OUF-Principal-ID':'human-a'})
+                    with pytest.raises(urllib.error.HTTPError) as denied:urllib.request.urlopen(direct)
+                    assert denied.value.code==403
+                    from tools.operational_incidents import SQLiteOperationalIncidentStore
+                    with contextlib.closing(SQLiteOperationalIncidentStore(owner_db)) as store:
+                        store.open_incident(dedup_key='protected',event_type='SECURITY',severity='ERROR',error_code='HIDDEN',impact_summary='hidden-sensitive-evidence')
+                    code,raw=post(summary_path,summary_envelope(cap,owner),token('SERVICE'),proof)
+                    hidden=json.loads(raw)
+                    assert code==200 and hidden['partial'] is True and hidden['status']=='UNKNOWN'
+                    assert 'openIncidents' not in hidden and b'hidden-sensitive-evidence' not in raw
+                else:
+                    assert observed['client']=='chatgpt' and observed['authorization'] is None
+                    assert observed['body']=={'limit':5}
+                    assert observed['proof']==(proof if owner=='mcp' else None)
+                wrong=summary_envelope(cap,owner);wrong['Owner']='udp'
+                code,_=post(summary_path,wrong,token('SERVICE'),proof);assert code in (400,403)
+
             assert 'authorization' not in h and 'x-ouf-delegation' not in h
             bad=envelope();bad['Identity']['TenantID']='other'
             cases=[(envelope(),None,proof),(envelope(),token('SERVICE')+'broken',proof),(envelope(),token('SERVICE',aud='wrong'),proof),(envelope(),token('SERVICE',azp='other'),proof),(envelope(),token('SERVICE'),proof[:-2]+'zz'),(bad,token('SERVICE'),proof)]

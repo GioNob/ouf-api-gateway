@@ -27,5 +27,11 @@
       "MCP_OIDC_CLIENT_SECRET_FILE": "/opt/ouf/secrets/mcp-client-secret",
       "MCP_FINGERPRINT_KEY_FILE": "/opt/ouf/secrets/mcp-fingerprint-key"
     }
+  },
+  "iam": {
+    "workloadClients": {
+      "mcpServer": "ouf-mcp-server",
+      "ingestion": "ouf-ingestion"
+    }
   }
 }

@@ -6,5 +6,5 @@ metadata:
   status: ACTIVE
 spec:
   protocol: HTTP
-  endpointRef: service://ouf-source-onboarding
+  endpointRef: service://ouf-onboarding
   sourceSchemaRef: capability-contract://r2b-onboarding/v1

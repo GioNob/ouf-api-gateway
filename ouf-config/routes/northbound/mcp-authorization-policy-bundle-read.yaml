@@ -13,13 +13,14 @@ spec:
     method: GET
     path: /internal/capabilities/v1/authorization/policy-bundle/active
   backendBinding:
-    service: ouf-source-onboarding
+    service: ouf-onboarding
     port: 8080
     path: /api/internal/v1/authorization/policy-bundle/active
   policy:
     identity: M2M
     allowedServiceIdentities:
       - installation://iam.workloadClients.mcpServer
+      - installation://iam.workloadClients.ingestion
     allowedActorTypes:
       - SERVICE
     maxRequestBytes: 65536

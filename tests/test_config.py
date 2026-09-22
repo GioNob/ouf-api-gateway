@@ -41,7 +41,7 @@ def test_client_controlled_physical_upstream_is_rejected(tmp_path):
     with pytest.raises(ConfigError,match="governed logical scheme"): compile_config(root)
 
 def test_internal_route_without_service_identity_is_rejected(tmp_path):
-    root=isolated(tmp_path); path=next((root/"routes").rglob("*.yaml")); doc=yaml.safe_load(path.read_text()); doc["spec"]["policy"]["allowedServiceIdentities"]=[]; path.write_text(yaml.safe_dump(doc))
+    root=isolated(tmp_path); path=root/"routes/northbound/mcp-gateway-operations-incidents.yaml"; doc=yaml.safe_load(path.read_text()); doc["spec"]["policy"]["allowedServiceIdentities"]=[]; path.write_text(yaml.safe_dump(doc))
     with pytest.raises(ConfigError,match="explicit service identities"): compile_config(root)
 
 def test_only_open_or_anonymous_classification_is_accepted(tmp_path):
@@ -112,12 +112,13 @@ def test_policy_bundle_route_is_real_authorization_capability():
     result=compile_config(ROOT/"ouf-config")
     route=next(r for r in result["routes"] if r["id"]=="mcp-authorization-policy-bundle-read")
     assert route["uri"]=="/internal/capabilities/v1/authorization/policy-bundle/active"
-    assert route["service_id"]=="ouf-source-onboarding"
+    assert route["service_id"]=="ouf-onboarding"
     assert route["plugins"]["proxy-rewrite"]["uri"]=="/api/internal/v1/authorization/policy-bundle/active"
     assert route["x-ouf-capability"]["capabilityId"]=="authorization.bundle.read"
     assert route["x-ouf-capability"]["owner"]=="authorization"
     assert route["x-ouf-policy"]["requiredScope"]=="authorization.bundle.read"
     assert route["x-ouf-policy"]["allowedServiceIdentities"]==[
-        "installation://iam.workloadClients.mcpServer"
+        "installation://iam.workloadClients.mcpServer",
+        "installation://iam.workloadClients.ingestion",
     ]
     assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]

@@ -1,0 +1,20 @@
+[Unit]
+Description=OUF Gateway etcd operational probe
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=10001
+WorkingDirectory=/opt/ouf/gateway
+StateDirectory=ouf-gateway-operations
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/usr/bin/python3 -m tools.gateway_operational_collector etcd --store /var/lib/ouf-gateway-operations/gateway-operations.sqlite --container ouf-etcd --timeout-seconds 8
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/ouf/gateway
+ReadWritePaths=/var/lib/ouf-gateway-operations

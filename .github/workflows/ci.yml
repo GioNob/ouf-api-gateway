@@ -70,6 +70,7 @@ jobs:
             tools/identity_boundary.py
             tools/authorization_boundary.py
             tools/operational_incidents.py
+            tools/gateway_operational_collector.py
             tools/gateway_operational_api.py
             tools/publication.py
             tools/etcd_resilience.py
@@ -78,6 +79,7 @@ jobs:
             tests/test_operational_awareness_routes.py
             tests/test_channel_neutral_system_status.py
             tests/test_gateway_operational_incidents.py
+            tests/test_gateway_operational_collector.py
             tests/test_gateway_operational_owner_api.py
             tests/test_gateway_operational_routes.py
             tests/test_runtime_catalog_closure.py
@@ -87,3 +89,82 @@ jobs:
             tests/test_apisix_control_plane.py
             tests/test_mcp_evidence_ingress.py
           retention-days: 30
+
+  operational-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - name: Verify pinned SDK and build authenticated producer
+        run: |
+          (cd vendor/authorization-sdk && sha256sum -c SOURCE_SHA256SUMS)
+          mvn -B -ntp -f vendor/authorization-sdk/pom.xml install
+          mvn -B -ntp -f operational-owner/pom.xml verify
+      - name: Real APISIX to real Java producer with role revocation
+        run: OUF_APISIX_LIVE_TEST=1 OUF_GATEWAY_OWNER_JAR="$PWD/operational-owner/target/gateway-operational-owner-1.0.0-SNAPSHOT.jar" python -m pytest -q tests/test_execute_apisix_live.py
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-owner-evidence-${{ github.run_id }}
+          path: |
+            operational-owner/target/surefire-reports/
+            operational-owner/target/bom.json
+  summary-stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env: {POSTGRES_DB: summary, POSTGRES_USER: summary, POSTGRES_PASSWORD: summary-ci-only}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U summary -d summary" --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-mcp-server
+          ref: 1108db1088aa0973425cc0825b3823e2a0045655
+          path: .pairwise/mcp
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-ingestion-runtime
+          ref: 688285d872d7e07786dfc2ba81f6284096174355
+          path: .pairwise/ingestion
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: actions/setup-go@v6
+        with: {go-version: '1.25.13', cache: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - name: Check shared receipt contract and build actual services
+        run: |
+          cmp operational-owner/src/main/java/it/comune/trieste/ouf/receipt/SummaryReceiptFilter.java .pairwise/ingestion/src/main/java/it/comune/trieste/ouf/receipt/SummaryReceiptFilter.java
+          cmp operational-owner/src/test/resources/operational-receipts.json .pairwise/ingestion/src/test/resources/operational-receipts.json
+          (cd vendor/authorization-sdk && sha256sum -c SOURCE_SHA256SUMS)
+          mvn -B -ntp -f vendor/authorization-sdk/pom.xml install
+          mvn -B -ntp -f operational-owner/pom.xml package
+          mvn -B -ntp -f .pairwise/ingestion/pom.xml -DskipTests package
+          (cd .pairwise/mcp && go build -o build/ouf-mcp ./cmd/ouf-mcp)
+      - name: Summary and paginated incidents through real stack with revoked role
+        env:
+          OUF_SUMMARY_STACK_TEST: '1'
+          OUF_GATEWAY_OWNER_JAR: ${{ github.workspace }}/operational-owner/target/gateway-operational-owner-1.0.0-SNAPSHOT.jar
+          OUF_INGESTION_JAR: ${{ github.workspace }}/.pairwise/ingestion/target/ingestion-runtime-1.0.0-SNAPSHOT.jar
+          OUF_MCP_BINARY: ${{ github.workspace }}/.pairwise/mcp/build/ouf-mcp
+          SUMMARY_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/summary
+          SUMMARY_PG_URL: postgres://summary:summary-ci-only@127.0.0.1:5432/summary?sslmode=disable
+        run: |
+          mkdir -p generated
+          python -m pytest -q tests/test_summary_stack_live.py --basetemp=generated/summary-stack
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-stack-evidence-${{ github.run_id }}
+          path: generated/summary-stack/**/*.log

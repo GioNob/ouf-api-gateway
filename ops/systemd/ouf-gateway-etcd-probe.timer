@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OUF Gateway etcd operational probe
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Unit=ouf-gateway-etcd-probe.service
+
+[Install]
+WantedBy=timers.target
