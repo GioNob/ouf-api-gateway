@@ -1,0 +1,491 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://ouf.operations.incidents"
+        },
+        "CapabilityID": {
+          "const": "ouf.operations.incidents"
+        },
+        "Owner": {
+          "const": "mcp"
+        },
+        "OperationClass": {
+          "type": "string",
+          "enum": [
+            "READ"
+          ]
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "sourceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "until": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "jobId": {
+              "type": "string",
+              "format": "uuid",
+              "minLength": 36,
+              "maxLength": 36
+            },
+            "state": {
+              "enum": [
+                "OPEN",
+                "RECOVERING",
+                "RESOLVED"
+              ]
+            },
+            "severity": {
+              "enum": [
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+              ]
+            }
+          }
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 524288
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://ouf.ingestion.operations.incidents"
+        },
+        "CapabilityID": {
+          "const": "ouf.ingestion.operations.incidents"
+        },
+        "Owner": {
+          "const": "ingestion"
+        },
+        "OperationClass": {
+          "type": "string",
+          "enum": [
+            "READ"
+          ]
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "sourceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "until": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "jobId": {
+              "type": "string",
+              "format": "uuid",
+              "minLength": 36,
+              "maxLength": 36
+            },
+            "state": {
+              "enum": [
+                "OPEN",
+                "RECOVERING",
+                "RESOLVED"
+              ]
+            },
+            "severity": {
+              "enum": [
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+              ]
+            }
+          }
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 524288
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "GatewayBindingRef",
+        "CapabilityID",
+        "Owner",
+        "OperationClass",
+        "Arguments",
+        "Identity",
+        "AuthorizationDecisionRef",
+        "CorrelationID",
+        "IdempotencyKey",
+        "AttemptID",
+        "RequestHash",
+        "MaxResultBytes"
+      ],
+      "properties": {
+        "GatewayBindingRef": {
+          "const": "capability://ouf.gateway.operations.incidents"
+        },
+        "CapabilityID": {
+          "const": "ouf.gateway.operations.incidents"
+        },
+        "Owner": {
+          "const": "gateway"
+        },
+        "OperationClass": {
+          "type": "string",
+          "enum": [
+            "READ"
+          ]
+        },
+        "Arguments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "sourceId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "until": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 40,
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            },
+            "cursor": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "jobId": {
+              "type": "string",
+              "format": "uuid",
+              "minLength": 36,
+              "maxLength": 36
+            },
+            "state": {
+              "enum": [
+                "OPEN",
+                "RECOVERING",
+                "RESOLVED"
+              ]
+            },
+            "severity": {
+              "enum": [
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+              ]
+            }
+          }
+        },
+        "Identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ServicePrincipalID",
+            "PrincipalID",
+            "TenantID",
+            "ActorType",
+            "AuthenticationContextRef"
+          ],
+          "properties": {
+            "ServicePrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "PrincipalID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "TenantID": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            },
+            "ActorType": {
+              "enum": [
+                "HUMAN"
+              ]
+            },
+            "AuthenticationContextRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[ -~]+$"
+            }
+          }
+        },
+        "AuthorizationDecisionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "CorrelationID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "IdempotencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        },
+        "AttemptID": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "RequestHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "MaxResultBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 524288
+        }
+      }
+    }
+  ]
+}

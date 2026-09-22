@@ -19,7 +19,7 @@ import pytest
 import yaml
 from tests.test_execute_delegation import runtime
 from tests.summary_java_owner import java_owner
-from tools.materialize_summary import materialize
+from tools.materialize_incidents import materialize
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_SUMMARY_STACK_TEST')!='1',reason='requires complete summary stack')
 
@@ -51,14 +51,14 @@ def test_summary_through_real_stack(tmp_path):
     rt=runtime();installation=rt['x-ouf-installation'];issuer=installation['issuerUrl'];aud=installation['gatewayAudience'];workload=installation['mcpServiceIdentity']
     api_port,mcp_port,ing_port=free_port(),free_port(),free_port()
     def token(roles=None,service=False):
-        now=int(time.time());claims=dict(iss=issuer,aud=aud,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',iat=now,exp=now+600,scope='mcp.connect operations.status.read',ouf_actor_type='HUMAN',externalRoleRefs=roles or [])
+        now=int(time.time());claims=dict(iss=issuer,aud=aud,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',iat=now,exp=now+600,scope='mcp.connect operations.status.read operations.incident.read',ouf_actor_type='HUMAN',externalRoleRefs=roles or [])
         if service:claims.update(sub='workload',azp=workload,ouf_actor_type='SERVICE',scope='authorization.bundle.read')
         return jwt.encode(claims,key,algorithm='RS256',headers={'kid':'fixture'})
-    now=datetime.now(timezone.utc);caps=['ouf.operations.summary','ouf.gateway.operations.summary','ouf.ingestion.operations.summary','operations.status.read']
+    now=datetime.now(timezone.utc);caps=['ouf.operations.summary','ouf.gateway.operations.summary','ouf.ingestion.operations.summary','operations.status.read','ouf.operations.incidents','ouf.gateway.operations.incidents','ouf.ingestion.operations.incidents','operations.incident.read']
     bundle={'bundleId':'bundle','version':6,'publishedAt':now.isoformat(),'capabilities':[],'grants':[]}
     for cap in caps:
-        bundle['capabilities'].append(dict(capabilityId=cap,operation='READ',requiredScope='operations.status.read',allowedActors=['HUMAN']))
-        bundle['grants'].append(dict(grantId=cap,capabilityId=cap,tenantId='tenant-a',validFrom=(now-timedelta(minutes=1)).isoformat(),validUntil=(now+timedelta(hours=1)).isoformat(),constraints=dict(externalRoleRef='ouf:viewer',resourceType='operational' if cap=='operations.status.read' else 'capability',allowedDetailLevels=['TENANT_OPERATIONAL'])))
+        bundle['capabilities'].append(dict(capabilityId=cap,operation='READ',requiredScope='operations.incident.read' if cap.endswith('incidents') or cap=='operations.incident.read' else 'operations.status.read',allowedActors=['HUMAN']))
+        bundle['grants'].append(dict(grantId=cap,capabilityId=cap,tenantId='tenant-a',validFrom=(now-timedelta(minutes=1)).isoformat(),validUntil=(now+timedelta(hours=1)).isoformat(),constraints=dict(externalRoleRef='ouf:viewer',resourceType='operational' if cap in ['operations.status.read','operations.incident.read'] else 'capability',allowedDetailLevels=['TENANT_OPERATIONAL'])))
     raw=json.dumps(bundle,separators=(',',':')).encode();digest=hashlib.sha256(raw).hexdigest()
     active=dict(bundleId='bundle',bundleVersion=6,activatedAt=now.isoformat(),contentHash=digest,bundle=bundle)
     class Issuer(BaseHTTPRequestHandler):
@@ -74,7 +74,7 @@ def test_summary_through_real_stack(tmp_path):
     name='ouf-summary-stack-'+str(os.getpid())
     try:
         with contextlib.ExitStack() as stack:
-            owner_port,_=stack.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'],tmp_path,installation,bundle))
+            owner_port,gateway_db=stack.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'],tmp_path,installation,bundle))
             ing_key=tmp_path/'ingestion.key';ing_key.write_text('ef'*32);ing_key.chmod(0o600)
             ing_args=['java','-jar',os.environ['OUF_INGESTION_JAR'],f'--server.port={ing_port}',f'--spring.datasource.url={os.environ["SUMMARY_JDBC_URL"]}',
                       '--spring.datasource.username=summary','--spring.datasource.password=summary-ci-only',
@@ -89,15 +89,15 @@ def test_summary_through_real_stack(tmp_path):
                 if 'openid-connect' in route['plugins']:route['plugins']['openid-connect']['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
                 if 'upstream' in route:
                     uri=route.get('uri','')
-                    port=ing_port if uri.endswith('/execute/ouf.ingestion.operations.summary') else owner_port if uri.endswith('/execute/ouf.gateway.operations.summary') else mcp_port
+                    port=ing_port if uri.endswith(('/execute/ouf.ingestion.operations.summary','/execute/ouf.ingestion.operations.incidents')) else owner_port if uri.endswith(('/execute/ouf.gateway.operations.summary','/execute/ouf.gateway.operations.incidents')) else mcp_port
                     route['upstream']['nodes']={f'127.0.0.1:{port}':1}
             config={'apisix':{'node_listen':api_port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
             os.chmod(tmp_path,0o755);(tmp_path/'config.yaml').write_text(yaml.safe_dump(config));(tmp_path/'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
             subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','INGESTION_SUMMARY_RECEIPT_KEY='+'ef'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',str(tmp_path/'config.yaml')+':/usr/local/apisix/conf/config.yaml:ro','-v',str(tmp_path/'apisix.yaml')+':/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,capture_output=True)
-            def invoke(roles):
+            def invoke(roles,tool="ouf.operations.summary",arguments=None):
                 meta={'io.modelcontextprotocol/clientCapabilities':{},'io.modelcontextprotocol/clientInfo':{'name':'summary-stack','version':'1'},'io.modelcontextprotocol/protocolVersion':'2026-07-28'}
-                body={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'ouf.operations.summary','arguments':{'limit':5},'_meta':meta}}
-                headers={'Authorization':'Bearer '+token(roles),'Content-Type':'application/json','Accept':'application/json, text/event-stream','Mcp-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':'ouf.operations.summary','Idempotency-Key':str(uuid.uuid4()),'X-Correlation-ID':str(uuid.uuid4()),'X-OUF-External-Role-Refs':'ouf:viewer'}
+                body={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':tool,'arguments':arguments or {'limit':5},'_meta':meta}}
+                headers={'Authorization':'Bearer '+token(roles),'Content-Type':'application/json','Accept':'application/json, text/event-stream','Mcp-Protocol-Version':'2026-07-28','Mcp-Method':'tools/call','Mcp-Name':tool,'Idempotency-Key':str(uuid.uuid4()),'X-Correlation-ID':str(uuid.uuid4()),'X-OUF-External-Role-Refs':'ouf:viewer'}
                 req=urllib.request.Request(f'http://127.0.0.1:{api_port}/mcp',data=json.dumps(body).encode(),headers=headers)
                 try:
                     with urllib.request.urlopen(req,timeout=15) as response:return response.status,response.read()
@@ -118,6 +118,38 @@ def test_summary_through_real_stack(tmp_path):
             result=json.loads(body)['result'];assert result.get('isError') is True,body
             assert json.loads(result['content'][0]['text'])['code']=='authorization denied',body
             assert 'modules' not in str(result),body
+            # Catch-up traverses both real owner APIs and remains stable across recovery.
+            from tools.operational_incidents import SQLiteOperationalIncidentStore
+            with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                store.open_incident(dedup_key='second',event_type='FAILURE',severity='ERROR',error_code='SAFE',impact_summary='Second failure',visibility_class='TENANT_OPERATIONAL')
+            def incidents(arguments):
+                code,body=invoke(['ouf:viewer'],'ouf.operations.incidents',arguments)
+                assert code==200,(code,body)
+                result=json.loads(body)['result'];assert not result.get('isError'),body
+                return json.loads(result['content'][0]['text'])
+            first=incidents({'limit':1})
+            assert first['partial'] is False and first['hasMore'] is True,first
+            page=incidents({'limit':1,'cursor':first['nextCursor']})
+            assert page['partial'] is False and len(page['items'])==1 and page['hasMore'] is True,page
+            with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                store.resolve_incident('visible','Recovered')
+            last=incidents({'limit':1,'cursor':page['nextCursor']})
+            assert last['hasMore'] is False and last['partial'] is False,last
+            assert last['items'][0]['lifecycle_state']=='OPEN',last
+            assert last['items'][0]['incident_id']!=page['items'][0]['incident_id']
+            code,body=invoke([],'ouf.operations.incidents',{'limit':1,'cursor':page['nextCursor']})
+            assert code==200 and json.loads(body)['result'].get('isError') is True,body
+            for severity in ('INFO','CRITICAL'):
+                with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                    store.open_incident(dedup_key=severity,event_type='FAILURE',severity=severity,error_code='SAFE',impact_summary='Severity fixture',visibility_class='TENANT_OPERATIONAL')
+                start=incidents({'limit':1,'severity':severity})
+                filtered=incidents({'limit':1,'severity':severity,'cursor':start['nextCursor']})
+                assert filtered['partial'] is False and filtered['hasMore'] is False,filtered
+                assert len(filtered['items'])==1 and filtered['items'][0]['severity']==severity,filtered
+            with contextlib.closing(SQLiteOperationalIncidentStore(gateway_db)) as store:
+                store.open_incident(dedup_key='visible',event_type='FAILURE',severity='ERROR',error_code='SAFE',impact_summary='Restricted now',visibility_class='RESTRICTED_OPERATIONAL')
+            restricted=incidents({'limit':1,'cursor':page['nextCursor']})
+            assert restricted['items']==[] and restricted['partial'] is True and restricted['hasMore'] is False,restricted
     except Exception:
         subprocess.run(['docker','logs','--tail','40',name],check=False)
         for log in tmp_path.glob('*.log'):print(log.name,log.read_text()[-6000:])

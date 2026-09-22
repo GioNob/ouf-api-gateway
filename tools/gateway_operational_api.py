@@ -31,12 +31,21 @@ class GatewayOperationalOwnerAPI:
         if type(limit) is not int or limit < 1 or limit > 100:
             return 400, {"code": "OPERATIONAL_LIMIT_INVALID"}
         if path == self.INCIDENTS_PATH:
-            state = query.get("state")
+            if not self.tenant_id or self.summary_authorizer is None:
+                return 503, {"code": "OWNER_AUTHORIZATION_UNAVAILABLE"}
+            if headers.get("X-OUF-Tenant-ID") != self.tenant_id:
+                return 403, {"code": "NOT_AUTHORIZED"}
+            resource={"resourceType":"capability","tenantId":self.tenant_id,"module":"GATEWAY","detailLevel":"TENANT_OPERATIONAL"}
             try:
-                items = self.store.list_incidents(lifecycle_state=state, limit=limit)
-            except ValueError:
-                return 400, {"code": "OPERATIONAL_STATE_INVALID"}
-            return 200, {"items": [asdict(item) for item in items], "partial": False}
+                allowed=self.summary_authorizer(headers,"ouf.gateway.operations.incidents",resource)
+            except Exception:
+                return 503, {"code":"OWNER_AUTHORIZATION_UNAVAILABLE"}
+            if allowed is not True:
+                return 403, {"code":"NOT_AUTHORIZED"}
+            try:
+                return 200,self.store.incident_page(query,self.tenant_id+":"+headers["X-OUF-Principal-ID"])
+            except (ValueError,TypeError):
+                return 400, {"code":"OPERATIONAL_QUERY_INVALID"}
         if path == self.SUMMARY_PATH:
             # This legacy store is not tenant-partitioned. Bind it to one deployment
             # tenant explicitly and require a local policy adapter; a Gateway

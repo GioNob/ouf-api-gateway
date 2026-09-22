@@ -41,7 +41,7 @@ def test_client_controlled_physical_upstream_is_rejected(tmp_path):
     with pytest.raises(ConfigError,match="governed logical scheme"): compile_config(root)
 
 def test_internal_route_without_service_identity_is_rejected(tmp_path):
-    root=isolated(tmp_path); path=next((root/"routes").rglob("*.yaml")); doc=yaml.safe_load(path.read_text()); doc["spec"]["policy"]["allowedServiceIdentities"]=[]; path.write_text(yaml.safe_dump(doc))
+    root=isolated(tmp_path); path=root/"routes/northbound/mcp-gateway-operations-incidents.yaml"; doc=yaml.safe_load(path.read_text()); doc["spec"]["policy"]["allowedServiceIdentities"]=[]; path.write_text(yaml.safe_dump(doc))
     with pytest.raises(ConfigError,match="explicit service identities"): compile_config(root)
 
 def test_only_open_or_anonymous_classification_is_accepted(tmp_path):

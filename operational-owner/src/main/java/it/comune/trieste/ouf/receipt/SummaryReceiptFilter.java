@@ -26,10 +26,12 @@ public final class SummaryReceiptFilter extends OncePerRequestFilter {
     this.owner=owner;this.tenant=tenant;this.issuer=issuer;this.audience=audience;this.workload=workload;this.keyFile=keyFile;this.clock=clock;
     if(!Set.of("ingestion","gateway").contains(owner))throw new IllegalArgumentException("invalid producer");
   }
-  private String path(){return "/api/internal/v1/"+owner+"/operations/summary";}
-  private String capability(){return "ouf."+owner+".operations.summary";}
-  @Override protected boolean shouldNotFilter(HttpServletRequest r){return !r.getRequestURI().equals(path());}
+  private String path(String operation){return "/api/internal/v1/"+owner+"/operations/"+operation;}
+  private String capability(String operation){return "ouf."+owner+".operations."+operation;}
+  @Override protected boolean shouldNotFilter(HttpServletRequest r){return !Set.of(path("summary"),path("incidents")).contains(r.getRequestURI());}
   @Override protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain)throws IOException,ServletException{
+    String operation=req.getRequestURI().endsWith("/incidents")?"incidents":"summary";
+    String requiredScope=operation.equals("incidents")?"operations.incident.read":"operations.status.read";
     if(!"POST".equals(req.getMethod())){res.sendError(405);return;}
     byte[] key;
     try{
@@ -55,11 +57,11 @@ public final class SummaryReceiptFilter extends OncePerRequestFilter {
       if(!receipt.isObject()||!receipt.path("v").isIntegralNumber()||receipt.path("v").asInt()!=1||!receipt.path("iat").isIntegralNumber()||!receipt.path("exp").isIntegralNumber())throw new SecurityException();
       long issued=receipt.path("iat").asLong(),expires=receipt.path("exp").asLong();
       if(issued>now||expires<=now||expires<=issued||expires-issued>30)throw new SecurityException();
-      Map<String,String> expected=Map.of("purpose","operational-summary-owner","method","POST","path",path(),"capability",capability(),"tenant",tenant,"issuer",issuer,"audience",audience,"workload",workload);
+      Map<String,String> expected=Map.of("purpose","operational-summary-owner","method","POST","path",path(operation),"capability",capability(operation),"tenant",tenant,"issuer",issuer,"audience",audience,"workload",workload);
       for(var e:expected.entrySet())if(!e.getValue().equals(text(receipt,e.getKey())))throw new SecurityException();
       if(!HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(body)).equals(text(receipt,"bodyHash")))throw new SecurityException();
       Set<String> roles=words(receipt,"roles",true),scopes=words(receipt,"scope",false);
-      if(roles.size()>32||!scopes.contains("operations.status.read"))throw new SecurityException();
+      if(roles.size()>32||!scopes.contains(requiredScope))throw new SecurityException();
       var principal=new TrustedPrincipal(new PrincipalContext(text(receipt,"subject"),tenant,PrincipalContext.ActorType.HUMAN,text(receipt,"client"),text(receipt,"acr"),issuer,audience,scopes,new PrincipalContext.IdentityClaims(roles,text(receipt,"acr"),Set.of(),null)));
       wrapped=new HttpServletRequestWrapper(req){
         @Override public Principal getUserPrincipal(){return principal;}
@@ -70,7 +72,7 @@ public final class SummaryReceiptFilter extends OncePerRequestFilter {
     }catch(Exception e){res.sendError(403,"INVALID_OPERATIONAL_RECEIPT");return;}
     try{
       var auth=OwnerAuthorization.bind(wrapped);
-      var decision=auth.require(capability(),new ResourceContext("capability",null,tenant,null,Map.of("detailLevel","TENANT_OPERATIONAL")));
+      var decision=auth.require(capability(operation),new ResourceContext("capability",null,tenant,null,Map.of("detailLevel","TENANT_OPERATIONAL")));
       if(!"TENANT_OPERATIONAL".equals(decision.permittedDetailLevel())||!decision.decisionRef().equals(text(receipt,"decisionRef")))throw new SecurityException("STALE_DECISION");
     }catch(SecurityException e){res.sendError(403,"NOT_AUTHORIZED");return;}
     chain.doFilter(wrapped,res);
