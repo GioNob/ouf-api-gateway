@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: GioNob/ouf-mcp-server
-          ref: 40a08de97d6102fbdd69ba3eb127b9d636a8ad2b
+          ref: 5a8b2e8a0c8b1fe427f357c1ceb0c51f651f15c1
           path: .pairwise/mcp
       - uses: actions/checkout@v4
         with:
