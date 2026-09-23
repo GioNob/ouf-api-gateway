@@ -84,10 +84,13 @@ def test_real_apisix_oidc_delegation_and_execute():
             from datetime import datetime, timedelta, timezone
             with socket.socket() as sock:sock.bind(('127.0.0.1',0));udp_port=sock.getsockname()[1]
             now=datetime.now(timezone.utc)
+            admitted={'grantId':'search-admission','capabilityId':'urban.object.search','tenantId':'tenant-a','subjectId':'human-a',
+                'servicePrincipalId':None,'organizationId':None,'validFrom':(now-timedelta(minutes=1)).isoformat(),
+                'validUntil':(now+timedelta(hours=1)).isoformat(),'constraints':{'resourceType':'capability'}}
+            object_grants=[dict(admitted,grantId=f'search-object-{n}',constraints={'resourceType':'object','resourceId':f'00000000-0000-4000-8000-{n:012d}'}) for n in (11,22)]
             bundle={'bundleId':'udp-search-ci','version':1,'publishedAt':now.isoformat(),
                 'capabilities':[{'capabilityId':'urban.object.search','operation':'SEARCH','requiredScope':'urban.object.search','allowedActors':['HUMAN']}],
-                'grants':[{'grantId':'search-human','capabilityId':'urban.object.search','tenantId':'tenant-a','subjectId':'human-a','servicePrincipalId':None,'organizationId':None,
-                    'validFrom':(now-timedelta(minutes=1)).isoformat(),'validUntil':(now+timedelta(hours=1)).isoformat()}]}
+                'grants':[admitted,*object_grants]}
             raw_bundle=json.dumps(bundle,separators=(',',':')).encode()
             Path(folder,'udp-bundle.json').write_bytes(raw_bundle)
             Path(folder,'udp-owner.key').write_text('34'*32)
@@ -115,6 +118,13 @@ def test_real_apisix_oidc_delegation_and_execute():
                 except (OSError,urllib.error.URLError):pass
                 time.sleep(1)
             else:raise AssertionError('UDP not ready: '+Path(folder,'udp-server.log').read_text()[-4000:])
+            # Fixed SQL fixture is loaded only in the disposable CI PostgreSQL.
+            rows=[]
+            for n,tenant in [(11,'tenant-a'),(22,'tenant-a'),(33,'tenant-a'),(44,'tenant-b')]:
+                rows.append(f"('00000000-0000-4000-8000-{n:012d}','ouf:Asset','ci-{n}','{tenant}')")
+            sql='insert into ouf_udp.urban_object(urban_object_id,canonical_type,canonical_key,tenant_id) values '+','.join(rows)
+            subprocess.run(['docker','run','--rm','--network','host','-e','PGPASSWORD='+udp_env['OUF_UDP_DB_PASSWORD'],
+                'postgres:17-alpine','psql','-h','127.0.0.1','-U',udp_env['OUF_UDP_DB_USER'],'-d','ouf_udp','-v','ON_ERROR_STOP=1','-c',sql],check=True,stdout=subprocess.DEVNULL)
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
         for r in doc['routes']:
@@ -230,11 +240,23 @@ def test_real_apisix_oidc_delegation_and_execute():
             code,raw=post('/mcp',{},token(scope='mcp.connect urban.object.search',externalRoleRefs=['ente:viewer']))
             assert code==200,(code,raw)
             search_proof=json.loads(raw)['proof']
-            code,raw=post(search_path,search_request(),token('SERVICE'),search_proof)
+            search_args={'type':'ouf:Asset','pageSize':1} if udp_port else None
+            code,raw=post(search_path,search_request(search_args),token('SERVICE'),search_proof)
             assert code==200,(code,raw)
             if udp_port:
                 result=json.loads(raw)
-                assert result['items']==[] and result['nextCursor'] is None and result['partial'] is False
+                assert len(result['items'])==1 and result['items'][0]['urbanObjectId']=='00000000-0000-4000-8000-000000000011'
+                assert result['nextCursor'] and result['partial'] is False
+                code,raw=post(search_path,search_request({'type':'ouf:Asset','pageSize':1,'cursor':result['nextCursor']}),token('SERVICE'),search_proof)
+                assert code==200,(code,raw)
+                result=json.loads(raw)
+                assert len(result['items'])==1 and result['items'][0]['urbanObjectId']=='00000000-0000-4000-8000-000000000022'
+                assert result['nextCursor'] and result['partial'] is False
+                code,raw=post(search_path,search_request({'type':'ouf:Asset','pageSize':1,'cursor':result['nextCursor']}),token('SERVICE'),search_proof)
+                assert code==200,(code,raw)
+                result=json.loads(raw)
+                assert result['items']==[] and result['nextCursor'] is None and result['partial'] is True
+                assert '000000000033' not in raw.decode() and '000000000044' not in raw.decode()
                 direct=urllib.request.Request(f'http://127.0.0.1:{udp_port}/api/udp/v1/objects/search',data=b'{"type":"ouf:Asset"}',headers={'Content-Type':'application/json'})
                 with pytest.raises(urllib.error.HTTPError) as denied:urllib.request.urlopen(direct)
                 assert denied.value.code==403
