@@ -78,6 +78,43 @@ def test_real_apisix_oidc_delegation_and_execute():
         if os.environ.get('OUF_GATEWAY_OWNER_JAR'):
             from tests.summary_java_owner import java_owner
             owner_port,owner_db=owners.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'],folder,installation))
+        udp_port=None
+        if os.environ.get('OUF_UDP_JAR'):
+            import hashlib
+            from datetime import datetime, timedelta, timezone
+            with socket.socket() as sock:sock.bind(('127.0.0.1',0));udp_port=sock.getsockname()[1]
+            now=datetime.now(timezone.utc)
+            bundle={'bundleId':'udp-search-ci','version':1,'publishedAt':now.isoformat(),
+                'capabilities':[{'capabilityId':'urban.object.search','operation':'SEARCH','requiredScope':'urban.object.search','allowedActors':['HUMAN']}],
+                'grants':[{'grantId':'search-human','capabilityId':'urban.object.search','tenantId':'tenant-a','subjectId':'human-a','servicePrincipalId':None,'organizationId':None,
+                    'validFrom':(now-timedelta(minutes=1)).isoformat(),'validUntil':(now+timedelta(hours=1)).isoformat()}]}
+            raw_bundle=json.dumps(bundle,separators=(',',':')).encode()
+            Path(folder,'udp-bundle.json').write_bytes(raw_bundle)
+            Path(folder,'udp-owner.key').write_text('34'*32)
+            udp_env=dict(os.environ,PORT=str(udp_port),OUF_UDP_LAKE_REQUIRED='false',
+                OUF_UDP_SEARCH_TENANT_ID='tenant-a',OUF_UDP_SEARCH_ISSUER=issuer,
+                OUF_UDP_SEARCH_AUDIENCE=aud,OUF_UDP_SEARCH_WORKLOAD=workload,
+                OUF_UDP_SEARCH_OWNER_KEY_FILE=str(Path(folder,'udp-owner.key')),
+                OUF_AUTHORIZATION_BUNDLE_FILE=str(Path(folder,'udp-bundle.json')),
+                OUF_AUTHORIZATION_BUNDLE_ID='udp-search-ci',OUF_AUTHORIZATION_BUNDLE_VERSION='1',
+                OUF_AUTHORIZATION_BUNDLE_SHA256=hashlib.sha256(raw_bundle).hexdigest())
+            udp_log=open(Path(folder,'udp-server.log'),'wb')
+            owners.callback(udp_log.close)
+            udp=subprocess.Popen(['java','-jar',os.environ['OUF_UDP_JAR']],env=udp_env,stdout=udp_log,stderr=subprocess.STDOUT)
+            def stop_udp():
+                if udp.poll() is None:
+                    udp.terminate()
+                    try:udp.wait(timeout=8)
+                    except subprocess.TimeoutExpired:udp.kill();udp.wait(timeout=8)
+            owners.callback(stop_udp)
+            for _ in range(90):
+                if udp.poll() is not None:raise AssertionError('UDP terminated on startup: '+Path(folder,'udp-server.log').read_text()[-4000:])
+                try:
+                    with urllib.request.urlopen(f'http://127.0.0.1:{udp_port}/actuator/health',timeout=2) as response:
+                        if response.status==200:break
+                except (OSError,urllib.error.URLError):pass
+                time.sleep(1)
+            else:raise AssertionError('UDP not ready: '+Path(folder,'udp-server.log').read_text()[-4000:])
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
         for r in doc['routes']:
@@ -86,6 +123,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             if 'upstream' in r:r['upstream']['nodes']={f'127.0.0.1:{server.server_port}':1}
             if owner_port and r.get('uri','').endswith('/execute/ouf.gateway.operations.summary'):
                 r['upstream']['nodes']={f'127.0.0.1:{owner_port}':1}
+            if udp_port and r.get('uri','').endswith('/execute/urban.object.search'):
+                r['upstream']['nodes']={f'127.0.0.1:{udp_port}':1}
         config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
@@ -193,14 +232,21 @@ def test_real_apisix_oidc_delegation_and_execute():
             search_proof=json.loads(raw)['proof']
             code,raw=post(search_path,search_request(),token('SERVICE'),search_proof)
             assert code==200,(code,raw)
-            forwarded=json.loads(raw)
-            assert json.loads(forwarded['body'])=={'type':'ouf:Asset','pageSize':10}
-            assert forwarded['authorization'] is None and forwarded['delegation'] is None
-            encoded,signature=forwarded['receipt'].split('.')
-            assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('34'*32).encode(),('ouf-udp-search-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
-            receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
-            assert receipt['bodyHash']==hashlib.sha256(forwarded['body'].encode()).hexdigest()
-            assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer' and receipt['client']=='chatgpt'
+            if udp_port:
+                result=json.loads(raw)
+                assert result['items']==[] and result['nextCursor'] is None and result['partial'] is False
+                direct=urllib.request.Request(f'http://127.0.0.1:{udp_port}/api/udp/v1/objects/search',data=b'{"type":"ouf:Asset"}',headers={'Content-Type':'application/json'})
+                with pytest.raises(urllib.error.HTTPError) as denied:urllib.request.urlopen(direct)
+                assert denied.value.code==403
+            else:
+                forwarded=json.loads(raw)
+                assert json.loads(forwarded['body'])=={'type':'ouf:Asset','pageSize':10}
+                assert forwarded['authorization'] is None and forwarded['delegation'] is None
+                encoded,signature=forwarded['receipt'].split('.')
+                assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('34'*32).encode(),('ouf-udp-search-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
+                receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
+                assert receipt['bodyHash']==hashlib.sha256(forwarded['body'].encode()).hexdigest()
+                assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer' and receipt['client']=='chatgpt'
             for bad_args in ({'type':'*'},{'type':'ouf:Asset','pageSize':101},{'type':'ouf:Asset','sql':'select *'}):
                 code,raw=post(search_path,search_request(bad_args),token('SERVICE'),search_proof)
                 assert code in (400,403),(code,raw)
