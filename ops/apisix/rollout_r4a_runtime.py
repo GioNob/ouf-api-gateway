@@ -252,7 +252,9 @@ def main() -> None:
         print('R4A_STAGED='+a.service)
         print('ORIGINAL_ROLLBACK_CONTAINER='+backup)
         print('HEALTH_AND_POLICY_PROBES_STILL_REQUIRED=true')
-    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+    except ValueError as error:
+        p.exit(1, 'R4A_ROLLOUT_BLOCKED: '+str(error)+'\n')
+    except (OSError, KeyError, TypeError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
         p.exit(1, 'R4A_ROLLOUT_BLOCKED: '+type(error).__name__+'\n')
 
 
