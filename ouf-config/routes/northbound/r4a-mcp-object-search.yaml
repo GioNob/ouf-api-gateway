@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: r4a-mcp-object-search, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: urban.object.search@1.0.0
+  sourceRef: r2b-udp@1.0.0
+  match: {method: POST, path: /internal/capabilities/v1/execute/urban.object.search}
+  backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /api/udp/v1/objects/search}
+  policy:
+    identity: M2M
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
+    timeoutSeconds: 3

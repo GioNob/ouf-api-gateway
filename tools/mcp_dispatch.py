@@ -79,6 +79,9 @@ class MCPDispatcher:
         route = self.routes.get(envelope["CapabilityID"])
         if route is None:
             raise DispatchError(404, "CAPABILITY_BINDING_NOT_FOUND", envelope["CapabilityID"])
+        if (envelope["CapabilityID"] == "urban.object.search" and "type" not in envelope["Arguments"]
+            or envelope["CapabilityID"] == "urban.object.related_search" and "anchorObjectId" not in envelope["Arguments"]):
+            raise DispatchError(400, "INVALID_MCP_GATEWAY_REQUEST", "arguments do not match the bound capability")
         capability = route["x-ouf-capability"]
         policy = route["x-ouf-policy"]
         if len(raw_body) > policy["maxRequestBytes"]:
