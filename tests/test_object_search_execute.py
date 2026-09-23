@@ -31,10 +31,23 @@ def test_gateway_signs_exact_owner_body_and_strips_supplied_authority():
     assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(KEY.encode(),b'ouf-udp-search-owner-v1.'+encoded,hashlib.sha256).digest())
     receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
     assert receipt['path']=='/api/udp/v1/objects/search' and receipt['capability']=='urban.object.search'
-    assert receipt['tenant']=='tenant-a' and receipt['subject']=='human-a'
+    assert receipt['tenant']=='tenant-a' and receipt['subject']=='human-a' and receipt['client']=='chatgpt'
     assert receipt['bodyHash']==hashlib.sha256(engine.body).hexdigest()
     assert json.loads(engine.body)=={'type':'ouf:Asset','pageSize':10}
     assert b'authorization' not in engine.headers and b'cookie' not in engine.headers and b'x-ouf-delegation' not in engine.headers
+
+
+def test_export_gateway_receipt_for_udp_pairwise(tmp_path):
+    """The Java owner gate consumes bytes signed by the actual Gateway Lua."""
+    export = __import__('os').environ.get('OUF_UDP_PAIRWISE_FIXTURE')
+    if not export:
+        pytest.skip('set OUF_UDP_PAIRWISE_FIXTURE for the cross-repository gate')
+    engine = execute()
+    from pathlib import Path
+    Path(export).write_text(json.dumps({
+        'body': engine.body.decode('utf-8'),
+        'receipt': engine.headers[b'x-ouf-udp-search-receipt'].decode('ascii'),
+    }))
 
 
 @pytest.mark.parametrize('change', ['scope','tenant','identity','workload','wildcard','extra','pageSize','capability'])
