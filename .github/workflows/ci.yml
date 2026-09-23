@@ -2,6 +2,35 @@ name: Gateway control-plane and MCP mediation
 on: [push, pull_request]
 permissions: {contents: read}
 jobs:
+  object-search-pairwise:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-udp-object-resolution
+          ref: 3980fe2bf03ea590914e404cd58b19822a553b9c
+          path: .pairwise/udp
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - name: Export receipt signed by Gateway Lua
+        run: |
+          mkdir -p generated
+          OUF_UDP_PAIRWISE_FIXTURE="$PWD/generated/search.json" python -m pytest -q tests/test_object_search_execute.py::test_export_gateway_receipt_for_udp_pairwise
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - name: Verify Gateway receipt at real UDP Java admission filter
+        run: |
+          (cd .pairwise/udp && bash scripts/install-authorization-sdk.sh)
+          OUF_GATEWAY_SEARCH_FIXTURE="$PWD/generated/search.json" mvn -B -ntp -f .pairwise/udp/pom.xml -Dtest=ObjectSearchReceiptFilterTest test
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-udp-search-pairwise-${{ github.run_id }}
+          path: .pairwise/udp/target/surefire-reports/
+
   config-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
