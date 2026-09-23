@@ -13,6 +13,22 @@ ROUTE_ID='execute-urban-object-search'
 ROUTE_URI='/internal/capabilities/v1/execute/urban.object.search'
 
 
+class SearchAdmin(Admin):
+    def check_public(self):
+        super().check_public()
+        probe=dict(GatewayBindingRef='capability://urban.object.search',
+                   CapabilityID='urban.object.search',Owner='udp',OperationClass='SEARCH',
+                   Arguments={'type':'ouf:Asset'},
+                   Identity=dict(ServicePrincipalID='probe',PrincipalID='probe',TenantID='probe',
+                                 ActorType='HUMAN',AuthenticationContextRef='1'),
+                   AuthorizationDecisionRef='probe',CorrelationID='probe',
+                   IdempotencyKey='probe',AttemptID='11111111-1111-4111-8111-111111111111',
+                   RequestHash='44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+                   MaxResultBytes=262144)
+        code,_=self.curl(ROUTE_URI,'POST',probe)
+        if code!=401:raise RuntimeError(f'unauthenticated UDP search HTTP {code}')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--materialization',type=Path)
@@ -51,7 +67,7 @@ def main():
         raise SystemExit('delegation/UDP owner key missing from APISIX or Nginx inheritance')
     ref=routes[0]['plugins']['openid-connect'].get('client_secret','')
     if not ref.startswith('$ENV://') or not env.get(ref[7:]):raise SystemExit('OIDC environment secret missing')
-    admin=Admin(args)
+    admin=SearchAdmin(args)
     try:
         apply_routes(routes,admin)
         print('APISIX_UDP_SEARCH_ROUTE_INSTALLED; authenticated smoke test still required')
