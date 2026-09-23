@@ -61,7 +61,7 @@ local body_hash = require('resty.string').to_hex(digest:final(args))
 local receipt = {v=1,purpose='udp-object-search-owner',method='POST',
     path='/api/udp/v1/objects/search',bodyHash=body_hash,
     capability=e.CapabilityID,correlationId=e.CorrelationID,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
-    workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,acr=p.acr,roles=roles,scope=p.scope,requestHash=e.RequestHash}
+    workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,client=p.client,acr=p.acr,roles=roles,scope=p.scope,requestHash=e.RequestHash}
 local encoded = encode64(cjson.encode(receipt))
 local hmac = require('resty.openssl.hmac').new(owner_key,'sha256')
 local signed = hmac and hmac:final('ouf-udp-search-owner-v1.'..encoded)
