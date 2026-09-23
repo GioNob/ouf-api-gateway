@@ -4,6 +4,8 @@ Il contratto candidate collega `POST /internal/capabilities/v1/execute/urban.obj
 
 **Stato: candidato installabile, tool MCP ancora `INACTIVE`.** `tools.materialize_object_search` aggiunge una sola rotta POST al profilo di incidenti esistente. Riutilizza OIDC workload, delega umana firmata e scope `urban.object.search`; verifica envelope e argomenti, cancella le credenziali in ingresso e invia a UDP solo `{type,pageSize?,cursor?}` insieme a un receipt HMAC di 30 secondi legato ai byte esatti. UDP verifica receipt, tenant e scope, installa il `TrustedPrincipal` e richiede la policy locale prima del serving. La configurazione mancante risponde 503; firma, body o policy non validi rispondono 403.
 
+La CI Gateway esegue `OUF_APISIX_LIVE_TEST=1 python3 -m pytest -q tests/test_execute_apisix_live.py` con APISIX Docker reale, issuer OIDC e owner HTTP di test. Controlla route `/internal/capabilities/v1/execute/urban.object.search`, delega e scope, corpo inoltrato, credenziali rimosse e firma/body hash del receipt; copre anche tenant errato e argomenti vietati. La CI UDP verifica separatamente il filtro Java e il serving governato. Queste prove non attestano ancora una richiesta che attraversa nella stessa installazione APISIX reale e UDP reale con bundle e dati rappresentativi.
+
 Prima di renderlo `ACTIVE`:
 
 1. installare lo stesso nuovo secret esadecimale di 32 byte, distinto dalle altre chiavi, in APISIX (`OUF_UDP_SEARCH_OWNER_KEY`, ereditato dai worker tramite `nginx_config.envs`) e nel solo UDP come file leggibile dal processo (`OUF_UDP_SEARCH_OWNER_KEY_FILE`); fissare `OUF_UDP_SEARCH_TENANT_ID`, `OUF_UDP_SEARCH_ISSUER`, `OUF_UDP_SEARCH_AUDIENCE`, `OUF_UDP_SEARCH_WORKLOAD` ai valori effettivi del bundle/Keycloak;
