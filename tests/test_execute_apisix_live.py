@@ -200,7 +200,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('34'*32).encode(),('ouf-udp-search-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
             receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
             assert receipt['bodyHash']==hashlib.sha256(forwarded['body'].encode()).hexdigest()
-            assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer'
+            assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer' and receipt['client']=='chatgpt'
             for bad_args in ({'type':'*'},{'type':'ouf:Asset','pageSize':101},{'type':'ouf:Asset','sql':'select *'}):
                 code,raw=post(search_path,search_request(bad_args),token('SERVICE'),search_proof)
                 assert code in (400,403),(code,raw)
