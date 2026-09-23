@@ -156,6 +156,18 @@ def save_state(path: Path, info: dict) -> None:
         os.fsync(stream.fileno())
 
 
+def wait_udp_ready(name: str, attempts: int = 20) -> None:
+    for attempt in range(attempts):
+        try:
+            docker('exec', name, 'wget', '-q', '-O', '/dev/null',
+                   'http://127.0.0.1:8080/actuator/health/readiness')
+            return
+        except subprocess.CalledProcessError:
+            if attempt == attempts - 1:
+                raise ValueError('UDP readiness did not become healthy')
+            time.sleep(3)
+
+
 def rollback(service: str, candidate: Path, state: dict) -> None:
     name, backup = 'ouf-'+service, state['backup']
     try:
@@ -183,6 +195,8 @@ def rollback(service: str, candidate: Path, state: dict) -> None:
     docker('update', '--restart', 'unless-stopped', name)
     if not inspect(name)['State']['Running']:
         raise ValueError('original container did not restart')
+    if service == 'udp':
+        wait_udp_ready(name)
 
 
 def main() -> None:
@@ -246,6 +260,8 @@ def main() -> None:
             current = inspect(name)
             if current['Image'] != digest or not current['State']['Running']:
                 raise ValueError('candidate exited or has wrong image')
+            if a.service == 'udp':
+                wait_udp_ready(name)
         except (subprocess.CalledProcessError, ValueError):
             rollback(a.service, a.candidate, state)
             raise ValueError('candidate failed; original restored')
