@@ -104,6 +104,21 @@ def check(snapshot: Path, candidate: Path) -> list[str]:
                       f'binds={len(c["Mounts"])} ports={len(c["NetworkSettings"]["Ports"] or {})} '
                       f'entrypoint_items={len(c["Config"].get("Entrypoint") or [])} '
                       f'cmd_items={len(c["Config"].get("Cmd") or [])}')
+        result.append(f'{name[1:]} primary_network={host.get("NetworkMode")} '
+                      f'host_port_bindings={len(host.get("PortBindings") or {})} '
+                      f'publish_all={bool(host.get("PublishAllPorts"))} '
+                      f'read_only={bool(host.get("ReadonlyRootfs"))} '
+                      f'tmpfs={len(host.get("Tmpfs") or {})} '
+                      f'memory_swap={host.get("MemorySwap")} '
+                      f'ipc={host.get("IpcMode")} '
+                      f'log_driver={host.get("LogConfig", {}).get("Type")}')
+        advanced = ('CapAdd', 'CapDrop', 'SecurityOpt', 'Devices', 'DeviceRequests',
+                    'Dns', 'ExtraHosts', 'Ulimits', 'Sysctls', 'Binds', 'Mounts',
+                    'GroupAdd', 'VolumesFrom', 'Links', 'PidMode', 'UsernsMode',
+                    'CgroupnsMode', 'IpcMode', 'ShmSize', 'NanoCpus', 'CpuShares',
+                    'CpuQuota', 'CpuPeriod', 'PidsLimit', 'OomKillDisable', 'Init')
+        result.append(f'{name[1:]} advanced_option_names=' + json.dumps(
+            [field for field in advanced if host.get(field) not in (None, False, 0, '', [], {}, 'private')]))
         if host.get('Privileged') or host.get('NetworkMode') not in networks:
             result.append(f'{name[1:]} EXTRA_RUNTIME_REVIEW_REQUIRED=true')
     return result
