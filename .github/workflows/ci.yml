@@ -2,6 +2,42 @@ name: Gateway control-plane and MCP mediation
 on: [push, pull_request]
 permissions: {contents: read}
 jobs:
+  object-search-network:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine
+        env: {POSTGRES_DB: ouf_udp, POSTGRES_USER: ouf_udp, POSTGRES_PASSWORD: ci-only-password}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ouf_udp -d ouf_udp" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      OUF_UDP_DB_URL: jdbc:postgresql://127.0.0.1:5432/ouf_udp
+      OUF_UDP_DB_USER: ouf_udp
+      OUF_UDP_DB_PASSWORD: ci-only-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-udp-object-resolution
+          ref: 3980fe2bf03ea590914e404cd58b19822a553b9c
+          path: .pairwise/udp
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - name: Build real UDP owner
+        run: |
+          (cd .pairwise/udp && bash scripts/install-authorization-sdk.sh)
+          mvn -B -ntp -f .pairwise/udp/pom.xml -DskipTests package
+      - name: Search through APISIX to real UDP and PostgreSQL
+        env:
+          OUF_APISIX_LIVE_TEST: '1'
+          OUF_UDP_JAR: ${{ github.workspace }}/.pairwise/udp/target/udp-object-resolution-1.0.0-SNAPSHOT.jar
+        run: python -m pytest -q tests/test_execute_apisix_live.py
+
   object-search-pairwise:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
