@@ -18,6 +18,8 @@ def main():
     parser.add_argument('--materialization',type=Path)
     parser.add_argument('--restore',type=Path)
     parser.add_argument('--admin-key',type=Path,required=True)
+    parser.add_argument('--backup-dir',type=Path,default=Path('/opt/ouf/backup'),
+                        help='existing persistent, private directory for the route snapshot')
     parser.add_argument('--container',default='ouf-apisix')
     parser.add_argument('--curl-image',default='curlimages/curl:8.16.0')
     args=parser.parse_args()
