@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.materialize_summary import materialize
+from tools.materialize_object_search import materialize
 from tests.test_execute_delegation import runtime, envelope
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
@@ -52,6 +52,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
 
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
+            elif self.path=='/api/udp/v1/objects/search':
+                self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
             else:self.send_error(404)
         def reply(self,value):
             data=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
@@ -77,18 +79,18 @@ def test_real_apisix_oidc_delegation_and_execute():
             from tests.summary_java_owner import java_owner
             owner_port,owner_db=owners.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'],folder,installation))
         os.chmod(folder,0o755)
-        doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+        doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
         for r in doc['routes']:
             oidc=r['plugins'].get('openid-connect')
             if oidc:oidc['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
             if 'upstream' in r:r['upstream']['nodes']={f'127.0.0.1:{server.server_port}':1}
             if owner_port and r.get('uri','').endswith('/execute/ouf.gateway.operations.summary'):
                 r['upstream']['nodes']={f'127.0.0.1:{owner_port}':1}
-        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
+        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         name='ouf-execute-ci-'+str(os.getpid())
-        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','INGESTION_SUMMARY_RECEIPT_KEY='+'ef'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','UDP_KEY='+'34'*32,'-e','INGESTION_SUMMARY_RECEIPT_KEY='+'ef'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
         try:
             for _ in range(60):
                 try:
@@ -182,6 +184,33 @@ def test_real_apisix_oidc_delegation_and_execute():
                     forwarded = json.loads(raw)
                     assert json.loads(forwarded['body'])['Arguments'] == arguments
                     assert forwarded['authorization'] is None
+            # The real APISIX OIDC/Lua chain must not deliver the MCP envelope,
+            # workload bearer or caller-supplied proof to UDP's fixed endpoint.
+            from tests.test_object_search_execute import request as search_request
+            search_path='/internal/capabilities/v1/execute/urban.object.search'
+            code,raw=post('/mcp',{},token(scope='mcp.connect urban.object.search',externalRoleRefs=['ente:viewer']))
+            assert code==200,(code,raw)
+            search_proof=json.loads(raw)['proof']
+            code,raw=post(search_path,search_request(),token('SERVICE'),search_proof)
+            assert code==200,(code,raw)
+            forwarded=json.loads(raw)
+            assert json.loads(forwarded['body'])=={'type':'ouf:Asset','pageSize':10}
+            assert forwarded['authorization'] is None and forwarded['delegation'] is None
+            encoded,signature=forwarded['receipt'].split('.')
+            assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('34'*32).encode(),('ouf-udp-search-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
+            receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
+            assert receipt['bodyHash']==hashlib.sha256(forwarded['body'].encode()).hexdigest()
+            assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer'
+            for bad_args in ({'type':'*'},{'type':'ouf:Asset','pageSize':101},{'type':'ouf:Asset','sql':'select *'}):
+                code,raw=post(search_path,search_request(bad_args),token('SERVICE'),search_proof)
+                assert code in (400,403),(code,raw)
+            code,raw=post('/mcp',{},token(scope='mcp.connect'))
+            assert code==200,(code,raw)
+            code,raw=post(search_path,search_request(),token('SERVICE'),json.loads(raw)['proof'])
+            assert code==403,(code,raw)
+            bad_tenant=search_request();bad_tenant['Identity']['TenantID']='other'
+            code,raw=post(search_path,bad_tenant,token('SERVICE'),search_proof)
+            assert code in (400,403),(code,raw)
         except Exception:
             subprocess.run(['docker','logs','--tail','60',name],check=False)
             raise
