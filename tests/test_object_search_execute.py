@@ -61,6 +61,6 @@ def test_compiler_binds_only_fixed_udp_service_and_rejects_changed_policy():
     assert schema.is_valid(request())
     assert not schema.is_valid(request({'type':'*'}))
     assert not schema.is_valid(request({'type':'ouf:Asset','sql':'select *'}))
-    changed=runtime();binding=next(r for r in changed['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId')=='urban.object.search')
+    changed=runtime();binding=next(r for r in changed['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId')=='urban.object.search' and r.get('labels',{}).get('exposure')=='internal')
     binding['plugins']['proxy-rewrite']['uri']='/api/udp/v1/admin'
     with pytest.raises(ValueError):materialize(changed,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
