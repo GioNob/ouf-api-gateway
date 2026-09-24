@@ -58,9 +58,17 @@ def test_materializer_rejects_plain_secret_reference():
 
 
 def test_deployer_manages_exactly_two_routes():
-    raw=(ROOT/"ops/apisix/deploy_trusted_human_installation.py").read_text()
-    assert "trusted-human-installation-get" in raw
-    assert "trusted-human-installation-post" in raw
+    import importlib.util
+    path=ROOT/"ops/apisix/deploy_trusted_human_installation.py"
+    spec=importlib.util.spec_from_file_location("deploy_trusted_human_installation",path)
+    subject=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(subject)
+    assert subject.METHODS==("GET","POST")
+    assert subject.CURRENT_IDS=={
+        "trusted-human-installation-get",
+        "trusted-human-installation-post",
+    }
+    raw=path.read_text()
     assert "previous.json" in raw
     assert "restore(previous,admin)" in raw
     assert "anonymous protected namespace" in raw
