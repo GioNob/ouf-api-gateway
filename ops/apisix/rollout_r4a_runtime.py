@@ -63,12 +63,33 @@ def snapshot_and_candidate(snapshot: Path, candidate: Path) -> dict:
         previous = env_map(original['Config']['Env'])
         additions = {'udp': {'OUF_UDP_SEARCH_TENANT_ID', 'OUF_UDP_SEARCH_ISSUER',
                              'OUF_UDP_SEARCH_AUDIENCE', 'OUF_UDP_SEARCH_WORKLOAD',
-                             'OUF_UDP_SEARCH_OWNER_KEY_FILE'},
+                             'OUF_UDP_SEARCH_OWNER_KEY_FILE',
+                             'OUF_AUTHORIZATION_REGISTRY_URL',
+                             'OUF_AUTHORIZATION_REGISTRY_TOKEN_FILE',
+                             'OUF_AUTHORIZATION_REFRESH_SECONDS',
+                             'OUF_AUTHORIZATION_MAX_STALENESS_SECONDS'},
                      'apisix': {'OUF_UDP_SEARCH_OWNER_KEY'}}[service]
         if set(now) - set(previous) != additions or {k: v for k, v in now.items() if k not in additions} != previous:
             raise ValueError('existing environment changed')
-        if service == 'udp' and now['OUF_UDP_SEARCH_OWNER_KEY_FILE'] != '/run/secrets/udp-search-owner.key':
-            raise ValueError('unexpected UDP key target')
+        if service == 'udp':
+            if now['OUF_UDP_SEARCH_OWNER_KEY_FILE'] != '/run/secrets/udp-search-owner.key':
+                raise ValueError('unexpected UDP key target')
+            if now['OUF_AUTHORIZATION_REGISTRY_TOKEN_FILE'] != '/run/ouf-udp-auth/token':
+                raise ValueError('unexpected UDP policy token target')
+            if now['OUF_AUTHORIZATION_REFRESH_SECONDS'] != '30' or now['OUF_AUTHORIZATION_MAX_STALENESS_SECONDS'] != '300':
+                raise ValueError('unexpected UDP authorization refresh bounds')
+    token_dir = Path('/run/ouf-udp-auth')
+    token_file = token_dir / 'token'
+    if not token_dir.is_dir() or token_dir.is_symlink():
+        raise ValueError('UDP policy token runtime directory missing')
+    token_dir_stat = token_dir.stat()
+    token_stat = token_file.stat()
+    if (token_dir_stat.st_uid, token_dir_stat.st_gid, stat.S_IMODE(token_dir_stat.st_mode)) != (0, 10004, 0o750):
+        raise ValueError('UDP policy token directory ownership or mode mismatch')
+    if token_file.is_symlink() or (token_stat.st_uid, token_stat.st_gid, stat.S_IMODE(token_stat.st_mode)) != (0, 10004, 0o440):
+        raise ValueError('UDP policy token file ownership or mode mismatch')
+    if token_stat.st_size <= 0 or token_stat.st_size > 16384:
+        raise ValueError('UDP policy token file size invalid')
     key = candidate / 'udp-search-owner.key'
     private(key, 0o400, 10004, 10004)
     secret = key.read_text(encoding='ascii').strip()
@@ -139,6 +160,7 @@ def validate(service: str, old: dict, candidate: Path, apply: bool) -> tuple[lis
     if service == 'udp':
         args += ['--memory', str(host['Memory']), '--memory-swap', str(host['MemorySwap'])]
         args += ['--mount', 'type=bind,src='+str(candidate/'udp-search-owner.key')+',dst=/run/secrets/udp-search-owner.key,readonly']
+        args += ['--mount', 'type=bind,src=/run/ouf-udp-auth,dst=/run/ouf-udp-auth,readonly']
     else:
         args += ['--mount', 'type=bind,src='+str(candidate/'apisix-config.yaml')+',dst=/usr/local/apisix/conf/config.yaml,readonly']
     for alias in sorted(set(networks[host['NetworkMode']].get('Aliases') or []) - {name, original['Id'][:12]}):
