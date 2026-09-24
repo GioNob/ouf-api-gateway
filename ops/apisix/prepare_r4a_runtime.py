@@ -12,6 +12,9 @@ import tempfile
 
 SEARCH_KEY = 'OUF_UDP_SEARCH_OWNER_KEY'
 UDP_KEY_FILE = '/run/secrets/udp-search-owner.key'
+UDP_POLICY_TOKEN_FILE = '/run/ouf-udp-auth/token'
+AUTH_REFRESH_SECONDS = '30'
+AUTH_MAX_STALENESS_SECONDS = '300'
 ENV_NAME = re.compile(r'[A-Za-z_][A-Za-z_0-9]*\Z')
 
 
@@ -90,7 +93,11 @@ def prepare(snapshot: Path, config: Path, projection: Path, tenant: str) -> Path
     apisix_env[SEARCH_KEY] = key
     udp_env.update(OUF_UDP_SEARCH_TENANT_ID=tenant, OUF_UDP_SEARCH_ISSUER=issuer,
                    OUF_UDP_SEARCH_AUDIENCE=audience, OUF_UDP_SEARCH_WORKLOAD=workload,
-                   OUF_UDP_SEARCH_OWNER_KEY_FILE=UDP_KEY_FILE)
+                   OUF_UDP_SEARCH_OWNER_KEY_FILE=UDP_KEY_FILE,
+                   OUF_AUTHORIZATION_REGISTRY_URL=registry_url,
+                   OUF_AUTHORIZATION_REGISTRY_TOKEN_FILE=UDP_POLICY_TOKEN_FILE,
+                   OUF_AUTHORIZATION_REFRESH_SECONDS=AUTH_REFRESH_SECONDS,
+                   OUF_AUTHORIZATION_MAX_STALENESS_SECONDS=AUTH_MAX_STALENESS_SECONDS)
     target = Path(tempfile.mkdtemp(prefix='candidate-', dir=snapshot.parent))
     os.chmod(target, 0o700)
     write(target / 'apisix.env', ''.join(f'{k}={v}\n' for k, v in apisix_env.items()))
