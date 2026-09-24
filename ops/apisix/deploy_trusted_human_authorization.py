@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""Install the reviewed trusted-HUMAN Authorization catalogue routes in APISIX.
+"""Install the bounded trusted-HUMAN Authorization namespace in APISIX.
 
-The script snapshots both route IDs before the first write, verifies readback,
-checks that the public GET is protected, and restores the snapshot on failure.
-It never prints the APISIX admin key or OIDC secret material.
+All managed route IDs, including the superseded capability-only routes, are
+snapshotted before the first write. Deployment verifies readback and anonymous
+401 protection. Any failure restores the entire managed set.
 """
 import argparse
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 
-PATH = "/api/trusted-human/v1/authorization/capabilities"
-EXPECTED_IDS = {
+NAMESPACE = "/api/trusted-human/v1/authorization/*"
+METHODS = ("GET", "POST", "PUT", "DELETE")
+CURRENT_IDS = {f"trusted-human-authorization-{m.lower()}" for m in METHODS}
+LEGACY_IDS = {
     "trusted-human-authorization-capabilities-read",
     "trusted-human-authorization-capabilities-register",
 }
+MANAGED_IDS = CURRENT_IDS | LEGACY_IDS
 
 
 def route_value(doc):
@@ -30,9 +32,8 @@ def route_value(doc):
 class Admin:
     def __init__(self, args):
         self.args = args
-        backup_dir = args.backup_dir
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        self.work = Path(tempfile.mkdtemp(prefix="trusted-human-auth-", dir=backup_dir))
+        args.backup_dir.mkdir(parents=True, exist_ok=True)
+        self.work = Path(tempfile.mkdtemp(prefix="trusted-human-auth-", dir=args.backup_dir))
         key = args.admin_key.read_text().strip()
         if not key or "\n" in key or "\r" in key:
             raise ValueError("invalid APISIX admin key file")
@@ -66,24 +67,39 @@ class Admin:
         return self.curl("/apisix/admin/routes/" + route_id, method, data, admin=True)
 
     def close(self):
-        (self.work / "admin.header").unlink(missing_ok=True)
-        (self.work / "request.json").unlink(missing_ok=True)
-        (self.work / "response.json").unlink(missing_ok=True)
+        for name in ("admin.header", "request.json", "response.json"):
+            (self.work / name).unlink(missing_ok=True)
+
+
+def snapshot(admin):
+    previous = {}
+    for route_id in sorted(MANAGED_IDS):
+        code, body = admin.route("GET", route_id)
+        if code not in (200, 404):
+            raise RuntimeError(f"snapshot HTTP {code} for {route_id}")
+        previous[route_id] = route_value(body) if code == 200 else None
+    (admin.work / "previous.json").write_text(json.dumps(previous, indent=2) + "\n")
+    return previous
+
+
+def restore(previous, admin):
+    failures = []
+    for route_id in sorted(MANAGED_IDS):
+        old = previous.get(route_id)
+        try:
+            code, _ = admin.route("PUT" if old else "DELETE", route_id, old)
+            if code not in (200, 201, 204, 404):
+                failures.append(route_id)
+        except Exception:
+            failures.append(route_id)
+    if failures:
+        raise RuntimeError("rollback incomplete: " + ",".join(failures))
 
 
 def apply(routes, admin):
-    previous = {}
-    for route in routes:
-        code, body = admin.route("GET", route["id"])
-        if code not in (200, 404):
-            raise RuntimeError(f"snapshot HTTP {code}")
-        previous[route["id"]] = route_value(body) if code == 200 else None
-    (admin.work / "previous.json").write_text(json.dumps(previous, indent=2) + "\n")
-
-    attempted = []
+    previous = snapshot(admin)
     try:
         for route in routes:
-            attempted.append(route["id"])
             code, _ = admin.route("PUT", route["id"], route)
             if code not in (200, 201):
                 raise RuntimeError(f"write HTTP {code}")
@@ -91,33 +107,21 @@ def apply(routes, admin):
             actual = route_value(body) if code == 200 else {}
             if any(actual.get(k) != v for k, v in route.items()):
                 raise RuntimeError("route readback differs")
-        code, _ = admin.curl(PATH + "?limit=1&offset=0")
-        if code != 401:
-            raise RuntimeError(f"unauthenticated trusted HUMAN GET HTTP {code}")
+        for route_id in LEGACY_IDS:
+            code, _ = admin.route("DELETE", route_id)
+            if code not in (200, 204, 404):
+                raise RuntimeError(f"legacy delete HTTP {code}")
+        for path in (
+            "/api/trusted-human/v1/authorization/capabilities?limit=1&offset=0",
+            "/api/trusted-human/v1/authorization/access?subjectId=probe",
+            "/api/trusted-human/v1/authorization/policies",
+        ):
+            code, _ = admin.curl(path, "GET")
+            if code != 401:
+                raise RuntimeError(f"unauthenticated protected namespace HTTP {code} for {path}")
     except BaseException:
-        failures = []
-        for route_id in reversed(attempted):
-            old = previous[route_id]
-            try:
-                code, _ = admin.route("PUT" if old else "DELETE", route_id, old)
-                if code not in (200, 201, 204, 404):
-                    failures.append(route_id)
-            except Exception:
-                failures.append(route_id)
-        if failures:
-            raise RuntimeError("rollback incomplete: " + ",".join(failures))
+        restore(previous, admin)
         raise
-
-
-def restore(snapshot, admin):
-    previous = json.loads(snapshot.read_text())
-    if set(previous) != EXPECTED_IDS:
-        raise ValueError("snapshot does not contain the two reviewed route IDs")
-    for route_id, old in previous.items():
-        code, _ = admin.route("PUT" if old else "DELETE", route_id, old)
-        if code not in (200, 201, 204, 404):
-            raise RuntimeError("restore failed")
-    print("TRUSTED_HUMAN_AUTHORIZATION_ROUTES_RESTORED")
 
 
 def main():
@@ -131,29 +135,27 @@ def main():
     parser.add_argument("--backup-dir", type=Path, default=Path("/opt/ouf/backup"))
     args = parser.parse_args()
     os.umask(0o077)
-
     admin = Admin(args)
     try:
         if args.restore:
-            restore(args.restore, admin)
+            previous = json.loads(args.restore.read_text())
+            if set(previous) != MANAGED_IDS:
+                raise ValueError("snapshot does not contain the full managed route set")
+            restore(previous, admin)
+            print("TRUSTED_HUMAN_AUTHORIZATION_ROUTES_RESTORED")
             return
         doc = json.loads(args.materialization.read_text())
         routes = doc.get("routes")
-        if not isinstance(routes, list) or len(routes) != 2:
-            raise ValueError("expected exactly two trusted HUMAN routes")
-        if {r.get("id") for r in routes} != EXPECTED_IDS:
+        if not isinstance(routes, list) or len(routes) != 4:
+            raise ValueError("expected four trusted HUMAN namespace routes")
+        if {r.get("id") for r in routes} != CURRENT_IDS:
             raise ValueError("unexpected trusted HUMAN route IDs")
-        if {tuple(r.get("methods", [])) for r in routes} != {("GET",), ("POST",)}:
-            raise ValueError("trusted HUMAN routes must be GET and POST")
-        if any(r.get("uri") != PATH for r in routes):
-            raise ValueError("unexpected trusted HUMAN route path")
-        for route in routes:
-            oidc = (route.get("plugins") or {}).get("openid-connect") or {}
-            ref = oidc.get("client_secret", "")
-            if not ref.startswith("$ENV://"):
-                raise ValueError("OIDC client secret must remain an environment reference")
+        if {tuple(r.get("methods", [])) for r in routes} != {(m,) for m in METHODS}:
+            raise ValueError("trusted HUMAN routes must cover GET/POST/PUT/DELETE")
+        if any(r.get("uri") != NAMESPACE for r in routes):
+            raise ValueError("unexpected trusted HUMAN namespace")
         apply(routes, admin)
-        print("TRUSTED_HUMAN_AUTHORIZATION_ROUTES_INSTALLED")
+        print("TRUSTED_HUMAN_AUTHORIZATION_NAMESPACE_INSTALLED")
     finally:
         admin.close()
 

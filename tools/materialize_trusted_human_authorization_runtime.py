@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Materialize the direct trusted-HUMAN Authorization capability catalogue route.
+"""Materialize the bounded trusted-HUMAN Authorization namespace.
 
-This route is deliberately not MCP-mediated. The Gateway validates the HUMAN
-bearer first and forwards that same bearer to Onboarding, whose resource-server
-chain revalidates it and establishes TrustedWriteProof for state-changing calls.
+The Gateway authenticates HUMAN OIDC callers and strips forged OUF trust
+headers. It intentionally preserves the original Authorization bearer because
+Onboarding is also a resource server and must revalidate that bearer to create
+TrustedWriteProof for state-changing operations.
 """
 import argparse
 import copy
@@ -18,8 +19,10 @@ from tools.materialize_apisix_runtime import (
     trusted_pre_function,
 )
 
-PATH = "/api/trusted-human/v1/authorization/capabilities"
+NAMESPACE = "/api/trusted-human/v1/authorization/*"
 CAPABILITY = "authorization.policy.admin"
+METHODS = ("GET", "POST", "PUT", "DELETE")
+MAX_BODY = 5 * 1024 * 1024
 TRUSTED_HEADERS = [
     "X-OUF-Gateway-Verified",
     "X-OUF-Service-Principal",
@@ -33,11 +36,12 @@ TRUSTED_HEADERS = [
 ]
 
 
-def _validate_binding(route):
-    if route.get("uri") != PATH:
-        raise MaterializationError("unexpected trusted HUMAN Authorization path")
-    if route.get("methods") not in (["GET"], ["POST"]):
-        raise MaterializationError("trusted HUMAN catalogue supports GET or POST only")
+def _validate(route):
+    if route.get("uri") != NAMESPACE:
+        raise MaterializationError("unexpected trusted HUMAN Authorization namespace")
+    method = tuple(route.get("methods") or [])
+    if method not in {(m,) for m in METHODS}:
+        raise MaterializationError("unexpected trusted HUMAN Authorization method")
     cap = route.get("x-ouf-capability") or {}
     policy = route.get("x-ouf-policy") or {}
     if cap.get("capabilityId") != CAPABILITY:
@@ -47,17 +51,17 @@ def _validate_binding(route):
     if cap.get("toolEligible") or not cap.get("humanRequired"):
         raise MaterializationError("Authorization admin capability must remain HUMAN-only")
     if policy.get("identity") != "OIDC":
-        raise MaterializationError("trusted HUMAN catalogue requires OIDC")
+        raise MaterializationError("trusted HUMAN Authorization requires OIDC")
     if policy.get("requiredScope") != CAPABILITY:
         raise MaterializationError("Authorization admin scope changed")
     if policy.get("allowedActorTypes") != ["HUMAN"]:
-        raise MaterializationError("trusted HUMAN catalogue must allow HUMAN only")
-    if policy.get("maxRequestBytes") != 65536 or policy.get("timeoutSeconds") != 5:
-        raise MaterializationError("trusted HUMAN catalogue limits changed")
+        raise MaterializationError("trusted HUMAN Authorization must allow HUMAN only")
+    if policy.get("maxRequestBytes") != MAX_BODY or policy.get("timeoutSeconds") != 10:
+        raise MaterializationError("trusted HUMAN Authorization limits changed")
     if route.get("service_id") != "ouf-onboarding":
-        raise MaterializationError("trusted HUMAN catalogue owner changed")
-    if (route.get("plugins") or {}).get("proxy-rewrite", {}).get("uri") != PATH:
-        raise MaterializationError("trusted HUMAN catalogue backend path changed")
+        raise MaterializationError("trusted HUMAN Authorization owner changed")
+    if "proxy-rewrite" in (route.get("plugins") or {}):
+        raise MaterializationError("wildcard namespace must preserve request path")
 
 
 def materialize(runtime, oidc_secret_ref):
@@ -72,22 +76,22 @@ def materialize(runtime, oidc_secret_ref):
     bindings = [
         r for r in runtime.get("routes", [])
         if isinstance(r, dict)
-        and r.get("uri") == PATH
+        and r.get("uri") == NAMESPACE
         and (r.get("labels") or {}).get("exposure") == "public"
     ]
-    if len(bindings) != 2:
-        raise MaterializationError(f"expected GET and POST trusted HUMAN bindings, found {len(bindings)}")
-    if {tuple(r.get("methods") or []) for r in bindings} != {("GET",), ("POST",)}:
-        raise MaterializationError("trusted HUMAN catalogue requires exactly GET and POST bindings")
+    if len(bindings) != 4:
+        raise MaterializationError(f"expected four trusted HUMAN Authorization bindings, found {len(bindings)}")
+    if {tuple(r.get("methods") or []) for r in bindings} != {(m,) for m in METHODS}:
+        raise MaterializationError("trusted HUMAN Authorization requires GET/POST/PUT/DELETE")
 
     routes = []
-    for route in sorted(bindings, key=lambda r: r["methods"][0]):
-        _validate_binding(route)
+    for route in sorted(bindings, key=lambda r: METHODS.index(r["methods"][0])):
+        _validate(route)
         method = route["methods"][0]
         plugins = {
             "request-id": copy.deepcopy((route.get("plugins") or {}).get("request-id", {})),
             "limit-count": copy.deepcopy((route.get("plugins") or {}).get("limit-count", {})),
-            "proxy-rewrite": {"uri": PATH},
+            "client-control": {"max_body_size": MAX_BODY},
             "serverless-pre-function": {
                 "phase": "rewrite",
                 "functions": [trusted_pre_function(TRUSTED_HEADERS)],
@@ -104,29 +108,14 @@ def materialize(runtime, oidc_secret_ref):
                 "claim_validator": {
                     "audience": {"required": True, "match_with_client_id": True}
                 },
-                # Onboarding is itself the trusted HUMAN resource server and
-                # must see the original bearer to create TrustedWriteProof.
                 "set_access_token_header": False,
                 "set_id_token_header": False,
                 "set_userinfo_header": False,
             },
         }
-        if method == "POST":
-            plugins["request-validation"] = {
-                "max_req_body_size": 65536,
-                "body_schema": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["ownerRef", "descriptor"],
-                    "properties": {
-                        "ownerRef": {"type": "string", "minLength": 1},
-                        "descriptor": {"type": "object"},
-                    },
-                },
-            }
         routes.append({
             "id": require_text(route, "id"),
-            "uri": PATH,
+            "uri": NAMESPACE,
             "methods": [method],
             "labels": {
                 "ouf-managed": "true",
@@ -141,7 +130,7 @@ def materialize(runtime, oidc_secret_ref):
                 "scheme": "http",
                 "nodes": {"ouf-onboarding:8080": 1},
                 "retries": 0,
-                "timeout": {"connect": 5, "send": 5, "read": 5},
+                "timeout": {"connect": 10, "send": 10, "read": 10},
             },
         })
 

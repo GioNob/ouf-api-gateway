@@ -1,52 +1,62 @@
-# R4a trusted-HUMAN Authorization catalogue route
+# R4a trusted-HUMAN Authorization namespace
 
 Checkpoint 24 September 2026.
 
-The R4a capability reconciler in Source Onboarding calls
-`/api/trusted-human/v1/authorization/capabilities` directly as a HUMAN
-administrative API. It is not an MCP capability. Onboarding revalidates the
-HUMAN bearer and uses that bearer-authentication chain to establish the
-server-side `TrustedWriteProof` required for POST.
+## Why this is a namespace, not a list of one-off routes
 
-The lab exposed a concrete routing gap: Onboarding returned 401 internally for
-the unauthenticated endpoint, proving that the Spring route existed, while the
-public Gateway returned 404. The APISIX runtime had no public trusted-HUMAN
-Authorization route.
+During R4a the capability reconciler first exposed a missing public route for
+`/api/trusted-human/v1/authorization/capabilities`. After that route was
+installed, the next read-only probes showed the same 404 for `/access` and
+`/policies`. The defect was therefore architectural: the trusted-HUMAN
+Authorization surface had never been materialized as a governed Gateway
+namespace.
 
-This branch therefore adds two governed bindings on the same bounded path:
-GET for catalogue reconciliation and POST for immutable capability
-registration. Both require OIDC, scope `authorization.policy.admin`, actor
-`HUMAN`, and owner `authorization`. The Gateway validates the bearer and
-strips forged `X-OUF-*` trust headers, but deliberately does not remove the
-original Authorization header: Onboarding is the authoritative trusted-HUMAN
-resource server and must validate the bearer again before it can mark a
-state-changing request as trusted.
+The Gateway now owns one bounded namespace:
+`/api/trusted-human/v1/authorization/*`, with separate GET, POST, PUT and
+DELETE route IDs. All four bindings require OIDC, scope
+`authorization.policy.admin`, actor `HUMAN`, owner `authorization`, a
+5 MiB request-body ceiling and a 10 second upstream timeout. The namespace is
+not MCP-mediated.
 
-## Materialization and rollout
+The Gateway authenticates the HUMAN bearer and strips forged `X-OUF-*`
+headers. It intentionally preserves the original Authorization bearer because
+Onboarding is itself the authoritative trusted-HUMAN resource server:
+Onboarding revalidates issuer, audience, identity and scope and establishes the
+server-side `TrustedWriteProof` required for state-changing calls.
 
-Compile/apply the installation projection first, then materialize with:
+## Repeatable deployment
 
-```bash
-python3 tools/materialize_trusted_human_authorization_runtime.py \
-  --runtime <resolved-runtime.json> \
-  --oidc-client-secret-ref '$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET' \
-  --output <trusted-human-authorization.json>
-```
+1. Compile `ouf-config`.
+2. Apply the governed installation projection.
+3. Materialize the namespace with
+   `tools/materialize_trusted_human_authorization_runtime.py`.
+4. Deploy only that materialization with
+   `ops/apisix/deploy_trusted_human_authorization.py`.
+5. Keep the emitted `BACKUP=.../previous.json` until acceptance completes.
+6. Run anonymous smoke probes: capability catalogue, access review and policy
+   collection must all return 401 rather than 404.
+7. Only then execute authenticated trusted-HUMAN workflows.
 
-Deploy only the reviewed materialization:
+The deployer snapshots the complete managed set before the first write,
+including the two superseded capability-only route IDs. It verifies readback,
+removes those legacy IDs, and restores the full previous set on any failure.
 
-```bash
-sudo python3 ops/apisix/deploy_trusted_human_authorization.py \
-  --materialization <trusted-human-authorization.json> \
-  --admin-key /opt/ouf/secrets/apisix-admin-key
-```
+The 5 MiB request-body limit is enforced at the Gateway with APISIX
+`client-control` and independently by the Onboarding Authorization boundary.
 
-The deployer snapshots both APISIX route IDs before the first write, verifies
-readback and requires unauthenticated GET to return 401. On any failure it
-restores the attempted routes. Keep the emitted `BACKUP=.../previous.json`
-path until R4a acceptance is complete.
+## Authorization lifecycle
 
-After rollout, run the Source Onboarding reconciler with
-`--check --device-login` first. Only after a clean read-only plan may
-`--apply --device-login` register missing capability descriptors. Publishing
-a PolicyBundle and granting permissions remain separate trusted-HUMAN actions.
+Catalogue registration, PolicyBundle publication and grants remain three
+separate actions. A successful namespace rollout does not register a
+capability, change the ACTIVE bundle or grant access.
+
+R4a must continue with a scripted HUMAN workflow that:
+- exports the ACTIVE PolicyBundle without losing capabilities or grants;
+- creates a new draft with monotonic version increment;
+- previews and simulates before publish;
+- publishes only through the trusted-HUMAN surface;
+- verifies the new ACTIVE bundle and downstream refresh;
+- proposes and confirms grants separately.
+
+That workflow belongs in Source Onboarding and must be reusable for future
+capabilities; it must not depend on chat history or direct database mutation.
