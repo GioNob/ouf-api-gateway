@@ -12,7 +12,7 @@ def test_prepare_udp_authorization_retrofit_is_narrow_and_read_only():
     assert "OUF_AUTHORIZATION_REFRESH_SECONDS" in raw
     assert "OUF_AUTHORIZATION_MAX_STALENESS_SECONDS" in raw
     assert "OUF_UDP_SEARCH_OWNER_KEY_FILE" in raw
-    assert "docker","inspect","ouf-udp"" in raw
+    assert '["docker","inspect","ouf-udp"]' in raw
     assert "docker","stop"" not in raw
     assert "docker","rm"" not in raw
 
