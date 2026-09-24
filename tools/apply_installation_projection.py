@@ -4,6 +4,7 @@ from pathlib import Path
 
 INSTALLATION_MCP_REF = "installation://iam.workloadClients.mcpServer"
 INSTALLATION_INGESTION_REF = "installation://iam.workloadClients.ingestion"
+INSTALLATION_UDP_REF = "installation://iam.workloadClients.udp"
 INSTALLATION_AUDIENCE_REF = "installation://iam.gatewayAudience"
 
 class ProjectionError(RuntimeError):
@@ -26,6 +27,7 @@ def apply_projection(compiled, projection):
     out = copy.deepcopy(compiled)
     mcp_client = _require(projection, "iam.workloadClients.mcpServer")
     ingestion_client = _require(projection, "iam.workloadClients.ingestion")
+    udp_client = _require(projection, "iam.workloadClients.udp")
     projected_mcp_client = _require(projection, "mcp.environment.MCP_OIDC_CLIENT_ID")
     if projected_mcp_client != mcp_client:
         raise ProjectionError("mcp workload identity disagrees with iam.workloadClients.mcpServer")
@@ -43,6 +45,8 @@ def apply_projection(compiled, projection):
                     resolved_allowed.append(mcp_client)
                 elif value == INSTALLATION_INGESTION_REF:
                     resolved_allowed.append(ingestion_client)
+                elif value == INSTALLATION_UDP_REF:
+                    resolved_allowed.append(udp_client)
                 else:
                     resolved_allowed.append(value)
             if any(isinstance(value, str) and value.startswith("installation://") for value in resolved_allowed):
@@ -64,6 +68,7 @@ def apply_projection(compiled, projection):
         "publicApiBaseUrl": api_base,
         "mcpServiceIdentity": mcp_client,
         "ingestionServiceIdentity": ingestion_client,
+        "udpServiceIdentity": udp_client,
     }
     base = dict(out)
     base.pop("configurationSha256", None)
