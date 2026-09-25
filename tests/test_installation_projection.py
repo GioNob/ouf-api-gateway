@@ -28,6 +28,9 @@ def test_installation_projection_resolves_gateway_audience_and_mcp_identity():
     policy_bundle = next(r for r in resolved["routes"] if r["id"] == "mcp-authorization-policy-bundle-read")
     assert policy_bundle["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-mcp-server", "ouf-ingestion", "ouf-udp"]
 
+    semantic = next(r for r in resolved["routes"] if r["id"] == "r2b-semantic-reference")
+    assert semantic["x-ouf-backend-binding"]["service"] == "ouf-semantic"
+
     assert resolved["x-ouf-installation"] == {
         "installationId": "ouf-lab-netcup-01",
         "revision": 1,
@@ -38,6 +41,10 @@ def test_installation_projection_resolves_gateway_audience_and_mcp_identity():
         "mcpServiceIdentity": "ouf-mcp-server",
         "ingestionServiceIdentity": "ouf-ingestion",
         "udpServiceIdentity": "ouf-udp",
+        "serviceBindings": {
+            "ouf-onboarding": "ouf-onboarding",
+            "ouf-semantic-registry": "ouf-semantic",
+        },
     }
 
 
