@@ -32,7 +32,8 @@
     "workloadClients": {
       "mcpServer": "ouf-mcp-server",
       "ingestion": "ouf-ingestion",
-      "udp": "ouf-udp"
+      "udp": "ouf-udp",
+      "semantic": "ouf-semantic"
     }
   },
   "services": {
