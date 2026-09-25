@@ -52,5 +52,5 @@ def test_udp_installation_projection_resolves_policy_reader():
     projection = json.loads((ROOT / "tests/fixtures/installation-projection-lab.json").read_text())
     runtime = apply_projection(compile_config(CONFIG_ROOT / "ouf-config"), projection)
     route = next(r for r in runtime["routes"] if r["id"] == "mcp-authorization-policy-bundle-read")
-    assert route["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-mcp-server", "ouf-ingestion", "ouf-udp"]
+    assert route["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-mcp-server", "ouf-ingestion", "ouf-udp", "ouf-semantic"]
     assert runtime["x-ouf-installation"]["udpServiceIdentity"] == "ouf-udp"
