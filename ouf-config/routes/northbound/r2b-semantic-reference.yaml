@@ -21,7 +21,7 @@ spec:
     maxRequestBytes: 65536
     timeoutSeconds: 10
     allowedServiceIdentities:
-    - ouf-ingestion-runtime
-    - ouf-udp-object-resolution
+    - installation://iam.workloadClients.ingestion
+    - installation://iam.workloadClients.udp
     allowedActorTypes:
-    - SERVICE_IDENTITY
+    - SERVICE
