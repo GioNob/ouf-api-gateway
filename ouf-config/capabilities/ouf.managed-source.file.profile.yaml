@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.managed-source.file.profile, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: onboarding
+  operationType: COMMAND
+  scope: ouf.managed-source.file.profile
+  classification: [OPEN, ANONYMOUS]
+  mcp: {toolEligible: false, humanRequired: true}

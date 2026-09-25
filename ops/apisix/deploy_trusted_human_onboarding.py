@@ -16,6 +16,8 @@ ROUTE_IDS={
     "trusted-human-onboarding-approvals-get",
     "trusted-human-onboarding-approvals-post",
     "trusted-human-managed-file-upload",
+    "trusted-human-managed-file-actions-post",
+    "trusted-human-managed-file-preview-get",
 }
 
 def route_value(doc):
