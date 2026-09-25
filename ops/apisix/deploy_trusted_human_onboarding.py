@@ -100,6 +100,9 @@ def apply(routes,admin):
             ("GET","/api/onboarding/v1/sources"),
             ("POST","/api/onboarding/v1/sources"),
             ("GET","/api/trusted-human/v1/approval-challenges/00000000-0000-0000-0000-000000000000"),
+            ("POST","/api/managed-sources/v1/files"),
+            ("POST","/api/onboarding/v1/managed-files/00000000-0000-0000-0000-000000000000/profile"),
+            ("GET","/api/onboarding/v1/managed-files/00000000-0000-0000-0000-000000000000"),
         ]
         for method,path in probes:
             code,_=admin.curl(path,method)
