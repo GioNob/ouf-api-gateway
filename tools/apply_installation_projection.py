@@ -34,6 +34,10 @@ def apply_projection(compiled, projection):
     audience = _require(projection, "gateway.requiredAudience")
     issuer = _require(projection, "gateway.issuerUrl")
     api_base = _require(projection, "gateway.publicApiBaseUrl")
+    services = projection.get("services") or {}
+    service_bindings = services.get("bindings") or {}
+    if not isinstance(service_bindings, dict):
+        raise ProjectionError("invalid projection field services.bindings")
 
     for route in out.get("routes", []):
         policy = route.get("x-ouf-policy") or {}
@@ -55,6 +59,15 @@ def apply_projection(compiled, projection):
         if policy.get("requiredAudience") == INSTALLATION_AUDIENCE_REF:
             policy["requiredAudience"] = audience
 
+        backend = route.get("x-ouf-backend-binding")
+        if isinstance(backend, dict):
+            service = backend.get("service")
+            if isinstance(service, str) and service in service_bindings:
+                runtime_service = service_bindings[service]
+                if not isinstance(runtime_service, str) or not runtime_service.strip():
+                    raise ProjectionError(f"invalid service binding for {service}")
+                backend["service"] = runtime_service.strip()
+
         mediation = route.get("x-ouf-mediation")
         if isinstance(mediation, dict) and mediation.get("serviceIdentityRef") == INSTALLATION_MCP_REF:
             mediation["serviceIdentity"] = mcp_client
@@ -69,6 +82,7 @@ def apply_projection(compiled, projection):
         "mcpServiceIdentity": mcp_client,
         "ingestionServiceIdentity": ingestion_client,
         "udpServiceIdentity": udp_client,
+        "serviceBindings": dict(sorted(service_bindings.items())),
     }
     base = dict(out)
     base.pop("configurationSha256", None)
