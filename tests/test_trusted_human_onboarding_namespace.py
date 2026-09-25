@@ -21,13 +21,15 @@ def test_materializes_bounded_human_onboarding_routes():
     assert {r["id"] for r in doc["routes"]}==set(ROUTE_IDS)
     for route in doc["routes"]:
         assert route["upstream"]["nodes"]=={"ouf-onboarding:8080":1}
-        assert route["plugins"]["openid-connect"]["required_scopes"]==["ouf.onboarding.configuration.write"]
+        assert route["plugins"]["openid-connect"]["required_scopes"]==[
+            "ouf.managed-source.file.upload" if route["id"]=="trusted-human-managed-file-upload" else "ouf.onboarding.configuration.write"]
         assert route["plugins"]["openid-connect"]["set_access_token_header"] is False
         assert "ouf_actor_type" in route["plugins"]["serverless-post-function"]["functions"][0]
-        assert route["plugins"]["client-control"]["max_body_size"]<=5242880
+        assert route["plugins"]["client-control"]["max_body_size"]<=(10485760 if route["id"]=="trusted-human-managed-file-upload" else 5242880)
     assert any(r["uri"]=="/api/onboarding/v1/sources" for r in doc["routes"])
     assert any(r["uri"]=="/api/onboarding/v1/sources/*" for r in doc["routes"])
     assert any(r["uri"]=="/api/trusted-human/v1/approval-challenges/*" for r in doc["routes"])
+    assert any(r["uri"]=="/api/managed-sources/v1/files" and r["methods"]==["POST"] for r in doc["routes"])
 
 
 def test_ingestion_compatibility_route_is_separate_m2m_boundary():

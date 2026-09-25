@@ -15,10 +15,19 @@ def test_compiles_onboarding_micro_pairwise_contract():
     assert route["uri"]==contract["path"]
     assert route["methods"]==[contract["method"]]
     assert route["x-ouf-query-contract"][contract["queryParameter"]]=={"required":True,"pattern":contract["referencePattern"]}
-    assert route["x-ouf-policy"]["allowedServiceIdentities"]==[contract["consumerIdentity"],"ouf-ingestion-runtime"]
+    assert route["x-ouf-policy"]["allowedServiceIdentities"]==[contract["consumerIdentity"],"installation://iam.workloadClients.ingestion"]
     assert route["x-ouf-policy"]["maxRequestBytes"]==contract["maximumBytes"]
-    assert route["service_id"]=="ouf-object-storage"
+    assert route["service_id"]=="ouf-onboarding"
     assert route["plugins"]["request-id"]=={"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}
+
+def test_managed_file_upload_is_human_only_and_bound_to_onboarding():
+    route=next(r for r in compile_config(ROOT/"ouf-config")["routes"] if r["id"]=="trusted-human-managed-file-upload")
+    assert route["uri"]=="/api/managed-sources/v1/files"
+    assert route["methods"]==["POST"]
+    assert route["x-ouf-policy"]["identity"]=="OIDC"
+    assert route["x-ouf-policy"]["allowedActorTypes"]==["HUMAN"]
+    assert route["x-ouf-policy"]["requiredScope"]=="ouf.managed-source.file.upload"
+    assert route["service_id"]=="ouf-onboarding"
 
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")

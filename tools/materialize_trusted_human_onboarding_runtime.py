@@ -22,6 +22,7 @@ ROUTE_IDS=(
     "trusted-human-onboarding-lifecycle-put",
     "trusted-human-onboarding-approvals-get",
     "trusted-human-onboarding-approvals-post",
+    "trusted-human-managed-file-upload",
 )
 
 def text(obj,key):

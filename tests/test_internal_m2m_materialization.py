@@ -80,3 +80,16 @@ def test_materialization_rejects_unprojected_service_identity():
 def test_deployer_probe_preserves_bounded_namespace():
     assert probe_path("/api/onboarding/v1/runtime/publications/*")=="/api/onboarding/v1/runtime/publications/probe"
     assert probe_path("/api/semantic/v1/references:resolve")=="/api/semantic/v1/references:resolve"
+
+def test_managed_file_read_is_a_governed_workload_route():
+    compiled=compile_config(ROOT/"ouf-config")
+    resolved=apply_projection(compiled,projection())
+    result=materialize(resolved,["onboarding-managed-file-read"],"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")
+    route=result["routes"][0]
+    assert route["uri"]=="/internal/object-storage/v1/content"
+    assert route["upstream"]["nodes"]=={"ouf-onboarding:8080":1}
+    assert route["plugins"]["proxy-rewrite"]["uri"]=="/api/internal/v1/onboarding/managed-files/content"
+    assert route["plugins"]["openid-connect"]["required_scopes"]==["ouf.internal.object-storage.read"]
+    guard=route["plugins"]["serverless-post-function"]["functions"][0]
+    assert "ouf-onboarding" in guard and "ouf-ingestion" in guard and "SERVICE" in guard
+    validate_routes(result["routes"])

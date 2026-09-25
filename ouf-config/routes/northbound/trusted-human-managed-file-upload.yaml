@@ -1,0 +1,24 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: trusted-human-managed-file-upload
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: public
+  capabilityRef: ouf.managed-source.file.upload@1.0.0
+  sourceRef: onboarding-managed-files@1.0.0
+  match:
+    method: POST
+    path: /api/managed-sources/v1/files
+  backendBinding:
+    service: ouf-onboarding
+    port: 8080
+    path: /api/managed-sources/v1/files
+  policy:
+    identity: OIDC
+    allowedActorTypes:
+    - HUMAN
+    maxRequestBytes: 10485760
+    timeoutSeconds: 30
