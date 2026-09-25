@@ -26,7 +26,7 @@ def test_installation_projection_resolves_gateway_audience_and_mcp_identity():
     assert execution["x-ouf-mediation"]["serviceIdentity"] == "ouf-mcp-server"
 
     policy_bundle = next(r for r in resolved["routes"] if r["id"] == "mcp-authorization-policy-bundle-read")
-    assert policy_bundle["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-mcp-server", "ouf-ingestion", "ouf-udp"]
+    assert policy_bundle["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-mcp-server", "ouf-ingestion", "ouf-udp", "ouf-semantic"]
 
     semantic = next(r for r in resolved["routes"] if r["id"] == "r2b-semantic-reference")
     assert semantic["x-ouf-backend-binding"]["service"] == "ouf-semantic"
@@ -41,6 +41,7 @@ def test_installation_projection_resolves_gateway_audience_and_mcp_identity():
         "mcpServiceIdentity": "ouf-mcp-server",
         "ingestionServiceIdentity": "ouf-ingestion",
         "udpServiceIdentity": "ouf-udp",
+        "semanticServiceIdentity": "ouf-semantic",
         "serviceBindings": {
             "ouf-onboarding": "ouf-onboarding",
             "ouf-semantic-registry": "ouf-semantic",
@@ -78,6 +79,13 @@ def test_missing_ingestion_workload_identity_fails_closed():
     broken = projection()
     del broken["iam"]["workloadClients"]["ingestion"]
     with pytest.raises(ProjectionError, match="iam.workloadClients.ingestion"):
+        apply_projection(compile_config(ROOT / "ouf-config"), broken)
+
+
+def test_missing_semantic_workload_identity_fails_closed():
+    broken = projection()
+    del broken["iam"]["workloadClients"]["semantic"]
+    with pytest.raises(ProjectionError, match="iam.workloadClients.semantic"):
         apply_projection(compile_config(ROOT / "ouf-config"), broken)
 
 
