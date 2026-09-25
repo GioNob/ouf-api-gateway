@@ -20,6 +20,6 @@ def function(kind, installation, key_env, owner_key_env=None):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_summary', 'execute_incidents', 'execute_object_search'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_managed_file', 'execute_summary', 'execute_incidents', 'execute_object_search'):
         raise ValueError('invalid function')
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'

@@ -6,4 +6,4 @@ spec:
   operationType: READ
   scope: ouf.managed-source.preview
   classification: [OPEN, ANONYMOUS]
-  mcp: {toolEligible: false, humanRequired: true}
+  mcp: {toolEligible: true, humanRequired: false}

@@ -37,7 +37,7 @@ class Engine:
 
     OIDC signature enforcement is covered separately by the APISIX container gate.
     """
-    def __init__(self,claims,headers=None,body=None,now=1000,key=KEY):
+    def __init__(self,claims,headers=None,body=None,now=1000,key=KEY,uri=''):
         self.lua=LuaRuntime(encoding=None,unpack_returned_tuples=True)
         self.headers={k.lower().encode():v.encode() for k,v in (headers or {}).items()}
         raw=base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b'=')
@@ -66,7 +66,7 @@ class Engine:
         def denied(code): raise Denied(code)
         def set_header(name,value): self.headers[name.lower()]=value
         def clear_header(name): self.headers.pop(name.lower(),None)
-        self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization']}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
+        self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization'],b'uri':uri.encode()}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
     def run(self,kind): self.lua.execute(function(kind,INSTALL,'TEST_KEY').encode())(None,None)
 
 def proof(claims=None):
