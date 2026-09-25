@@ -18,6 +18,7 @@ def projection():
             "mcpServer":"ouf-mcp-server",
             "ingestion":"ouf-ingestion",
             "udp":"ouf-udp",
+            "semantic":"ouf-semantic",
         }},
         "mcp":{"environment":{"MCP_OIDC_CLIENT_ID":"ouf-mcp-server"}},
         "gateway":{
