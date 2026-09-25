@@ -22,6 +22,7 @@ spec:
       - installation://iam.workloadClients.mcpServer
       - installation://iam.workloadClients.ingestion
       - installation://iam.workloadClients.udp
+      - installation://iam.workloadClients.semantic
     allowedActorTypes:
       - SERVICE
     maxRequestBytes: 65536
