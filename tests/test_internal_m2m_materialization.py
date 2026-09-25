@@ -93,3 +93,10 @@ def test_managed_file_read_is_a_governed_workload_route():
     guard=route["plugins"]["serverless-post-function"]["functions"][0]
     assert "ouf-onboarding" in guard and "ouf-ingestion" in guard and "SERVICE" in guard
     validate_routes(result["routes"])
+
+def test_managed_file_read_rejects_unverified_remote_upstream():
+    resolved=apply_projection(compile_config(ROOT/"ouf-config"),projection())
+    route=next(r for r in resolved["routes"] if r["id"]=="onboarding-managed-file-read")
+    route["x-ouf-backend-binding"]["service"]="onboarding.other-network.example"
+    with pytest.raises(MaterializationError,match="verified transport profile"):
+        materialize(resolved,["onboarding-managed-file-read"],"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")

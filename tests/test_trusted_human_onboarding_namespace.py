@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
+import pytest
 
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
-from tools.materialize_trusted_human_onboarding_runtime import ROUTE_IDS, materialize
+from tools.materialize_trusted_human_onboarding_runtime import ROUTE_IDS, materialize, MaterializationError
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -48,3 +49,11 @@ def test_ingestion_compatibility_route_is_separate_m2m_boundary():
     assert route["x-ouf-policy"]["requiredScope"]=="ouf.ingestion.configuration.attest"
     assert route["x-ouf-policy"]["allowedServiceIdentities"]==["ouf-ingestion"]
     assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]
+
+
+def test_managed_file_route_rejects_unverified_remote_upstream():
+    candidate=runtime()
+    upload=next(r for r in candidate["routes"] if r["id"]=="trusted-human-managed-file-upload")
+    upload["x-ouf-backend-binding"]["service"]="onboarding.other-network.example"
+    with pytest.raises(MaterializationError,match="verified transport profile"):
+        materialize(candidate,"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")

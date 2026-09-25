@@ -104,6 +104,8 @@ def materialize_route(route, installation, oidc_secret_ref):
         raise MaterializationError("invalid backend port")
     if not re.fullmatch(r"[A-Za-z0-9._-]+",service):
         raise MaterializationError("invalid backend service")
+    if route.get("id")=="onboarding-managed-file-read" and (service!="ouf-onboarding" or port!=8080):
+        raise MaterializationError("managed-file remote upstream requires a verified transport profile")
     if not isinstance(methods,list) or len(methods)!=1 or methods[0] not in {"GET","POST","PUT","DELETE"}:
         raise MaterializationError("exactly one supported method is required")
     wildcard="*" in uri

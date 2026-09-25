@@ -85,6 +85,8 @@ def materialize_route(route,installation,oidc_secret_ref):
     methods=route.get("methods")
     if not isinstance(port,int) or port<1 or port>65535 or not re.fullmatch(r"[A-Za-z0-9._-]+",service):
         raise MaterializationError("invalid backend")
+    if route.get("id"," ").startswith("trusted-human-managed-file-") and (service!="ouf-onboarding" or port!=8080):
+        raise MaterializationError("managed-file remote upstream requires a verified transport profile")
     if not isinstance(methods,list) or len(methods)!=1 or methods[0] not in {"GET","POST","PUT"}:
         raise MaterializationError("unsupported HUMAN lifecycle method")
     wildcard="*" in uri
