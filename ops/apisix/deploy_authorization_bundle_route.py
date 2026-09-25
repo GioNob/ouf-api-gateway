@@ -119,7 +119,7 @@ def main():
         if route.get("id")!=ROUTE_ID or route.get("uri")!=ROUTE_URI or route.get("methods")!=["GET"]:
             raise ValueError("unexpected Authorization bundle route")
         guard="\n".join((((route.get("plugins") or {}).get("serverless-post-function") or {}).get("functions") or []))
-        for service in ("ouf-mcp-server","ouf-ingestion","ouf-udp"):
+        for service in ("ouf-mcp-server","ouf-ingestion","ouf-udp","ouf-semantic"):
             if service not in guard:
                 raise ValueError("required service identity missing: "+service)
         apply(route,admin)
