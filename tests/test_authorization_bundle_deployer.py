@@ -13,7 +13,7 @@ def test_authorization_bundle_deployer_has_persistent_snapshot_and_rollback():
     assert 'AUTHORIZATION_BUNDLE_ROUTE_RESTORED' in raw
 
 
-def test_authorization_bundle_deployer_requires_all_three_service_identities():
+def test_authorization_bundle_deployer_requires_all_four_service_identities():
     raw=(ROOT/"ops/apisix/deploy_authorization_bundle_route.py").read_text()
-    assert '("ouf-mcp-server","ouf-ingestion","ouf-udp")' in raw
+    assert '("ouf-mcp-server","ouf-ingestion","ouf-udp","ouf-semantic")' in raw
     assert 'required service identity missing' in raw
