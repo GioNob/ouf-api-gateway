@@ -35,7 +35,10 @@ local operations = {
     profile={'ouf.managed-source.file.profile','COMMAND'},
     preview={'ouf.managed-source.preview','READ'},
 }
-local name = ngx.var.uri:match('^/internal/capabilities/v1/execute/managed%.file/([a-z]+)$')
+-- proxy-rewrite may already have changed ngx.var.uri in APISIX's rewrite phase.
+-- The exact route and request-validation schema bind the operation; both
+-- accepted URI forms have the same final segment.
+local name = ngx.var.uri:match('/([a-z]+)$')
 local operation = name and operations[name]
 if not operation or e.CapabilityID ~= operation[1]
     or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'onboarding'

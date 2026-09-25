@@ -36,8 +36,11 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         route['id']=route_id
         route['uri']='/internal/capabilities/v1/execute/managed.file/'+mode
         route['labels']['ouf-mediation']='managed-file-delegation-v1'
+        route['labels']['ouf-managed']='true'
+        route['labels']['ouf-exposure']='internal'
         matching=[s for s in schemas if s['properties']['CapabilityID']['const']==cap]
         route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
+        route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
         route['plugins']['serverless-post-function']['functions']=[function('execute_managed_file',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
