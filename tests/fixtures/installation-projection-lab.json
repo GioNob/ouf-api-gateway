@@ -34,5 +34,11 @@
       "ingestion": "ouf-ingestion",
       "udp": "ouf-udp"
     }
+  },
+  "services": {
+    "bindings": {
+      "ouf-onboarding": "ouf-onboarding",
+      "ouf-semantic-registry": "ouf-semantic"
+    }
   }
 }
