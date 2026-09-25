@@ -121,5 +121,6 @@ def test_policy_bundle_route_is_real_authorization_capability():
         "installation://iam.workloadClients.mcpServer",
         "installation://iam.workloadClients.ingestion",
         "installation://iam.workloadClients.udp",
+        "installation://iam.workloadClients.semantic",
     ]
     assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]
