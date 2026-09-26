@@ -2,7 +2,7 @@
   "producerRepository": "GioNob/ouf-source-onboarding",
   "producerCommit": "a4fd2ca1d5212ef7a653cb58b57ea8d54386b2a3",
   "producerTest": "GatewayManagedFileObjectStoreTest.readsStagedContentOnlyThroughTheConfiguredGatewayRoute",
-  "consumerIdentity": "ouf-source-onboarding",
+  "consumerIdentity": "ouf-onboarding",
   "method": "GET",
   "path": "/internal/object-storage/v1/content",
   "queryParameter": "ref",

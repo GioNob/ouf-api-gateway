@@ -31,7 +31,15 @@
   "iam": {
     "workloadClients": {
       "mcpServer": "ouf-mcp-server",
-      "ingestion": "ouf-ingestion"
+      "ingestion": "ouf-ingestion",
+      "udp": "ouf-udp",
+      "semantic": "ouf-semantic"
+    }
+  },
+  "services": {
+    "bindings": {
+      "ouf-onboarding": "ouf-onboarding",
+      "ouf-semantic-registry": "ouf-semantic"
     }
   }
 }

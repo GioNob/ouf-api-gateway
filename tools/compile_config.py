@@ -66,6 +66,11 @@ def compile_config(config_root):
           "id": route["metadata"]["id"], "uri": spec["match"]["path"], "methods": [spec["match"]["method"]],
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
+          "x-ouf-backend-binding": {
+            "service": spec["backendBinding"]["service"],
+            "port": spec["backendBinding"]["port"],
+            "path": spec["backendBinding"]["path"],
+          },
           "plugins": plugins,
           "x-ouf-policy": {"identity": spec["policy"]["identity"], "allowedServiceIdentities": allowed, "allowedActorTypes": spec["policy"].get("allowedActorTypes",[]), "maxRequestBytes":spec["policy"]["maxRequestBytes"], "timeoutSeconds":spec["policy"]["timeoutSeconds"], "requiredScope": capability[1]["spec"]["scope"]},
           "x-ouf-capability": {"capabilityId": capability[1]["metadata"]["id"], "version": capability[1]["metadata"]["version"], "owner": capability[1]["spec"]["owner"], "operationType": capability[1]["spec"]["operationType"], "toolEligible": capability[1]["spec"]["mcp"]["toolEligible"], "humanRequired": capability[1]["spec"]["mcp"].get("humanRequired",False)},

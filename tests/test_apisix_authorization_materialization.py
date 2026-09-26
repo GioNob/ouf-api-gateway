@@ -31,6 +31,8 @@ def test_materializes_authorization_bundle_route():
     assert "X-OUF-Gateway-Verified" in pre
     assert "clear_header" in pre
     assert "ouf-mcp-server" in post
+    assert "ouf-ingestion" in post
+    assert "ouf-udp" in post
     assert "allowed_services" in post
     assert "ngx.req.clear_header('Authorization')" not in post
 
