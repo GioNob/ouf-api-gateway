@@ -2,7 +2,8 @@
 
 PET Gateway v1.5 T25/T28 requires the HUMAN attachment upload to traverse the
 Gateway with a bounded streaming request, then the Onboarding intake. The
-current lab APISIX deployment has not been shown to satisfy this requirement.
+lab APISIX-Runtime has passed an isolated request-streaming probe. The HUMAN
+and delegated MCP product routes have not passed this requirement.
 
 The default HUMAN route materialization omits `proxy-control`; the installer
 now refuses to install that route set before taking a snapshot. A release
@@ -53,7 +54,7 @@ The live `ouf-apisix` image reports index digest
 `sha256:84e6b5e787e9f889ebff88161cb9a16599bafcffa236c6b54c7f779a0655940d`.
 Its `openresty -V` includes `APISIX_RUNTIME_VER=1.3.16` and
 `apisix-nginx-module-1.19.9`; both plugin Lua files are present. These facts
-pass the runtime prerequisite, **not** the request-streaming behavioral test.
+identify the runtime; the behavioral evidence is recorded below.
 
 On the VPS, from `/opt/ouf/gateway`, use the repository probe after fetching
 the PR head. It runs host Python inside the APISIX container's network
@@ -63,9 +64,16 @@ arrival, sends the remaining 4096 bytes and removes the route in `finally`:
 
 ```bash
 cd /opt/ouf/gateway
-sudo nsenter -t "$(sudo docker inspect -f '{{.State.Pid}}' ouf-apisix)" -n \
-  python3 ops/apisix/probe_request_streaming.py \
-  --admin-key /opt/ouf/secrets/apisix-admin-key
+git show 04d9aa924e84db77b1e9135efef21b10158bc999:ops/apisix/probe_request_streaming.py \
+  > /tmp/ouf-request-stream-probe.py
+APISIX_PROBE_PID="$(sudo docker inspect -f '{{.State.Pid}}' ouf-apisix)"
+if [ -z "$APISIX_PROBE_PID" ]; then
+  echo 'APISIX_PID_EMPTY'
+else
+  sudo nsenter -t "$APISIX_PROBE_PID" -n \
+    python3 /tmp/ouf-request-stream-probe.py \
+    --admin-key /opt/ouf/secrets/apisix-admin-key
+fi
 ```
 
 PASS requires `FIRST_BYTE_BEFORE_CLIENT_FINISH=true`, `PROBE_HTTP_STATUS=204`
@@ -74,3 +82,16 @@ bounded oversized-request 413, install any product route, or establish the
 MCP Agent Host attachment contract. An abnormal process termination can skip
 the `finally` cleanup: before retrying, inspect the Admin API for an orphaned
 `ouf-request-stream-probe-*` route and delete only the matching probe route.
+
+### Lab observation, 26 September 2026
+
+On the pinned Gateway commit `04d9aa924e84db77b1e9135efef21b10158bc999`,
+the VPS operator ran the extracted probe in the running `ouf-apisix` network
+namespace. It reported `FIRST_BYTE_BEFORE_CLIENT_FINISH=true`,
+`PROBE_HTTP_STATUS=204`, and `PROBE_ROUTE_REMOVED=true`. A subsequent read-only
+Admin API inventory returned HTTP 404 for both
+`trusted-human-managed-file-upload` and `mcp-managed-file-upload`.
+This closes the isolated APISIX-Runtime behavioral prerequisite for that image;
+the product-route early-byte, size/media/error, owner persistence, rollback,
+attachment bridge, and end-to-end gates remain open. Recheck the probe if the
+runtime image or streaming configuration changes.
