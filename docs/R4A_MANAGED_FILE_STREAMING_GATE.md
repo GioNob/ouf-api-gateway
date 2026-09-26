@@ -25,7 +25,24 @@ type, checksum mismatch and anonymous 401/403 independently. Keep the prior
 route snapshot until rollback has been exercised. No arbitrary backend URL,
 cross-network TLS claim, or attached CSV fixture is needed for this check.
 
-The actual ChatGPT Agent Host attachment bridge, HUMAN token flow, remote
+The actual ChatGPT Agent Host attachment bridge, public HUMAN token flow, remote
 upstream certificate verification, and end-to-end ingestion/search remain
 separate release gates. A successful installation of the route alone does
 not close R-SMOKE.
+
+## Delegated MCP candidate
+
+`tools/materialize_managed_upload.py` now builds a separate internal route
+`/internal/capabilities/v1/execute/managed.file/upload`. It checks the MCP
+workload token and signed HUMAN delegation, signs the declared file ID, size
+and SHA-256 into an owner receipt, and never reads the request body in Lua.
+Onboarding independently hashes and counts the forwarded bytes. This route
+has `proxy-control.request_buffering=false` and is **not** included in the
+current APISIX installer. The same runtime streaming proof above applies to
+both the public HUMAN route and this internal route; the materializer and
+Lua unit tests cannot replace the proof on the pinned VPS image.
+
+The current candidate binds `ouf-onboarding:8080` on the lab backend network.
+An installation with Gateway and owner on different machines requires a
+versioned upstream endpoint and verified transport before materialization;
+do not substitute a caller-supplied URL or an unverified upstream TLS flag.
