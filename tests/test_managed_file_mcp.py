@@ -20,7 +20,7 @@ def request(mode='profile'):
     cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE}.get(mode,PROFILE)
     args={'assetId':ASSET}
     if mode=='preview':args['profileId']=OTHER
-    if mode=='create':args.update(profileId=OTHER,sourceId='cinema',name='Cinema',owner='Comune',targetClassIri='https://example.org/Cinema',semanticRefs=['core@1'])
+    if mode=='create':args.update(profileId=OTHER,sourceId='cinema',name='Cinema',owner='Comune',targetClassIri='https://example.org/Cinema',semanticRefs=['core@1'],sourceObjectKeyFields=[],fields=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'OPEN','targetPropertyIri':'https://example.org/name'}])
     e=envelope()
     e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='onboarding',
              OperationClass='READ' if mode=='preview' else 'COMMAND',Arguments=args)
@@ -88,6 +88,8 @@ def test_closed_internal_routes_and_payloads():
     create=next(r for r in routes if r['id'].endswith('create'))
     validator=Draft202012Validator(create['plugins']['request-validation']['body_schema'],format_checker=FormatChecker())
     invalid=request('create');invalid['Arguments']['semanticRefs']=[]
+    assert not validator.is_valid(invalid)
+    invalid=request('create');del invalid['Arguments']['fields']
     assert not validator.is_valid(invalid)
     invalid=request('create');invalid['Arguments']['fields']=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'UNKNOWN'}]
     assert not validator.is_valid(invalid)

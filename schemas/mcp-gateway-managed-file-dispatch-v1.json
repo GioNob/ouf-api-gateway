@@ -402,7 +402,9 @@
             "name",
             "owner",
             "targetClassIri",
-            "semanticRefs"
+            "semanticRefs",
+            "sourceObjectKeyFields",
+            "fields"
           ],
           "properties": {
             "assetId": {
@@ -514,7 +516,8 @@
                     "maxLength": 512
                   }
                 }
-              }
+              },
+              "minItems": 1
             }
           }
         },
