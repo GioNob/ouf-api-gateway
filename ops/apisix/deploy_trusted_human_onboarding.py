@@ -86,6 +86,12 @@ def restore(previous,admin):
         raise RuntimeError("rollback incomplete: "+",".join(failures))
 
 def apply(routes,admin):
+    upload=next((r for r in routes if r.get("id")=="trusted-human-managed-file-upload"),None)
+    if upload is None or upload.get("plugins",{}).get("proxy-control")!={"request_buffering":False}:
+        raise ValueError("managed-file upload requires APISIX-Runtime request streaming; verify the runtime before materializing")
+    code,_=admin.curl("/apisix/admin/plugins/proxy-control?subsystem=http",admin=True)
+    if code!=200:
+        raise RuntimeError("APISIX proxy-control plugin schema is unavailable; upload route not installed")
     previous=snapshot(admin)
     try:
         for route in routes:

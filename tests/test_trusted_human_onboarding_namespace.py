@@ -5,6 +5,7 @@ import pytest
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.materialize_trusted_human_onboarding_runtime import ROUTE_IDS, materialize, MaterializationError
+from ops.apisix.deploy_trusted_human_onboarding import apply
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -57,3 +58,23 @@ def test_managed_file_route_rejects_unverified_remote_upstream():
     upload["x-ouf-backend-binding"]["service"]="onboarding.other-network.example"
     with pytest.raises(MaterializationError,match="verified transport profile"):
         materialize(candidate,"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")
+
+def test_upload_installation_requires_explicit_request_streaming_before_snapshot():
+    routes=materialize(runtime(),"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")["routes"]
+    class NoAdminCalls:
+        def route(self,*args):
+            raise AssertionError("must fail before touching APISIX")
+    with pytest.raises(ValueError,match="request streaming"):
+        apply(routes,NoAdminCalls())
+    ready=materialize(runtime(),"$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET",streaming_runtime=True)["routes"]
+    upload=next(r for r in ready if r["id"]=="trusted-human-managed-file-upload")
+    assert upload["plugins"]["proxy-control"]=={"request_buffering":False}
+    assert all("proxy-control" not in r["plugins"] for r in ready if r is not upload)
+
+    class UnsupportedPlugin:
+        def curl(self,*args,**kwargs):
+            return 404,{}
+        def route(self,*args):
+            raise AssertionError("must fail before route snapshot")
+    with pytest.raises(RuntimeError,match="proxy-control plugin schema"):
+        apply(ready,UnsupportedPlugin())

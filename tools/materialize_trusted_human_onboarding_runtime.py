@@ -60,7 +60,7 @@ def human_guard():
         "end"
     )
 
-def materialize_route(route,installation,oidc_secret_ref):
+def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False):
     labels=route.get("labels") or {}
     policy=route.get("x-ouf-policy")
     backend=route.get("x-ouf-backend-binding")
@@ -113,6 +113,8 @@ def materialize_route(route,installation,oidc_secret_ref):
         },
         "serverless-post-function":{"phase":"access","functions":[human_guard()]},
     }
+    if route.get("id")=="trusted-human-managed-file-upload" and streaming_runtime:
+        plugins["proxy-control"]={"request_buffering":False}
     if not wildcard:
         plugins["proxy-rewrite"]={"uri":backend_path}
     return {
@@ -135,7 +137,7 @@ def materialize_route(route,installation,oidc_secret_ref):
         },
     }
 
-def materialize(runtime,oidc_secret_ref):
+def materialize(runtime,oidc_secret_ref,streaming_runtime=False):
     installation=runtime.get("x-ouf-installation")
     if not isinstance(installation,dict):
         raise MaterializationError("resolved installation metadata is required")
@@ -143,7 +145,7 @@ def materialize(runtime,oidc_secret_ref):
     missing=[route_id for route_id in ROUTE_IDS if route_id not in indexed]
     if missing:
         raise MaterializationError("route not found: "+",".join(missing))
-    routes=[materialize_route(indexed[route_id],installation,oidc_secret_ref) for route_id in ROUTE_IDS]
+    routes=[materialize_route(indexed[route_id],installation,oidc_secret_ref,streaming_runtime) for route_id in ROUTE_IDS]
     return {
         "formatVersion":"1.0",
         "installationId":text(installation,"installationId"),
@@ -156,9 +158,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--runtime",type=Path,required=True)
     p.add_argument("--oidc-client-secret-ref",required=True)
+    p.add_argument("--streaming-runtime",action="store_true",help="Generate proxy-control only for a separately verified APISIX-Runtime")
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
-    result=materialize(json.loads(a.runtime.read_text()),a.oidc_client_secret_ref)
+    result=materialize(json.loads(a.runtime.read_text()),a.oidc_client_secret_ref,a.streaming_runtime)
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n")
 
