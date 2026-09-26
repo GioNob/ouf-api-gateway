@@ -60,9 +60,15 @@ def test_wrong_scope_or_path_is_denied():
 
 def test_route_never_adds_body_validation_or_json_buffering():
     route=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+    from ops.apisix.deploy_managed_file_upload import validate
+    validate(route)
     assert route['id']=='mcp-managed-file-upload' and route['methods']==['POST']
     assert route['plugins']['proxy-control']=={'request_buffering':False}
     assert 'request-validation' not in route['plugins']
+    assert route['plugins']['request-id']['header_name']=='X-Correlation-ID'
+    before=' '.join(route['plugins']['serverless-pre-function']['functions'])
+    assert "n~='x-ouf-delegation'" in before and "n~='x-ouf-file-id'" in before
+    assert 'ngx.req.read_body' not in before
     assert route['plugins']['client-control']=={'max_body_size':10485760}
     assert route['upstream']['nodes']=={'ouf-onboarding:8080':1}
     assert route['upstream']['retries']==0
