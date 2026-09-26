@@ -46,3 +46,31 @@ The current candidate binds `ouf-onboarding:8080` on the lab backend network.
 An installation with Gateway and owner on different machines requires a
 versioned upstream endpoint and verified transport before materialization;
 do not substitute a caller-supplied URL or an unverified upstream TLS flag.
+
+## Isolated lab runtime probe (26 September 2026)
+
+The live `ouf-apisix` image reports index digest
+`sha256:84e6b5e787e9f889ebff88161cb9a16599bafcffa236c6b54c7f779a0655940d`.
+Its `openresty -V` includes `APISIX_RUNTIME_VER=1.3.16` and
+`apisix-nginx-module-1.19.9`; both plugin Lua files are present. These facts
+pass the runtime prerequisite, **not** the request-streaming behavioral test.
+
+On the VPS, from `/opt/ouf/gateway`, use the repository probe after fetching
+the PR head. It runs host Python inside the APISIX container's network
+namespace, listens on that namespace's loopback, creates one random temporary
+APISIX route restricted to loopback, sends 4096 bytes, pauses for first-byte
+arrival, sends the remaining 4096 bytes and removes the route in `finally`:
+
+```bash
+cd /opt/ouf/gateway
+sudo nsenter -t "$(sudo docker inspect -f '{{.State.Pid}}' ouf-apisix)" -n \
+  python3 ops/apisix/probe_request_streaming.py \
+  --admin-key /opt/ouf/secrets/apisix-admin-key
+```
+
+PASS requires `FIRST_BYTE_BEFORE_CLIENT_FINISH=true`, `PROBE_HTTP_STATUS=204`
+and `PROBE_ROUTE_REMOVED=true`. This probe does not send a user CSV, prove the
+bounded oversized-request 413, install any product route, or establish the
+MCP Agent Host attachment contract. An abnormal process termination can skip
+the `finally` cleanup: before retrying, inspect the Admin API for an orphaned
+`ouf-request-stream-probe-*` route and delete only the matching probe route.
