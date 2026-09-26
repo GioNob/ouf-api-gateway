@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install exactly the two delegated managed-file MCP routes, with snapshot and rollback."""
+"""Install exactly the three delegated managed-file MCP routes, with snapshot and rollback."""
 import argparse
 import json
 import os
@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ops.apisix.deploy_internal_m2m_routes import Admin, apply, restore, validate_routes
 
-IDS={'mcp-managed-file-profile','mcp-managed-file-preview'}
+IDS={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
 
 def select(doc):
     routes=doc.get('routes')

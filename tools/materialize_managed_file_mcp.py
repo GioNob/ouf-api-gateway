@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[1]
 MODES={
     'profile':('ouf.managed-source.file.profile','COMMAND'),
     'preview':('ouf.managed-source.preview','READ'),
+    'create':('ouf.managed-source.onboarding.create','COMMAND'),
 }
 
 def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):

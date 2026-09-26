@@ -34,6 +34,7 @@ if i.PrincipalID ~= p.principal or i.TenantID ~= p.tenant or i.ActorType ~= p.ac
 local operations = {
     profile={'ouf.managed-source.file.profile','COMMAND'},
     preview={'ouf.managed-source.preview','READ'},
+    create={'ouf.managed-source.onboarding.create','COMMAND'},
 }
 -- proxy-rewrite may already have changed ngx.var.uri in APISIX's rewrite phase.
 -- The exact route and request-validation schema bind the operation; both

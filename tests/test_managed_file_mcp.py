@@ -12,16 +12,18 @@ from ops.apisix.deploy_managed_file_mcp import select
 
 PROFILE='ouf.managed-source.file.profile'
 PREVIEW='ouf.managed-source.preview'
+CREATE='ouf.managed-source.onboarding.create'
 ASSET='00000000-0000-4000-8000-000000000001'
 OTHER='00000000-0000-4000-8000-000000000002'
 
 def request(mode='profile'):
-    cap=PROFILE if mode=='profile' else PREVIEW
+    cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE}.get(mode,PROFILE)
     args={'assetId':ASSET}
     if mode=='preview':args['profileId']=OTHER
+    if mode=='create':args.update(profileId=OTHER,sourceId='cinema',name='Cinema',owner='Comune',targetClassIri='https://example.org/Cinema',semanticRefs=['core@1'])
     e=envelope()
     e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='onboarding',
-             OperationClass='COMMAND' if mode=='profile' else 'READ',Arguments=args)
+             OperationClass='READ' if mode=='preview' else 'COMMAND',Arguments=args)
     return e
 
 def execute(mode='profile',body=None,delegation=None,uri=None):
@@ -57,6 +59,7 @@ def test_proxy_rewrite_uri_keeps_exact_delegation_binding():
 @pytest.mark.parametrize('mode,mutation',[
     ('profile',{'CapabilityID':PREVIEW}),('profile',{'Owner':'authorization'}),
     ('profile',{'OperationClass':'READ'}),('preview',{'CapabilityID':PROFILE}),
+    ('create',{'CapabilityID':PREVIEW}),('create',{'OperationClass':'READ'}),
 ])
 def test_wrong_capability_or_owner_never_reaches_managed_file(mode,mutation):
     e=request(mode);e.update(mutation)
@@ -69,8 +72,8 @@ def test_missing_human_scope_and_arbitrary_mode_are_rejected():
 def test_closed_internal_routes_and_payloads():
     doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
     routes=[r for r in doc['routes'] if '/execute/managed.file/' in r.get('uri','')]
-    assert {r['id'] for r in select(doc)}=={'mcp-managed-file-profile','mcp-managed-file-preview'}
-    assert {r['id'] for r in routes}=={'mcp-managed-file-profile','mcp-managed-file-preview'}
+    assert {r['id'] for r in select(doc)}=={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
+    assert {r['id'] for r in routes}=={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
     for r in routes:
         assert r['upstream']['nodes']=={'ouf-onboarding:8080':1}
         assert r['upstream']['retries']==0
@@ -82,3 +85,9 @@ def test_closed_internal_routes_and_payloads():
     preview=next(r for r in routes if r['id'].endswith('preview'))
     job=request('preview');job['Arguments']={'assetId':ASSET,'jobId':OTHER}
     assert Draft202012Validator(preview['plugins']['request-validation']['body_schema'],format_checker=FormatChecker()).is_valid(job)
+    create=next(r for r in routes if r['id'].endswith('create'))
+    validator=Draft202012Validator(create['plugins']['request-validation']['body_schema'],format_checker=FormatChecker())
+    invalid=request('create');invalid['Arguments']['semanticRefs']=[]
+    assert not validator.is_valid(invalid)
+    invalid=request('create');invalid['Arguments']['fields']=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'UNKNOWN'}]
+    assert not validator.is_valid(invalid)
