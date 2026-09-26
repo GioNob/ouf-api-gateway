@@ -32,6 +32,15 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
     route['labels']['ouf-mediation']='managed-file-streaming-upload-v1'
     route['labels']['ouf-managed']='true';route['labels']['ouf-exposure']='internal'
     route['plugins'].pop('request-validation',None)  # JSON validation would buffer CSV.
+    route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
+    # Preserve only the two metadata headers validated in the access phase.
+    # The execute template strips every other caller-supplied X-OUF-* header.
+    route['plugins']['serverless-pre-function']['functions']=[
+        "return function(conf, ctx) for name,_ in pairs(ngx.req.get_headers(0)) do "
+        "local n=name:lower(); if n:sub(1,6)=='x-ouf-' "
+        "and n~='x-ouf-delegation' and n~='x-ouf-file-id' "
+        "then ngx.req.clear_header(name) end end end"
+    ]
     route['plugins']['client-control']={'max_body_size':10485760}
     route['plugins']['proxy-control']={'request_buffering':False}
     route['plugins']['serverless-post-function']['functions']=[function('execute_managed_upload',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
