@@ -110,6 +110,16 @@ cannot be enabled against arbitrary hostnames from `download_url`.
 
 ## Release state
 
+**First-party picker implementation candidate:** The user accepted selecting
+the local CSV again in OUF. The candidate now reuses the existing `ouf-ths`
+server-side OIDC session and the existing HUMAN upload route. It adds only a
+picker UI route and adapter, with no new business capability. See
+`docs/R4A_FIRST_PARTY_FILE_PICKER.md`. Its `source.file.upload` MCP mode
+returns the OUF picker link; the human selects and uploads on OUF, then brings
+the asset ID back to chat. It is not a ChatGPT attachment byte bridge and has
+not passed a live IAM login or CSV upload. The earlier widget and direct MCP
+fetch conclusions still apply to those older modes.
+
 Do not repeat the live CSV upload until one replacement has passed an actual
 ChatGPT file transfer and the existing Gateway upload and Onboarding receipt
 tests. The VPS now runs a read-only probe image, with `source.file.upload`
