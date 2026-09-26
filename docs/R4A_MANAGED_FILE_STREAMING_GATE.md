@@ -31,6 +31,26 @@ upstream certificate verification, and end-to-end ingestion/search remain
 separate release gates. A successful installation of the route alone does
 not close R-SMOKE.
 
+## Lab deployment checkpoint (26 September 2026)
+
+The lab Onboarding image `ouf-onboarding:r4a-e6b7647` is running and its
+readiness is 200 from the Gateway container network. The APISIX installer
+successfully installed the ten trusted HUMAN Onboarding routes from
+installation revision 5, with `proxy-control.request_buffering=false` on
+the exact upload route and `client-control.max_body_size=10485760`. It also
+installed the separate `onboarding-managed-file-read` SERVICE route with
+scope `ouf.internal.object-storage.read`, limited to `ouf-onboarding` and
+`ouf-ingestion`. Both installers verified route readback and anonymous denial.
+Their private rollback snapshots on the lab host are
+`/etc/ouf/deploy-snapshots/trusted-human-onboarding-ny61thdi/previous.json`
+and `/etc/ouf/deploy-snapshots/internal-m2m-routes-y28fy7ed/previous.json`.
+The anonymous upload on the Onboarding backend itself returned 401.
+
+The product-route streaming timing test, oversized 413, media-type and
+checksum denials, partial-asset check, authenticated CSV smoke, and route
+rollback exercise remain open. Installation and the earlier isolated
+runtime probe do not close those gates; retain both route snapshots.
+
 ## Delegated MCP candidate
 
 `tools/materialize_managed_upload.py` now builds a separate internal route
