@@ -16,6 +16,18 @@ Onboarding intake, or the already installed streaming upload route. Do not
 use a public DNS override, attach MCP to a public network, or route every
 public HTTPS address through APISIX to make the live attempt succeed.
 
+The subsequent read-only ChatGPT widget probe opened and reported
+`BROWSER_FETCH`. That diagnostic does not distinguish failure to obtain a
+temporary download URL from a CSP/CORS/redirect denial or body-read failure.
+ChatGPT documents `getFileDownloadUrl` but does not guarantee that widget
+JavaScript can read cross-origin response bytes. The probe was subsequently
+revised to classify these stages, but the revision has no live result. Thus
+browser byte delivery remains unproven. In addition, no browser-issued,
+HUMAN-bound upload ticket route exists in Gateway. The current widget path
+cannot complete the requested ChatGPT attachment -> Gateway -> Onboarding
+transfer. Stop further VPS probes until a transport with a complete security
+and identity boundary is implemented.
+
 ## Normative checks before enabling a replacement
 
 * MCP PET v1.4 section 38 / MCP-GW-03: MCP calls a governed Gateway binding;
@@ -59,7 +71,7 @@ either one.
 
 Do not repeat the live CSV upload until one replacement has passed an actual
 ChatGPT file transfer and the existing Gateway upload and Onboarding receipt
-tests. The currently enabled MCP image remains a failed candidate; a new
-image and a coordinated rollback-backed rollout are required. Keep the old
+tests. The VPS now runs a read-only probe image, with `source.file.upload`
+unavailable; a new image and a coordinated rollback-backed rollout are required. Keep the old
 route snapshot and failed-run evidence. Profile, preview, DRAFT and
 Semantic/Registry -> Ingestion -> UDP are pending because there is no asset.
