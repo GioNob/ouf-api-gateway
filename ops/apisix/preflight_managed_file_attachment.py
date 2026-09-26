@@ -4,6 +4,7 @@
 Never prints Docker environment values, the Admin key, JWTs or route bodies.
 """
 import json
+import argparse
 from pathlib import Path
 import subprocess
 import sys
@@ -55,10 +56,14 @@ for name in json.loads(input()):
 
 def main():
     import os
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--mcp-container', default='ouf-mcp')
+    parser.add_argument('--apisix-container', default='ouf-apisix')
+    args = parser.parse_args()
     if os.geteuid() != 0 or not ADMIN_KEY.is_file():
         raise ValueError('ROOT_OR_ADMIN_KEY_REQUIRED')
-    mcp = inspect('ouf-mcp-server')
-    apisix = inspect('ouf-apisix')
+    mcp = inspect(args.mcp_container)
+    apisix = inspect(args.apisix_container)
     environment = dict(value.partition('=')[::2] for value in mcp['Config'].get('Env') or [])
     print('MCP_RUNNING=' + str(bool(mcp['State']['Running'])).lower())
     print('MCP_IMAGE_ID=' + mcp['Image'])
