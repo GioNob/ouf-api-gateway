@@ -56,6 +56,14 @@ def test_proxy_rewrite_uri_keeps_exact_delegation_binding():
     with pytest.raises(Denied):
         execute(uri='/api/internal/v1/onboarding/managed-file-mcp/delete')
 
+def test_create_receipt_is_bound_to_draft_owner_route_and_scope():
+    engine=execute('create',uri='/api/internal/v1/onboarding/managed-file-mcp/create')
+    encoded,_=engine.headers[b'x-ouf-managed-file-receipt'].split(b'.')
+    payload=json.loads(base64.urlsafe_b64decode(encoded+b'='*((4-len(encoded)%4)%4)))
+    assert payload['path']=='/api/internal/v1/onboarding/managed-file-mcp/create'
+    assert payload['capability']==CREATE and payload['subject']=='human-a'
+    assert payload['idempotencyKey']==engine.headers[b'idempotency-key'].decode()
+
 @pytest.mark.parametrize('mode,mutation',[
     ('profile',{'CapabilityID':PREVIEW}),('profile',{'Owner':'authorization'}),
     ('profile',{'OperationClass':'READ'}),('preview',{'CapabilityID':PROFILE}),
