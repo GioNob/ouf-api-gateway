@@ -77,32 +77,30 @@ CSV was already attached to the chat. Do not claim this UX reuses the chat
 attachment automatically. Keep file-parameter auto-selection optional until
 the host demonstrates readable bytes in this surface.
 
-The widget computes a bounded size and SHA-256, then asks an MCP tool for an
-upload authorization using only file ID/name, size and digest. The MCP tool
-passes its workload identity and verified HUMAN delegation to a new internal
-Gateway ticket issuer. The Gateway signs a short-lived, single-purpose,
-tenant/subject/file/digest/size-bound ticket; the secret and HUMAN token do
-not enter the widget. The ticket is returned only in widget-private result
-metadata, never model-visible content. The widget posts the selected `File`
-to a new public Gateway route using this ticket. Gateway verifies the ticket,
-request metadata and size before streaming to Onboarding and signs the existing
-owner receipt. Onboarding independently hashes, counts, checks media type and
-persists the asset. The asset ID then enters the existing profile/preview/
-DRAFT workflow. No arbitrary backend URL, direct MCP Internet access or
-provider-host allowlist is involved.
+The browser file picker is only a transport and authorization adapter for the
+**existing** capability `ouf.managed-source.file.upload`. It must call the
+existing governed `POST /api/managed-sources/v1/files` binding and existing
+Onboarding intake. The capability ID, human grant, owner, asset model and
+post-upload profile/preview/DRAFT flow do not change. An MCP launch tool may
+render the picker, but it is not a second upload capability or a second intake
+API. The remaining engineering decision is how the widget obtains a short-lived
+HUMAN-bound authorization accepted by that exact Gateway route without
+exposing the user's OAuth token to the model or browser JavaScript. A
+server-side THS session or a narrowly scoped upload credential are candidates;
+neither is implemented. No arbitrary backend URL, direct MCP Internet access
+or provider-host allowlist is involved.
 
 Implementation prerequisites, all in one rollout artifact:
 
-1. Versioned ticket-issuer and browser-upload route bindings, capability and
-   scope mapping, precise CORS origin for the ChatGPT widget, and an
-   independently verified APISIX request-streaming configuration.
-2. Ticket verification with replay protection and bounded expiry; owner receipt
-   generation using the existing owner key; no ticket or file bytes in logs,
-   tool arguments, model-visible results or persistent browser state.
+1. Versioned authentication adapter for the existing upload binding, precise
+   CORS policy if the widget sends the request, and independently verified
+   APISIX request streaming. No duplicate upload route or capability.
+2. HUMAN identity and scope verified by Gateway and Onboarding; no credential
+   or file bytes in logs, model-visible results or persistent browser state.
 3. Browser streaming behavior demonstrated with a real CSV and oversized
    payload; 413/415, checksum mismatch, anonymous denial and no partial asset.
-4. One idempotent installer with snapshot and automatic rollback for MCP and
-   Gateway routes; no step-by-step manual secret or route edits.
+4. One idempotent installer with snapshot and automatic rollback for the
+   changed MCP and Gateway configuration; no manual route or secret edits.
 
 This is a candidate contract, not a deployed upload. The user must accept the
 second file selection before it replaces the original attached-file UX. If
