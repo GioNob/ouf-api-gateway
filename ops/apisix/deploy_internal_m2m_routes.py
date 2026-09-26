@@ -105,7 +105,7 @@ def restore(previous,admin):
     if failures:
         raise RuntimeError("rollback incomplete: "+",".join(failures))
 
-def apply(routes,admin):
+def apply(routes,admin,anonymous_probe=None):
     ids=validate_routes(routes)
     previous=snapshot(ids,admin)
     try:
@@ -119,7 +119,11 @@ def apply(routes,admin):
             if any(actual.get(k)!=v for k,v in route.items()):
                 raise RuntimeError("route readback differs for "+route_id)
         for route in routes:
-            code,_=admin.curl(probe_path(route["uri"]),route["methods"][0])
+            if anonymous_probe is None:
+                code,_=admin.curl(probe_path(route["uri"]),route["methods"][0])
+            else:
+                code,_=admin.curl(probe_path(route["uri"]),route["methods"][0],
+                                  data=anonymous_probe(route))
             if code not in (401,403):
                 raise RuntimeError(f"anonymous protected route HTTP {code} for {route['id']}")
     except BaseException:

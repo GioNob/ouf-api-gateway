@@ -8,7 +8,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 from tests.test_execute_delegation import Engine, Denied, human, workload, envelope, proof, runtime, INSTALL, KEY
 from tools.delegation_functions import function
 from tools.materialize_managed_file_mcp import materialize
-from ops.apisix.deploy_managed_file_mcp import select
+from ops.apisix.deploy_managed_file_mcp import anonymous_probe, select
+from ops.apisix.deploy_internal_m2m_routes import apply
 
 PROFILE='ouf.managed-source.file.profile'
 PREVIEW='ouf.managed-source.preview'
@@ -101,3 +102,40 @@ def test_closed_internal_routes_and_payloads():
     assert not validator.is_valid(invalid)
     invalid=request('create');invalid['Arguments']['fields']=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'UNKNOWN'}]
     assert not validator.is_valid(invalid)
+
+
+def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failure(tmp_path):
+    routes=select(materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY'))
+    class Admin:
+        def __init__(self, failure=False):
+            self.installed={}
+            self.probes=[]
+            self.failure=failure
+            self.work=tmp_path
+
+        def route(self, method, route_id, data=None):
+            if method=='GET':
+                return (200,{'value':self.installed[route_id]}) if route_id in self.installed else (404,{})
+            if method=='PUT':
+                self.installed[route_id]=data
+                return 201,{}
+            if method=='DELETE':
+                self.installed.pop(route_id,None)
+                return 204,{}
+            raise AssertionError(method)
+
+        def curl(self, path, method, data=None, admin=False):
+            route=next(r for r in routes if r['uri']==path)
+            assert method=='POST' and not admin
+            schema=route['plugins']['request-validation']['body_schema']
+            valid=Draft202012Validator(schema,format_checker=FormatChecker()).is_valid(data)
+            self.probes.append((route['id'],valid))
+            return (500 if self.failure else 401, {}) if valid else (400,{})
+
+    ok=Admin()
+    apply(routes,ok,anonymous_probe=anonymous_probe)
+    assert len(ok.probes)==3 and all(valid for _,valid in ok.probes)
+    denied=Admin(failure=True)
+    with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
+        apply(routes,denied,anonymous_probe=anonymous_probe)
+    assert denied.installed=={}
