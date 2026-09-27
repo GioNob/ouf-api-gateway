@@ -57,7 +57,25 @@ installer, or anonymous denial as proof of an authenticated upload.
 
 In MCP picker mode, the **same** `source.file.upload` tool returns the OUF URL
 with `AWAITING_FILE_SELECTION`; it transfers no bytes and creates no asset.
-The browser page shows the asset ID after a successful 201. For the initial
-flow the user gives that ID back in chat for the existing profile, preview and
-onboarding-create tools. Automated continuation after page completion is a
-separate UX improvement, not part of this intake binding.
+The browser page shows the asset ID after a successful 201. The ChatGPT
+widget reads the governed result with an app-only status tool and proposes
+a follow-up in chat; ChatGPT shows an **Invia** confirmation before sending
+it. The result read is part of the upload capability, not a second product
+capability. Other MCP hosts need a portable MCP Apps widget or can use the
+picker URL and manual Asset ID.
+
+Live 27 September 2026: the first status poll passed scope admission but
+APISIX returned HTTP 500 before contacting Onboarding. The generated
+`execute_managed_file` Lua lacked the `OWNER_KEY_ENV` declaration while
+calling `os.getenv(OWNER_KEY_ENV)`. Revision `e649d3e3b85ecfcee5aeaa89c57863c5ecd92d28`
+adds that constant to the generator and
+`scripts/r4a_managed_file_owner_key_repair.py` compares all four live
+routes, snapshots them, and updates only that constant with rollback on
+installation failure. The lab returned `MANAGED_FILE_OWNER_KEY_REPAIR=PASS
+ROUTES=4`; snapshot:
+`/etc/ouf/deploy-snapshots/managed-file-mcp-mb9jjday/previous.json`.
+The subsequent first-party CSV upload delivered Asset ID
+`2b630dbb-5397-485c-95d2-0c4ecc431303` to the chat through the widget,
+and profiling and redacted preview succeeded. This proves the lab handoff,
+not portability across MCP hosts or completion of Semantic/Registry,
+Ingestion and UDP.
