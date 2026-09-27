@@ -5,6 +5,8 @@ from pathlib import Path
 
 ROUTE_ID = 'trusted-human-managed-file-picker'
 URI = '/trusted-human/managed-files/*'
+LOGIN_ROUTE_ID = 'authorization-ths-login'
+LOGIN_URIS = ['/oauth2/authorization/ouf-ths', '/login/oauth2/code/ouf-ths']
 CAP = 'ouf.managed-source.file.upload'
 
 
@@ -40,6 +42,17 @@ def materialize(runtime):
                 'upstream': {'type': 'roundrobin', 'scheme': 'http',
                              'nodes': {'ouf-onboarding:8080': 1}, 'retries': 0,
                              'timeout': {'connect': 10, 'send': 30, 'read': 30}},
+            }, {
+                'id': LOGIN_ROUTE_ID, 'uris': LOGIN_URIS, 'methods': ['GET'],
+                'plugins': {
+                    'client-control': {'max_body_size': 65536},
+                    'serverless-pre-function': {'phase': 'rewrite', 'functions': [
+                        "return function() for k,_ in pairs(ngx.req.get_headers(0)) do "
+                        "local n=k:lower(); if n:sub(1,6)=='x-ouf-' or n=='authorization' "
+                        "then ngx.req.clear_header(k) end end end"]},
+                },
+                'upstream': {'type': 'roundrobin', 'nodes': {'ouf-onboarding:8080': 1},
+                             'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 10}},
             }]}
 
 
