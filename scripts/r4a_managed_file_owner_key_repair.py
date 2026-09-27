@@ -6,6 +6,8 @@ materialization. Rebuild from an exact fetched source commit and roll back
 the four routes on any installer failure. No key value is read or printed.
 """
 import argparse
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -50,7 +52,6 @@ def main():
         raise RuntimeError('PINNED_SOURCE_UNAVAILABLE')
     runtime = MATERIALIZATION / 'runtime.json'
     current_file = MATERIALIZATION / 'mcp-routes.json'
-    current = route_map(json.loads(current_file.read_text()))
     os.umask(0o077)
     with tempfile.TemporaryDirectory(prefix='r4a-managed-file-key-', dir=ROOT) as folder:
         work = Path(folder)
@@ -65,6 +66,22 @@ def main():
         if archive.wait() or unpack.returncode:
             raise RuntimeError('GATEWAY_ARCHIVE_FAILED')
         env = {**os.environ, 'PYTHONPATH': str(work)}
+        sys.path.insert(0, str(work))
+        from ops.apisix.deploy_internal_m2m_routes import Admin, route_value
+        admin_args = argparse.Namespace(backup_dir=ROOT,
+            admin_key=Path('/opt/ouf/secrets/apisix-admin-key'),
+            container='ouf-apisix', curl_image='curlimages/curl:8.16.0')
+        with redirect_stdout(io.StringIO()):
+            admin = Admin(admin_args, 'managed-file-owner-key-read-')
+        try:
+            current = {}
+            for route_id in sorted(IDS):
+                status, body = admin.route('GET', route_id)
+                if status != 200:
+                    raise RuntimeError('LIVE_ROUTE_NOT_FOUND_' + route_id)
+                current[route_id] = route_value(body)
+        finally:
+            admin.close()
         output = work / 'mcp-routes.json'
         run([sys.executable, '-P', '-m', 'tools.materialize_managed_file_mcp',
              '--runtime', str(runtime), '--oidc-client-secret-ref',
@@ -82,7 +99,7 @@ def main():
                 raise RuntimeError('UNEXPECTED_OWNER_KEY_STATE_' + route_id)
             check = json.loads(json.dumps(new))
             check['plugins']['serverless-post-function']['functions'][0] = new_function.replace(marker, '')
-            if check != old:
+            if any(old.get(key) != value for key, value in check.items()):
                 raise RuntimeError('UNRELATED_ROUTE_DRIFT_' + route_id)
         # The installer snapshots, verifies readback and anonymous denial, and
         # restores all four routes automatically on a failed write or check.
