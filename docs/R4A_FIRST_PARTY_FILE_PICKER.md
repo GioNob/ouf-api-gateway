@@ -74,8 +74,10 @@ routes, snapshots them, and updates only that constant with rollback on
 installation failure. The lab returned `MANAGED_FILE_OWNER_KEY_REPAIR=PASS
 ROUTES=4`; snapshot:
 `/etc/ouf/deploy-snapshots/managed-file-mcp-mb9jjday/previous.json`.
-The subsequent first-party CSV upload delivered Asset ID
-`2b630dbb-5397-485c-95d2-0c4ecc431303` to the chat through the widget,
-and profiling and redacted preview succeeded. This proves the lab handoff,
-not portability across MCP hosts or completion of Semantic/Registry,
-Ingestion and UDP.
+The subsequent first-party CSV upload generated a widget follow-up with
+Asset ID `2b630dbb-5397-485c-95d2-0c4ecc431303`; the model received this
+app-authored turn and profiling and redacted preview succeeded. The user
+reported that the prompt was not visibly shown in the ChatGPT conversation
+after the **Invia** confirmation. This proves the lab data path, but leaves
+visible chat delivery, portability across MCP hosts, Semantic/Registry,
+Ingestion and UDP open.
