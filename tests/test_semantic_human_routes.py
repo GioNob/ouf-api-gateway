@@ -23,13 +23,14 @@ def routes():
 
 def test_exact_scopes_and_bounded_suffixes():
     selected = routes()
-    assert len(selected) == 7
+    assert len(selected) == 8
     for route in selected:
         route_id = route['id']
         assert route['upstream']['nodes'] == {'ouf-semantic:8080': 1}
         assert route['plugins']['openid-connect']['required_scopes'] == [ROUTES[route_id][2]]
         assert route['plugins']['openid-connect']['set_access_token_header'] is False
-        assert route['plugins']['client-control']['max_body_size'] == 65536
+        assert route['plugins']['client-control']['max_body_size'] == (
+            8388608 if route_id == 'semantic-rdf-import' else 65536)
         if route_id in REGEX:
             assert re.fullmatch(route['vars'][0][2], sample_uri(route))
         else:
