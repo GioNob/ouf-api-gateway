@@ -15,7 +15,7 @@ def function(kind, installation, key_env, owner_key_env=None):
     if kind in ('execute_summary', 'execute_incidents'):
         values['INGESTION_RECEIPT_KEY_ENV'] = 'INGESTION_SUMMARY_RECEIPT_KEY'
         values['GATEWAY_RECEIPT_KEY_ENV'] = 'GATEWAY_SUMMARY_RECEIPT_KEY'
-    if kind in ('execute_permissions', 'execute_object_search', 'execute_managed_upload'):
+    if kind in ('execute_permissions', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
