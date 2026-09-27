@@ -1,0 +1,25 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: semantic-human-publish
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: public
+  capabilityRef: ouf.semantic.publish@1.0.0
+  sourceRef: r2b-semantic@1.0.0
+  match:
+    method: POST
+    path: /api/trusted-human/v1/semantic-approval-challenges/*
+    uriRegex: ^/api/trusted-human/v1/semantic-approval-challenges/[0-9a-fA-F-]{36}/publish$
+  backendBinding:
+    service: ouf-semantic-registry
+    port: 8080
+    path: /api/trusted-human/v1/semantic-approval-challenges/*
+  policy:
+    identity: OIDC
+    allowedActorTypes:
+    - HUMAN
+    maxRequestBytes: 65536
+    timeoutSeconds: 10
