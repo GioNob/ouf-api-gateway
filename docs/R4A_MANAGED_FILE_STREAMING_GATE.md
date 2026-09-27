@@ -115,3 +115,8 @@ This closes the isolated APISIX-Runtime behavioral prerequisite for that image;
 the product-route early-byte, size/media/error, owner persistence, rollback,
 attachment bridge, and end-to-end gates remain open. Recheck the probe if the
 runtime image or streaming configuration changes.
+
+
+## Stato cross-module 27 September 2026
+
+[PET 1.7 handoff](https://github.com/GioNob/ouf-semantic-registry/blob/codex/r4a-smoke-semantic-inventory/docs/handoffs/OUF_HANDOFF_2026-09-27_R4A.md) records the later live picker upload and Semantic publication. The isolated APISIX early-byte probe passed, and an authenticated HUMAN upload traversed the product Gateway to create asset `8ec8ae90-808a-4d9e-907c-d56de119e376`. These observations supersede the earlier statement that product routes had not been installed at the time of the probe. They do **not** demonstrate the product-route early-byte timing, oversized 413 with no partial persisted asset, all media/checksum/auth negatives, rollback or full Ingestion/UDP cycle. R-SMOKE remains OPEN. Re-evaluate exact route IDs and current image before any change; do not substitute an isolated probe or a route installer PASS for this evidence.
