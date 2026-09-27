@@ -14,7 +14,6 @@ ROUTES = {
     'semantic-human-decision': ('POST', '/api/trusted-human/v1/semantic-approval-challenges/*', 'ouf.semantic.approve'),
     'semantic-human-publish': ('POST', '/api/trusted-human/v1/semantic-approval-challenges/*', 'ouf.semantic.publish'),
     'semantic-artifact-search': ('GET', '/api/semantic/v1/search', 'ouf.semantic.search'),
-    'semantic-artifact-read': ('GET', '/api/semantic/v1/artifacts/*', 'ouf.semantic.read'),
 }
 UUID = '[0-9a-fA-F-]{36}'
 REGEX = {
@@ -22,7 +21,6 @@ REGEX = {
     'semantic-human-card': '^/api/trusted-human/v1/semantic-approval-challenges/' + UUID + '$',
     'semantic-human-decision': '^/api/trusted-human/v1/semantic-approval-challenges/' + UUID + '/decision$',
     'semantic-human-publish': '^/api/trusted-human/v1/semantic-approval-challenges/' + UUID + '/publish$',
-    'semantic-artifact-read': '^/api/semantic/v1/artifacts/' + UUID + '$',
 }
 
 
