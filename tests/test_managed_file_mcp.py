@@ -53,6 +53,12 @@ def test_signed_managed_file_receipt_is_domain_and_owner_bound():
     assert payload['bodyHash']==hashlib.sha256(engine.body).hexdigest()
     assert b'authorization' not in engine.headers and b'x-ouf-delegation' not in engine.headers
 
+def test_managed_file_lua_embeds_owner_key_environment_name():
+    source = function('execute_managed_file', INSTALL, 'TEST_KEY', 'OWNER_KEY')
+    assert 'local OWNER_KEY_ENV = "OWNER_KEY"' in source
+    with pytest.raises(ValueError, match='owner receipt key environment required'):
+        function('execute_managed_file', INSTALL, 'TEST_KEY')
+
 def test_proxy_rewrite_uri_keeps_exact_delegation_binding():
     engine=execute(uri='/api/internal/v1/onboarding/managed-file-mcp/profile')
     assert b'x-ouf-managed-file-receipt' in engine.headers
