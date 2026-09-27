@@ -8,6 +8,7 @@ from tools.materialize_trusted_human_onboarding_runtime import materialize_route
 
 ROUTES = {
     'semantic-artifact-propose': ('POST', '/api/semantic/v1/artifacts', 'ouf.semantic.propose'),
+    'semantic-rdf-import': ('POST', '/api/semantic/v1/imports', 'ouf.semantic.propose'),
     'semantic-revision-validate': ('POST', '/api/semantic/v1/revisions/*', 'ouf.semantic.review.prepare'),
     'semantic-approval-request': ('POST', '/api/semantic/v1/approval-challenges', 'ouf.semantic.approval.request'),
     'semantic-human-card': ('GET', '/api/trusted-human/v1/semantic-approval-challenges/*', 'ouf.semantic.review'),
