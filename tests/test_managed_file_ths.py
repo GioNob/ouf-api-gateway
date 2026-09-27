@@ -1,7 +1,7 @@
 import unittest
 
-from tools.materialize_managed_file_ths import materialize, CAP
-from ops.apisix.deploy_managed_file_ths import select
+from tools.materialize_managed_file_ths import materialize, CAP, LOGIN_URIS
+from ops.apisix.deploy_managed_file_ths import select, select_login
 
 
 class ManagedFileThsTest(unittest.TestCase):
@@ -16,11 +16,16 @@ class ManagedFileThsTest(unittest.TestCase):
                                                       'path': '/api/managed-sources/v1/files'}}]}
 
     def test_picker_is_only_a_ui_route_bound_to_existing_upload(self):
-        route = select(materialize(self.runtime()))
+        doc = materialize(self.runtime())
+        route = select(doc)
         self.assertEqual(route['uri'], '/trusted-human/managed-files/*')
         self.assertEqual(route['labels']['ouf-capability'], CAP)
         self.assertEqual(route['plugins']['proxy-control'], {'request_buffering': False})
         self.assertEqual(route['upstream']['nodes'], {'ouf-onboarding:8080': 1})
+        login = select_login(doc)
+        self.assertEqual(login['uris'], LOGIN_URIS)
+        self.assertEqual(login['methods'], ['GET'])
+        self.assertEqual(login['upstream']['nodes'], {'ouf-onboarding:8080': 1})
 
     def test_missing_or_changed_upload_binding_fails_closed(self):
         runtime = self.runtime()
@@ -37,6 +42,13 @@ class ManagedFileThsTest(unittest.TestCase):
         doc['routes'][0]['plugins']['proxy-control'] = {'request_buffering': True}
         with self.assertRaises(ValueError):
             select(doc)
+
+    def test_login_route_is_exact_and_removes_caller_authorization(self):
+        doc = materialize(self.runtime())
+        self.assertIn("n=='authorization'", select_login(doc)['plugins']['serverless-pre-function']['functions'][0])
+        doc['routes'][1]['uris'] = ['/oauth2/authorization/*']
+        with self.assertRaises(ValueError):
+            select_login(doc)
 
 
 if __name__ == '__main__':
