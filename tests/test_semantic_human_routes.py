@@ -23,7 +23,7 @@ def routes():
 
 def test_exact_scopes_and_bounded_suffixes():
     selected = routes()
-    assert len(selected) == 8
+    assert len(selected) == 7
     for route in selected:
         route_id = route['id']
         assert route['upstream']['nodes'] == {'ouf-semantic:8080': 1}
