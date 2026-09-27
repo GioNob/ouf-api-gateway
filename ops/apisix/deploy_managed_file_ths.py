@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Install the single first-party managed-file picker route with rollback."""
+"""Install the picker and its OIDC login/callback routes with rollback."""
 import argparse
 import json
 import os
 from pathlib import Path
 
 from ops.apisix.deploy_internal_m2m_routes import Admin, route_value, restore, snapshot
-from tools.materialize_managed_file_ths import ROUTE_ID, URI
+from tools.materialize_managed_file_ths import ROUTE_ID, URI, LOGIN_ROUTE_ID, LOGIN_URIS
 
 
 def select(doc):
     routes = doc.get('routes')
-    if not isinstance(routes, list) or len(routes) != 1:
-        raise ValueError('exact picker route required')
-    route = routes[0]
+    if (not isinstance(routes, list) or len(routes) != 2 or
+            {r.get('id') for r in routes if isinstance(r, dict)} != {ROUTE_ID, LOGIN_ROUTE_ID}):
+        raise ValueError('exact picker and OIDC route required')
+    route = next(r for r in routes if r['id'] == ROUTE_ID)
     if (route.get('id') != ROUTE_ID or route.get('uri') != URI
             or route.get('methods') != ['GET', 'POST']
             or route.get('labels', {}).get('ouf-surface') != 'TRUSTED_HUMAN_MANAGED_FILE'
@@ -22,6 +23,24 @@ def select(doc):
             or route.get('upstream', {}).get('nodes') != {'ouf-onboarding:8080': 1}
             or route.get('upstream', {}).get('retries') != 0):
         raise ValueError('picker route contract mismatch')
+    return route
+
+
+def select_login(doc):
+    route = next(r for r in doc['routes'] if r['id'] == LOGIN_ROUTE_ID)
+    plugins = route.get('plugins', {})
+    pre = plugins.get('serverless-pre-function', {})
+    functions = pre.get('functions', [])
+    if (set(route) != {'id', 'uris', 'methods', 'plugins', 'upstream'} or
+            route.get('uris') != LOGIN_URIS or route.get('methods') != ['GET'] or
+            set(plugins) != {'client-control', 'serverless-pre-function'} or
+            plugins.get('client-control') != {'max_body_size': 65536} or
+            pre.get('phase') != 'rewrite' or len(functions) != 1 or
+            not isinstance(functions[0], str) or
+            'ngx.req.clear_header(k)' not in functions[0] or
+            route.get('upstream') != {'type': 'roundrobin', 'nodes': {'ouf-onboarding:8080': 1},
+                                      'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 10}}):
+        raise ValueError('OIDC login route contract mismatch')
     return route
 
 
@@ -40,28 +59,38 @@ def main():
     try:
         if a.restore:
             previous = json.loads(a.restore.read_text())
-            if not isinstance(previous, dict) or set(previous) != {ROUTE_ID}:
-                raise ValueError('snapshot must contain only the picker route')
+            if not isinstance(previous, dict) or set(previous) not in ({ROUTE_ID}, {ROUTE_ID, LOGIN_ROUTE_ID}):
+                raise ValueError('snapshot must contain only picker/OIDC routes')
             restore(previous, admin)
             print('MANAGED_FILE_THS_RESTORED')
             return
-        route = select(json.loads(a.materialization.read_text()))
-        previous = snapshot({ROUTE_ID}, admin)
+        doc = json.loads(a.materialization.read_text())
+        routes = [select(doc), select_login(doc)]
+        previous = snapshot({ROUTE_ID, LOGIN_ROUTE_ID}, admin)
         try:
-            code, _ = admin.route('PUT', ROUTE_ID, route)
-            if code not in (200, 201):
-                raise RuntimeError('picker route write failed')
-            code, body = admin.route('GET', ROUTE_ID)
-            if code != 200 or any(route_value(body).get(k) != v for k, v in route.items()):
-                raise RuntimeError('picker route readback differs')
+            for route in routes:
+                route_id = route['id']
+                if previous[route_id] is not None and any(previous[route_id].get(k) != v for k, v in route.items()):
+                    raise RuntimeError('existing THS route drift: ' + route_id)
+                if previous[route_id] is None:
+                    code, _ = admin.route('PUT', route_id, route)
+                    if code not in (200, 201):
+                        raise RuntimeError('THS route write failed: ' + route_id)
+                code, body = admin.route('GET', route_id)
+                if code != 200 or any(route_value(body).get(k) != v for k, v in route.items()):
+                    raise RuntimeError('THS route readback differs: ' + route_id)
             # No state-changing request or bearer credential is sent by the installer.
             code, _ = admin.curl('/trusted-human/managed-files/', 'GET')
             if code not in (302, 401, 403):
                 raise RuntimeError(f'anonymous picker returned HTTP {code}')
+            code, _ = admin.curl(LOGIN_URIS[0], 'GET')
+            if code != 302:
+                raise RuntimeError(f'OIDC login returned HTTP {code}')
         except BaseException:
             restore(previous, admin)
             raise
         print('MANAGED_FILE_THS_ACTIVE')
+        print('OIDC_LOGIN_ROUTE_ACTIVE=true')
     finally:
         admin.close()
 
