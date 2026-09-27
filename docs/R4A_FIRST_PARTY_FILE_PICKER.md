@@ -17,7 +17,10 @@ over the selected file (limited to 10 MiB) before transfer.
 
 This is an opt-in deployment. The picker controller requires the fixed internal
 URL `http://ouf-apisix:9080/api/managed-sources/v1/files` in
-`ouf.managed-file-picker.gateway-upload-url`. The `ouf-ths` OIDC client must be
+`ouf.managed-file-picker.gateway-upload-url`. The rollout overlays that property
+and the exact `ouf-ths` registration scope using `SPRING_APPLICATION_JSON`;
+Spring Boot gives this property source precedence over the mounted THS YAML.
+The `ouf-ths` OIDC client must be
 bound to the optional `ouf.managed-source.file.upload` scope and request that
 scope in its configured registration; its access token must have Gateway
 audience, HUMAN actor and the expected tenant. Existing `ouf-admin` policy
@@ -25,6 +28,22 @@ grants alone do not add a scope to the THS client. The current public HUMAN
 upload route, THS login routes, and session cookie configuration remain
 prerequisites. A login and live upload with the actual client are required
 before enabling the MCP picker mode.
+
+The Onboarding rollout script reads the THS registration (YAML or JSON form),
+adds the existing upload scope to its Keycloak client with the repository's
+exact scope-binding tool, verifies that the new source has no database
+migration changes, builds an image from a pinned commit and retains the old
+container. It creates and restore-tests a private database dump before the
+swap; it restores the original container automatically if readiness fails.
+It never restores a database automatically. See Onboarding
+`docs/R4A_FIRST_PARTY_PICKER_ROLLOUT.md` for the pinned lab procedure.
+
+The MCP `scripts/r4a_attachment_rollout.py --mode picker` checks that the
+deployed Onboarding image and JSON overlay match the pinned revision, checks
+the pre-existing HUMAN upload route is streaming and scope-protected, then
+materializes and installs only the picker UI route. The script swaps MCP into
+picker mode with the same rollback snapshot. If activation fails, it restores
+both changed components. Neither script transfers a CSV automatically.
 
 `tools.materialize_managed_file_ths` validates the existing route binding and
 emits only the picker UI route. `ops.apisix.deploy_managed_file_ths` snapshots
