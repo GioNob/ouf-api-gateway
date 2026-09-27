@@ -6,11 +6,12 @@ zero ACTIVE artifacts. The managed-file asset
 `8ec8ae90-808a-4d9e-907c-d56de119e376` has a completed profile, but no
 governed Semantic reference or Onboarding configuration has been published.
 
-This package adds seven versioned HUMAN RouteBindings:
+This package adds eight versioned HUMAN RouteBindings:
 
 | Operation | Capability | Route ID |
 | --- | --- | --- |
 | Create draft artifact | `ouf.semantic.propose` | `semantic-artifact-propose` |
+| Import a bounded RDF draft | `ouf.semantic.propose` | `semantic-rdf-import` |
 | Validate revision | `ouf.semantic.review.prepare` | `semantic-revision-validate` |
 | Request approval | `ouf.semantic.approval.request` | `semantic-approval-request` |
 | Read the complete HUMAN review card | `ouf.semantic.review` | `semantic-human-card` |
@@ -27,16 +28,17 @@ not expose a HUMAN route under the SERVICE read capability.
 The compiler carries a bounded, anchored `uriRegex` selector through to
 APISIX `vars`. This separates POST `/decision` from POST `/publish` under the
 same challenge namespace, each with its own exact OAuth scope. The
-materializer enforces seven expected IDs, methods, scopes, selectors and the
+materializer enforces eight expected IDs, methods, scopes, selectors and the
 installation's Semantic service binding. It preserves `Authorization` for
 the owner, strips incoming trusted identity headers, validates OIDC/JWKS and
 HUMAN actor type, and proxies to the installation-bound service. A remote
 service outside the verified installation binding is rejected.
 
-`ops.apisix.deploy_semantic_human` snapshots **only** these seven IDs before
+`ops.apisix.deploy_semantic_human` snapshots **only** these eight IDs before
 any route write, refuses drift on an already installed ID, reads back every
 route, checks anonymous denial on each concrete path and restores the
-snapshot on failure. Its `--restore` mode requires exactly those seven IDs.
+snapshot on failure. Its `--restore` mode accepts the initial seven-ID
+snapshot as well as the new eight-ID snapshot.
 The snapshot remains in the protected backup directory. It does not touch
 managed-file upload, picker, login or the existing internal SERVICE route.
 
