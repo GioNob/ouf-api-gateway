@@ -53,17 +53,25 @@ def compile_config(config_root):
         endpoint_ref=source[1]["spec"]["endpointRef"]
         if not endpoint_ref.startswith(("service://","object://","registry://")):
             raise ConfigError(f"{path}: endpointRef must use a governed logical scheme")
-        match=(spec["match"]["method"],spec["match"]["path"])
+        uri_regex=spec["match"].get("uriRegex")
+        match=(spec["match"]["method"],spec["match"]["path"],uri_regex)
         if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
         matches.add(match)
         wildcard = "*" in spec["match"]["path"]
         if wildcard and (not spec["match"]["path"].endswith("/*") or spec["match"]["path"].count("*") != 1 or spec["backendBinding"]["path"] != spec["match"]["path"]):
             raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
+        if uri_regex:
+            prefix=spec["match"]["path"][:-1]
+            if (not wildcard or not uri_regex.startswith("^"+prefix)
+                    or not uri_regex.endswith("$") or len(uri_regex)>256):
+                raise ConfigError(f"{path}: URI regex must be anchored within the wildcard namespace")
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
+        selector={"vars": [["uri", "~~", uri_regex]]} if uri_regex else {}
         routes.append({
           "id": route["metadata"]["id"], "uri": spec["match"]["path"], "methods": [spec["match"]["method"]],
+          **selector,
           "upstream_id": spec["sourceRef"], "service_id": spec["backendBinding"]["service"],
           "labels": {"capability": spec["capabilityRef"], "source": spec["sourceRef"], "exposure": spec["exposure"]},
           "x-ouf-backend-binding": {
