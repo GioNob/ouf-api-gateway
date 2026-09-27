@@ -26,9 +26,10 @@ type, checksum mismatch and anonymous 401/403 independently. Keep the prior
 route snapshot until rollback has been exercised. No arbitrary backend URL,
 cross-network TLS claim, or attached CSV fixture is needed for this check.
 
-The actual ChatGPT Agent Host attachment bridge, public HUMAN token flow, remote
-upstream certificate verification, and end-to-end ingestion/search remain
-separate release gates. A successful installation of the route alone does
+The generic browser picker and MCP handoff, remote upstream certificate
+verification, and end-to-end ingestion/search have separate release gates.
+The authenticated HUMAN upload succeeded later; the remaining product-route
+negative and streaming checks are listed below. A successful installation of the route alone does
 not close R-SMOKE.
 
 ## Lab deployment checkpoint (26 September 2026)
@@ -46,9 +47,11 @@ Their private rollback snapshots on the lab host are
 and `/etc/ouf/deploy-snapshots/internal-m2m-routes-y28fy7ed/previous.json`.
 The anonymous upload on the Onboarding backend itself returned 401.
 
-The product-route streaming timing test, oversized 413, media-type and
-checksum denials, partial-asset check, authenticated CSV smoke, and route
-rollback exercise remain open. Installation and the earlier isolated
+At this 26 September checkpoint, the product-route streaming timing test,
+oversized 413, media-type and checksum denials, partial-asset check,
+authenticated CSV smoke, and route rollback exercise were open. The HUMAN
+picker CSV upload succeeded on 27 September; the other listed checks remain
+open unless separate evidence is recorded. Installation and the earlier isolated
 runtime probe do not close those gates; retain both route snapshots.
 
 ## Delegated MCP candidate
@@ -58,8 +61,10 @@ runtime probe do not close those gates; retain both route snapshots.
 workload token and signed HUMAN delegation, signs the declared file ID, size
 and SHA-256 into an owner receipt, and never reads the request body in Lua.
 Onboarding independently hashes and counts the forwarded bytes. This route
-has `proxy-control.request_buffering=false` and is **not** included in the
-current APISIX installer. The same runtime streaming proof above applies to
+has `proxy-control.request_buffering=false` and was **not** included in the
+APISIX installer at the 26 September checkpoint. Subsequent MCP/picker
+route rollout and owner-key repair were reported PASS; inspect current route
+readback before making a present-tense installation claim. The same runtime streaming proof above applies to
 both the public HUMAN route and this internal route; the materializer and
 Lua unit tests cannot replace the proof on the pinned VPS image.
 
