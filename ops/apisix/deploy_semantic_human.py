@@ -33,6 +33,8 @@ def validate(doc):
                 or oidc.get('ssl_verify') is not True or oidc.get('use_jwks') is not True
                 or not all(name in plugins for name in ('serverless-pre-function',
                                   'serverless-post-function', 'client-control'))
+                or plugins.get('client-control', {}).get('max_body_size') != (
+                    8388608 if route_id == 'semantic-rdf-import' else 65536)
                 or backend.get('retries') != 0
                 or nodes not in ({'ouf-semantic:8080': 1}, {'ouf-semantic-registry:8080': 1})):
             raise ValueError('SEMANTIC_ROUTE_CONTRACT_CHANGED:' + route_id)
@@ -85,7 +87,9 @@ def main():
     os.umask(0o077)
     if args.restore:
         previous = json.loads(args.restore.read_text())
-        if not isinstance(previous, dict) or set(previous) != set(ROUTES):
+        # Snapshots taken by the initial seven-route installer remain restorable.
+        if not isinstance(previous, dict) or set(previous) not in (
+                set(ROUTES), set(ROUTES) - {'semantic-rdf-import'}):
             raise ValueError('SEMANTIC_SNAPSHOT_INVALID')
     else:
         routes = validate(json.loads(args.materialization.read_text()))
