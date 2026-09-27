@@ -24,10 +24,10 @@ The `ouf-ths` OIDC client must be
 bound to the optional `ouf.managed-source.file.upload` scope and request that
 scope in its configured registration; its access token must have Gateway
 audience, HUMAN actor and the expected tenant. Existing `ouf-admin` policy
-grants alone do not add a scope to the THS client. The current public HUMAN
-upload route, THS login routes, and session cookie configuration remain
-prerequisites. A login and live upload with the actual client are required
-before enabling the MCP picker mode.
+grants alone do not add a scope to the THS client. The current public HUMAN upload route and session cookie configuration remain
+prerequisites. The picker installer installs the exact OIDC authorization and
+callback routes together with the UI route. A fresh login and live upload with
+the actual client are required for release acceptance after activation.
 
 The Onboarding rollout script reads the THS registration (YAML or JSON form),
 adds the existing upload scope to its Keycloak client with the repository's
@@ -41,14 +41,18 @@ It never restores a database automatically. See Onboarding
 The MCP `scripts/r4a_attachment_rollout.py --mode picker` checks that the
 deployed Onboarding image and JSON overlay match the pinned revision, checks
 the pre-existing HUMAN upload route is streaming and scope-protected, then
-materializes and installs only the picker UI route. The script swaps MCP into
+materializes and installs the picker UI plus its OIDC authorization and callback routes. The script swaps MCP into
 picker mode with the same rollback snapshot. If activation fails, it restores
 both changed components. Neither script transfers a CSV automatically.
 
 `tools.materialize_managed_file_ths` validates the existing route binding and
-emits only the picker UI route. `ops.apisix.deploy_managed_file_ths` snapshots
-that route, installs it, reads it back, checks anonymous denial/redirect, and
-restores the snapshot on failure. Do not treat a generated route, successful
+emits the picker UI and the two exact OIDC paths (`/oauth2/authorization/ouf-ths`
+and `/login/oauth2/code/ouf-ths`). `ops.apisix.deploy_managed_file_ths`
+snapshots both route IDs, installs any missing route, reads them back, checks
+the login redirect and anonymous picker response, and restores the snapshot
+on failure. Existing route drift blocks the installer. The pinned
+`ops/apisix/repair_managed_file_picker_login.py` applies this repair to an
+already active picker without swapping MCP or rotating credentials. Do not treat a generated route, successful
 installer, or anonymous denial as proof of an authenticated upload.
 
 In MCP picker mode, the **same** `source.file.upload` tool returns the OUF URL
