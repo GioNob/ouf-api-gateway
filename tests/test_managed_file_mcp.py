@@ -14,13 +14,15 @@ from ops.apisix.deploy_internal_m2m_routes import apply
 PROFILE='ouf.managed-source.file.profile'
 PREVIEW='ouf.managed-source.preview'
 CREATE='ouf.managed-source.onboarding.create'
+UPLOAD='ouf.managed-source.file.upload'
 ASSET='00000000-0000-4000-8000-000000000001'
 OTHER='00000000-0000-4000-8000-000000000002'
 
 def request(mode='profile'):
-    cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE}.get(mode,PROFILE)
+    cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE,'handoff':UPLOAD}.get(mode,PROFILE)
     args={'assetId':ASSET}
     if mode=='preview':args['profileId']=OTHER
+    if mode=='handoff':args={'handoffId':ASSET}
     if mode=='create':args.update(profileId=OTHER,sourceId='cinema',name='Cinema',owner='Comune',targetClassIri='https://example.org/Cinema',semanticRefs=['core@1'],sourceObjectKeyFields=[],fields=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'OPEN','targetPropertyIri':'https://example.org/name'}])
     e=envelope()
     e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='onboarding',
@@ -65,6 +67,13 @@ def test_create_receipt_is_bound_to_draft_owner_route_and_scope():
     assert payload['capability']==CREATE and payload['subject']=='human-a'
     assert payload['idempotencyKey']==engine.headers[b'idempotency-key'].decode()
 
+def test_handoff_receipt_uses_existing_upload_capability_and_exact_owner_path():
+    engine=execute('handoff')
+    encoded,_=engine.headers[b'x-ouf-managed-file-receipt'].split(b'.')
+    payload=json.loads(base64.urlsafe_b64decode(encoded+b'='*((4-len(encoded)%4)%4)))
+    assert payload['capability']==UPLOAD
+    assert payload['path']=='/api/internal/v1/onboarding/managed-file-mcp/handoff'
+
 @pytest.mark.parametrize('mode,mutation',[
     ('profile',{'CapabilityID':PREVIEW}),('profile',{'Owner':'authorization'}),
     ('profile',{'OperationClass':'READ'}),('preview',{'CapabilityID':PROFILE}),
@@ -81,8 +90,9 @@ def test_missing_human_scope_and_arbitrary_mode_are_rejected():
 def test_closed_internal_routes_and_payloads():
     doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
     routes=[r for r in doc['routes'] if '/execute/managed.file/' in r.get('uri','')]
-    assert {r['id'] for r in select(doc)}=={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
-    assert {r['id'] for r in routes}=={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
+    expected={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create','mcp-managed-file-handoff'}
+    assert {r['id'] for r in select(doc)}==expected
+    assert {r['id'] for r in routes}==expected
     for r in routes:
         assert r['upstream']['nodes']=={'ouf-onboarding:8080':1}
         assert r['upstream']['retries']==0
