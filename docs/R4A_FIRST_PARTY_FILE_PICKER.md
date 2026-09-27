@@ -24,10 +24,10 @@ The `ouf-ths` OIDC client must be
 bound to the optional `ouf.managed-source.file.upload` scope and request that
 scope in its configured registration; its access token must have Gateway
 audience, HUMAN actor and the expected tenant. Existing `ouf-admin` policy
-grants alone do not add a scope to the THS client. The current public HUMAN upload route and session cookie configuration remain
-prerequisites. The picker installer installs the exact OIDC authorization and
-callback routes together with the UI route. A fresh login and live upload with
-the actual client are required for release acceptance after activation.
+grants alone do not add a scope to the THS client. The current public HUMAN
+upload route, THS login routes, and session cookie configuration remain
+prerequisites. A login and live upload with the actual client are required
+before enabling the MCP picker mode.
 
 The Onboarding rollout script reads the THS registration (YAML or JSON form),
 adds the existing upload scope to its Keycloak client with the repository's
@@ -41,23 +41,28 @@ It never restores a database automatically. See Onboarding
 The MCP `scripts/r4a_attachment_rollout.py --mode picker` checks that the
 deployed Onboarding image and JSON overlay match the pinned revision, checks
 the pre-existing HUMAN upload route is streaming and scope-protected, then
-materializes and installs the picker UI plus its OIDC authorization and callback routes. The script swaps MCP into
+materializes and installs only the picker UI route. The script swaps MCP into
 picker mode with the same rollback snapshot. If activation fails, it restores
 both changed components. Neither script transfers a CSV automatically.
 
-`tools.materialize_managed_file_ths` validates the existing route binding and
-emits the picker UI and the two exact OIDC paths (`/oauth2/authorization/ouf-ths`
-and `/login/oauth2/code/ouf-ths`). `ops.apisix.deploy_managed_file_ths`
-snapshots both route IDs, installs any missing route, reads them back, checks
-the login redirect and anonymous picker response, and restores the snapshot
-on failure. Existing route drift blocks the installer. The pinned
-`ops/apisix/repair_managed_file_picker_login.py` applies this repair to an
-already active picker without swapping MCP or rotating credentials. Do not treat a generated route, successful
-installer, or anonymous denial as proof of an authenticated upload.
+The lab already has both the picker UI route and an OIDC login/callback route.
+The latter returned HTTP 302 during the 27 September live check. A previously
+reported login `404` was not evidence of a missing login route; the exact
+redirect destination was not established. The newer THS materializer also
+emits a candidate login route. Its installer must accept the deployed,
+semantically equivalent login route before it can be reused on this lab;
+do not rerun a strict replacement merely to repair a working login path.
 
 In MCP picker mode, the **same** `source.file.upload` tool returns the OUF URL
 with `AWAITING_FILE_SELECTION`; it transfers no bytes and creates no asset.
-The browser page shows the asset ID after a successful 201. For the initial
-flow the user gives that ID back in chat for the existing profile, preview and
-onboarding-create tools. Automated continuation after page completion is a
-separate UX improvement, not part of this intake binding.
+The browser page shows the asset ID after a successful 201. The first live
+picker upload created an asset on 27 September. The chat-handoff candidate
+adds `mcp-managed-file-handoff`: an exact JSON route under the same upload
+capability, with workload token, signed HUMAN delegation, current policy
+scope, closed `handoffId` schema and Gateway-minted owner receipt. Onboarding
+returns a short-lived result pointer only for the same HUMAN owner. This
+route does not carry CSV bytes and does not replace the streaming upload
+route. The MCP widget can then send the ID into the conversation. A closed
+widget or Onboarding restart leaves the browser's visible ID as fallback.
+The route is staged with the MCP picker upgrade, backed by an APISIX snapshot;
+it is not proof of automatic return until a real ChatGPT widget test passes.
