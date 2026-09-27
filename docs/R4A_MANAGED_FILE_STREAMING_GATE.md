@@ -115,3 +115,24 @@ This closes the isolated APISIX-Runtime behavioral prerequisite for that image;
 the product-route early-byte, size/media/error, owner persistence, rollback,
 attachment bridge, and end-to-end gates remain open. Recheck the probe if the
 runtime image or streaming configuration changes.
+
+### MCP route installation, 26 September 2026
+
+The three delegated JSON routes `mcp-managed-file-profile`,
+`mcp-managed-file-preview` and `mcp-managed-file-create` are active on the
+lab Gateway. Their pre-install definitions are kept at
+`/etc/ouf/deploy-snapshots/managed-file-mcp-qb2ac4an/previous.json`. The
+first installer attempt rolled back because its empty anonymous POST did not
+pass the route's JSON request schema. Commit
+`17aee8cad85b00b8551e4a3e0f68ada5e307deff` fixes the probe to use
+schema-valid synthetic arguments without a token; the retry returned
+`MANAGED_FILE_MCP_ACTIVE`. The streaming `mcp-managed-file-upload` route
+remains absent and the MCP image remains `ouf-mcp:r4a-8599843` with upload
+disabled. No ChatGPT attachment bytes have traversed this path.
+
+The coordinated lab rollout in the MCP repository installs only the exact
+streaming upload route, checks its APISIX readback, prepares the MCP image
+with a bounded origin-discovery mode, and restores both route and container
+on failure. The discovery mode does not download bytes. After the attached
+file yields a reviewed exact HTTPS origin, repeat with explicit upload
+enablement and execute the product streaming and owner-persistence gates.

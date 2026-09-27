@@ -1,0 +1,68 @@
+# First-party CSV picker for the existing upload capability
+
+The Gateway PET v1.5 T25/T28 and Table 81 require a bounded streaming upload
+through the Gateway at `POST /api/managed-sources/v1/files`. The browser picker
+uses **that same** `ouf.managed-source.file.upload` binding. It does not add a
+second file-intake capability or download a ChatGPT attachment URL.
+
+An authenticated user opens `/trusted-human/managed-files/` on the OUF public
+origin and chooses a local CSV. Onboarding's existing `ouf-ths` OIDC session
+provides the HUMAN identity. The browser sends the file to the session-backed
+picker adapter with a CSRF token. The adapter streams it to the existing APISIX
+upload route with the user's access token; Onboarding then counts/hashes the
+bytes, stores the staged asset, and returns its `asset_id`. Both Gateway
+ingress paths use `proxy-control.request_buffering=false`; neither Gateway nor
+the adapter buffers the full request body. JavaScript computes the SHA-256
+over the selected file (limited to 10 MiB) before transfer.
+
+This is an opt-in deployment. The picker controller requires the fixed internal
+URL `http://ouf-apisix:9080/api/managed-sources/v1/files` in
+`ouf.managed-file-picker.gateway-upload-url`. The rollout overlays that property
+and the exact `ouf-ths` registration scope using `SPRING_APPLICATION_JSON`;
+Spring Boot gives this property source precedence over the mounted THS YAML.
+The `ouf-ths` OIDC client must be
+bound to the optional `ouf.managed-source.file.upload` scope and request that
+scope in its configured registration; its access token must have Gateway
+audience, HUMAN actor and the expected tenant. Existing `ouf-admin` policy
+grants alone do not add a scope to the THS client. The current public HUMAN
+upload route, THS login routes, and session cookie configuration remain
+prerequisites. A login and live upload with the actual client are required
+before enabling the MCP picker mode.
+
+The Onboarding rollout script reads the THS registration (YAML or JSON form),
+adds the existing upload scope to its Keycloak client with the repository's
+exact scope-binding tool, verifies that the new source has no database
+migration changes, builds an image from a pinned commit and retains the old
+container. It creates and restore-tests a private database dump before the
+swap; it restores the original container automatically if readiness fails.
+It never restores a database automatically. See Onboarding
+`docs/R4A_FIRST_PARTY_PICKER_ROLLOUT.md` for the pinned lab procedure.
+
+The MCP `scripts/r4a_attachment_rollout.py --mode picker` checks that the
+deployed Onboarding image and JSON overlay match the pinned revision, checks
+the pre-existing HUMAN upload route is streaming and scope-protected, then
+materializes and installs only the picker UI route. The script swaps MCP into
+picker mode with the same rollback snapshot. If activation fails, it restores
+both changed components. Neither script transfers a CSV automatically.
+
+The lab already has both the picker UI route and an OIDC login/callback route.
+The latter returned HTTP 302 during the 27 September live check. A previously
+reported login `404` was not evidence of a missing login route; the exact
+redirect destination was not established. The newer THS materializer also
+emits a candidate login route. Its installer must accept the deployed,
+semantically equivalent login route before it can be reused on this lab;
+do not rerun a strict replacement merely to repair a working login path.
+
+In MCP picker mode, the **same** `source.file.upload` tool returns the OUF URL
+with `AWAITING_FILE_SELECTION`; it transfers no bytes and creates no asset.
+The browser page shows the asset ID after a successful 201. The first live
+picker upload created an asset on 27 September. The chat-handoff candidate
+adds `mcp-managed-file-handoff`: an exact JSON route under the same upload
+capability, with workload token, signed HUMAN delegation, current policy
+scope, closed `handoffId` schema and Gateway-minted owner receipt. Onboarding
+returns a short-lived result pointer only for the same HUMAN owner. This
+route does not carry CSV bytes and does not replace the streaming upload
+route. The MCP widget can then send the ID into the conversation. A closed
+widget or Onboarding restart leaves the browser's visible ID as fallback.
+The route is staged with the MCP picker upgrade, backed by an APISIX snapshot;
+it is not proof of automatic return until a real ChatGPT widget test passes.

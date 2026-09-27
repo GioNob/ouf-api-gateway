@@ -12,6 +12,7 @@ MODES={
     'profile':('ouf.managed-source.file.profile','COMMAND'),
     'preview':('ouf.managed-source.preview','READ'),
     'create':('ouf.managed-source.onboarding.create','COMMAND'),
+    'handoff':('ouf.managed-source.file.upload','COMMAND'),
 }
 
 def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
@@ -20,18 +21,21 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
     schemas=json.loads((ROOT/'schemas/mcp-gateway-managed-file-dispatch-v1.json').read_text())['oneOf']
     for mode,(cap,operation) in MODES.items():
         route_id='mcp-managed-file-'+mode
-        candidates=[r for r in runtime['routes'] if r.get('id')==route_id]
+        source_id='mcp-managed-file-upload' if mode=='handoff' else route_id
+        candidates=[r for r in runtime['routes'] if r.get('id')==source_id]
         if len(candidates)!=1:raise ValueError('exact managed-file binding required: '+mode)
         binding=candidates[0];p=binding['x-ouf-policy'];c=binding['x-ouf-capability']
         path='/api/internal/v1/onboarding/managed-file-mcp/'+mode
-        if (binding['service_id']!='ouf-onboarding' or binding['x-ouf-backend-binding']['service']!='ouf-onboarding'
+        if (binding.get('uri')!=('/internal/capabilities/v1/execute/managed.file/upload' if mode=='handoff' else '/internal/capabilities/v1/execute/managed.file/'+mode)
+            or binding['service_id']!='ouf-onboarding' or binding['x-ouf-backend-binding']['service']!='ouf-onboarding'
             or binding['x-ouf-backend-binding']['port']!=8080
-            or binding['plugins']['proxy-rewrite']['uri']!=path or binding['methods']!=['POST']
+            or binding['plugins']['proxy-rewrite']['uri']!=('/api/internal/v1/onboarding/managed-file-mcp/upload' if mode=='handoff' else path) or binding['methods']!=['POST']
             or c['capabilityId']!=cap or c['owner']!='onboarding' or c['operationType']!=operation
             or c.get('humanRequired') or not c.get('toolEligible') or p['identity']!='M2M'
             or p['requiredScope']!=cap or p['allowedActorTypes']!=['HUMAN']
             or runtime['x-ouf-installation']['mcpServiceIdentity'] not in p['allowedServiceIdentities']
-            or p['maxRequestBytes']!=65536 or p['timeoutSeconds']!=3):
+            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 65536)
+            or p['timeoutSeconds']!=(30 if mode=='handoff' else 3)):
             raise ValueError('managed-file binding mismatch: '+mode)
         route=copy.deepcopy(template)
         route['id']=route_id
@@ -40,7 +44,17 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         route['labels']['ouf-managed']='true'
         route['labels']['ouf-exposure']='internal'
         matching=[s for s in schemas if s['properties']['CapabilityID']['const']==cap]
-        route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
+        if mode=='handoff':
+            # This is a status operation of the existing upload capability.
+            # The CSV stream route remains separate and unchanged.
+            schema=copy.deepcopy(next(s for s in schemas if s['properties']['CapabilityID']['const']=='ouf.managed-source.file.profile'))
+            schema['properties']['GatewayBindingRef']['const']='capability://'+cap
+            schema['properties']['CapabilityID']['const']=cap
+            schema['properties']['Arguments']={'type':'object','additionalProperties':False,
+                'required':['handoffId'],'properties':{'handoffId':{'type':'string','format':'uuid'}}}
+            route['plugins']['request-validation']['body_schema']=schema
+        else:
+            route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
         route['plugins']['serverless-post-function']['functions']=[function('execute_managed_file',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
         route['plugins']['proxy-rewrite']['uri']=path
