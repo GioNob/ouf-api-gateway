@@ -37,6 +37,7 @@ def compile_config(config_root):
             raise ConfigError(f"{path}: unresolved sourceRef {profile['spec']['sourceRef']}")
     routes=[]
     matches=set()
+    selected_matches=set()
     for path,route in docs:
         if route["kind"]!="RouteBinding": continue
         spec=route["spec"]
@@ -54,9 +55,12 @@ def compile_config(config_root):
         if not endpoint_ref.startswith(("service://","object://","registry://")):
             raise ConfigError(f"{path}: endpointRef must use a governed logical scheme")
         uri_regex=spec["match"].get("uriRegex")
-        match=(spec["match"]["method"],spec["match"]["path"],uri_regex)
-        if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
-        matches.add(match)
+        match=(spec["match"]["method"],spec["match"]["path"])
+        if (match in matches or (uri_regex is None and any(item[:2]==match for item in selected_matches))
+                or (uri_regex is not None and (match,uri_regex) in selected_matches)):
+            raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
+        if uri_regex is None: matches.add(match)
+        else: selected_matches.add((match[0],match[1],uri_regex))
         wildcard = "*" in spec["match"]["path"]
         if wildcard and (not spec["match"]["path"].endswith("/*") or spec["match"]["path"].count("*") != 1 or spec["backendBinding"]["path"] != spec["match"]["path"]):
             raise ConfigError(f"{path}: wildcard route must preserve its exact bounded namespace")
@@ -94,7 +98,7 @@ def compile_config(config_root):
         if not endpoint_ref.startswith("service://"):
             raise ConfigError(f"{path}: MCP endpoint source must use service://")
         match=(spec["match"]["method"],spec["match"]["path"])
-        if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
+        if match in matches or any(item[:2]==match for item in selected_matches): raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
         matches.add(match)
         stripped=spec["trustedIdentity"]["stripClientHeaders"]
         projected=spec["trustedIdentity"]["claimProjection"]
@@ -144,7 +148,7 @@ def compile_config(config_root):
         if binding["kind"]!="McpMediationBinding": continue
         spec=binding["spec"]
         match=(spec["match"]["method"],spec["match"]["path"])
-        if match in matches: raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
+        if match in matches or any(item[:2]==match for item in selected_matches): raise ConfigError(f"{path}: duplicate route match {match[0]} {match[1]}")
         matches.add(match)
         policy=spec["policy"]
         routes.append({
