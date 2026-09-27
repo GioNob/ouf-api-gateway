@@ -82,5 +82,7 @@ def test_policy_bundle_read_allows_only_governed_workloads():
     assert route["spec"]["policy"]["allowedServiceIdentities"] == [
         "installation://iam.workloadClients.mcpServer",
         "installation://iam.workloadClients.ingestion",
+        "installation://iam.workloadClients.udp",
+        "installation://iam.workloadClients.semantic",
     ]
     assert "*" not in route["spec"]["policy"]["allowedServiceIdentities"]

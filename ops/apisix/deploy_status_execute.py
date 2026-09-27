@@ -63,7 +63,10 @@ def apply_routes(routes, request):
 class Admin:
     def __init__(self, args):
         self.args = args
-        self.work = Path(tempfile.mkdtemp(prefix='ouf-status-routes-', dir='/run'))
+        backup_dir = Path(getattr(args, 'backup_dir', '/run'))
+        if not backup_dir.is_dir():
+            raise ValueError('backup directory does not exist')
+        self.work = Path(tempfile.mkdtemp(prefix='ouf-status-routes-', dir=backup_dir))
         key = args.admin_key.read_text().strip()
         if not key or '\n' in key or '\r' in key:
             raise ValueError('invalid admin key file')

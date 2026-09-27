@@ -1,0 +1,26 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: r4a-onboarding-ingestion-compatibility
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.ingestion.configuration.attest@1.0.0
+  sourceRef: r2b-onboarding@1.0.0
+  match:
+    method: POST
+    path: /api/internal/v1/onboarding/compatibility/ingestion-runtime
+  backendBinding:
+    service: ouf-onboarding
+    port: 8080
+    path: /api/internal/v1/onboarding/compatibility/ingestion-runtime
+  policy:
+    identity: M2M
+    allowedServiceIdentities:
+    - installation://iam.workloadClients.ingestion
+    allowedActorTypes:
+    - SERVICE
+    maxRequestBytes: 65536
+    timeoutSeconds: 10

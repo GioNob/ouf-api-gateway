@@ -1,0 +1,23 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: trusted-human-authorization-get
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: public
+  capabilityRef: authorization.policy.admin@1.0.0
+  sourceRef: r2b-onboarding@1.0.0
+  match:
+    method: GET
+    path: /api/trusted-human/v1/authorization/*
+  backendBinding:
+    service: ouf-onboarding
+    port: 8080
+    path: /api/trusted-human/v1/authorization/*
+  policy:
+    identity: OIDC
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 5242880
+    timeoutSeconds: 10

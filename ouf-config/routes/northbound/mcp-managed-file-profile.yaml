@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: mcp-managed-file-profile, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.managed-source.file.profile@1.0.0
+  sourceRef: onboarding-managed-files@1.0.0
+  match: {method: POST, path: /internal/capabilities/v1/execute/managed.file/profile}
+  backendBinding: {service: ouf-onboarding, port: 8080, path: /api/internal/v1/onboarding/managed-file-mcp/profile}
+  policy:
+    identity: M2M
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
+    timeoutSeconds: 3

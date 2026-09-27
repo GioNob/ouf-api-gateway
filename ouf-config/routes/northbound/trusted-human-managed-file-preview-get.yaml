@@ -1,0 +1,23 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata:
+  id: trusted-human-managed-file-preview-get
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  direction: northbound
+  exposure: public
+  capabilityRef: ouf.managed-source.preview@1.0.0
+  sourceRef: onboarding-managed-files@1.0.0
+  match:
+    method: GET
+    path: /api/onboarding/v1/managed-files/*
+  backendBinding:
+    service: ouf-onboarding
+    port: 8080
+    path: /api/onboarding/v1/managed-files/*
+  policy:
+    identity: OIDC
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
+    timeoutSeconds: 10

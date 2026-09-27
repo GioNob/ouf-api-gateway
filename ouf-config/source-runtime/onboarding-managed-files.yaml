@@ -3,6 +3,5 @@ kind: SourceRuntimeProfile
 metadata: {id: onboarding-managed-files, version: 1.0.0, status: ACTIVE}
 spec:
   protocol: FILE
-  endpointRef: service://ouf-object-storage
+  endpointRef: service://ouf-onboarding
   sourceSchemaRef: object-ref://v1
-

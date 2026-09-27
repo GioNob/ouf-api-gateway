@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: ouf.ingestion.configuration.attest
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: onboarding
+  operationType: COMMAND
+  scope: ouf.ingestion.configuration.attest
+  classification:
+  - OPEN
+  - ANONYMOUS
+  mcp:
+    toolEligible: false
+    humanRequired: false
