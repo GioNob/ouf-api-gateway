@@ -144,7 +144,7 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
 
     ok=Admin()
     apply(routes,ok,anonymous_probe=anonymous_probe)
-    assert len(ok.probes)==3 and all(valid for _,valid in ok.probes)
+    assert len(ok.probes)==4 and all(valid for _,valid in ok.probes)
     denied=Admin(failure=True)
     with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
         apply(routes,denied,anonymous_probe=anonymous_probe)
