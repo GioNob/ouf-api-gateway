@@ -1,0 +1,15 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: onboarding-identity-preflight-read, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.udp.identity.attestation.read@1.0.0
+  sourceRef: r2b-udp@1.0.0
+  match: {method: GET, path: /api/udp/v1/governance/internal/identity/preflight}
+  backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /api/udp/v1/governance/internal/identity/preflight}
+  policy:
+    identity: OIDC
+    allowedActorTypes: [SERVICE]
+    maxRequestBytes: 65536
+    timeoutSeconds: 10
