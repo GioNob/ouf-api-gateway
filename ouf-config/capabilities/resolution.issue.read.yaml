@@ -6,4 +6,4 @@ spec:
   operationType: READ
   scope: resolution.issue.read
   classification: [RESTRICTED_OPERATIONAL]
-  mcp: {toolEligible: true, humanRequired: true}
+  mcp: {toolEligible: true, humanRequired: false}
