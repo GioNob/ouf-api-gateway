@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.udp.identity.attestation.read, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: udp
+  operationType: READ
+  scope: ouf.udp.identity.attestation.read
+  classification: [RESTRICTED_OPERATIONAL]
+  mcp: {toolEligible: false, humanRequired: false}
