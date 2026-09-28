@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: mcp-resolution-issue-read, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: resolution.issue.read@1.0.0
+  sourceRef: r2b-udp@1.0.0
+  match: {method: POST, path: /internal/capabilities/v1/execute/resolution.issue.read}
+  backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /api/udp/v1/governance/internal/resolution/issues/package}
+  policy:
+    identity: M2M
+    allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
+    timeoutSeconds: 3
