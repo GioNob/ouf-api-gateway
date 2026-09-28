@@ -64,7 +64,8 @@
               "type": "string",
               "enum": [
                 "GRANTS",
-                "ROLES"
+                "ROLES",
+                "CAPABILITIES"
               ]
             }
           },
@@ -107,6 +108,17 @@
                   }
                 ]
               }
+            },
+            {
+              "required": ["view"],
+              "properties": {"view": {"const": "CAPABILITIES"}},
+              "not": {"anyOf": [
+                {"required": ["subjectId"]},
+                {"required": ["externalRoleRef"]},
+                {"required": ["limit"]},
+                {"required": ["after"]},
+                {"required": ["policyRef"]}
+              ]}
             },
             {
               "properties": {
