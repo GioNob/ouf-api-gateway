@@ -60,7 +60,7 @@ def dispatch(capability, arguments):
     return value
 
 def test_gateway_inputs_match_pinned_mcp_manifest():
-    fixture = json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-5615fdc.json').read_text())
+    fixture = json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-3077e111.json').read_text())
     schemas = json.loads((ROOT/'schemas/mcp-gateway-permissions-dispatch-v1.json').read_text())['oneOf']
     for schema in schemas:
         cap = schema['properties']['CapabilityID']['const']
