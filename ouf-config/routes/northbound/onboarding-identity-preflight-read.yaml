@@ -9,7 +9,8 @@ spec:
   match: {method: GET, path: /api/udp/v1/governance/internal/identity/preflight}
   backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /api/udp/v1/governance/internal/identity/preflight}
   policy:
-    identity: OIDC
-    allowedActorTypes: [SERVICE]
+    identity: M2M
+    allowedServiceIdentities: [ouf-source-onboarding]
+    allowedActorTypes: [SERVICE_IDENTITY]
     maxRequestBytes: 65536
     timeoutSeconds: 10
