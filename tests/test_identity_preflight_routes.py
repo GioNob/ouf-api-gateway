@@ -20,5 +20,5 @@ def test_identity_preflight_separates_human_rebuild_from_service_attestation_rea
     assert internal["methods"] == ["GET"]
     assert internal["x-ouf-policy"]["identity"] == "M2M"
     assert internal["x-ouf-policy"]["allowedServiceIdentities"] == ["ouf-source-onboarding"]
-    assert internal["x-ouf-policy"]["allowedActorTypes"] == ["SERVICE_IDENTITY"]
+    assert internal["x-ouf-policy"]["allowedActorTypes"] == ["SERVICE"]
     assert internal["plugins"]["proxy-rewrite"]["uri"] == "/api/udp/v1/governance/internal/identity/preflight"
