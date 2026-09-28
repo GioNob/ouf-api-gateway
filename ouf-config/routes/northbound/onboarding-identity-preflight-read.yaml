@@ -11,6 +11,6 @@ spec:
   policy:
     identity: M2M
     allowedServiceIdentities: [ouf-source-onboarding]
-    allowedActorTypes: [SERVICE_IDENTITY]
+    allowedActorTypes: [SERVICE]
     maxRequestBytes: 65536
     timeoutSeconds: 10
