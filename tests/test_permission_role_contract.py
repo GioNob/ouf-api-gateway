@@ -27,6 +27,8 @@ def cases():
               (READ, {'view': 'GRANTS', 'subjectId': 'human-a', 'limit': 100}, True),
               (READ, {'view': 'GRANTS', 'externalRoleRef': 'ente:staff'}, True),
               (READ, {'view': 'ROLES'}, True),
+              (READ, {'view': 'CAPABILITIES'}, True),
+              (READ, {'view': 'CAPABILITIES', 'subjectId': 'human-a'}, False),
               (READ, {'view': 'ROLES', 'subjectId': 'human-a'}, False),
               (READ, {'view': 'ADMIN'}, False),
               (READ, {'subjectId': 'human-a', 'externalRoleRef': 'ente:staff'}, False),
