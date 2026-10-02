@@ -22,6 +22,8 @@ on:
       - 'tools/lua/admit_semantic_provider.lua'
       - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
+      - 'scripts/prepare_semantic_provider_java_trust.py'
+      - 'tests/test_prepare_semantic_provider_java_trust.py'
   pull_request:
     paths:
       - 'Dockerfile.semantic-provider'
@@ -129,3 +131,18 @@ jobs:
       - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_trust
       - run: sudo env OUF_RUNTIME_STAGE_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_stage
       - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_tls_runtime
+
+  semantic-java-trust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: docker pull eclipse-temurin:21-jre
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 OUF_JAVA_TRUST_DOCKER_TEST=1 OUF_JAVA_TRUST_IMAGE=eclipse-temurin:21-jre PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_java_trust
