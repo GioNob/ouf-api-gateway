@@ -28,6 +28,9 @@ class KernelPlanTest(unittest.TestCase):
         self.assertIn('type filter hook input', rules)
         self.assertIn('type filter hook output', rules)
         self.assertIn('type filter hook forward', rules)
+        self.assertIn('table bridge ouf_test', rules)
+        self.assertIn('meta ibrname { "guard0" } jump governed_bridge_flows', rules)
+        self.assertEqual(value['tableFamilies'], ['inet', 'bridge'])
         self.assertIn('ip daddr @provider_0 tcp dport 443', rules)
         self.assertIn('ip saddr @provider_0 ip daddr 10.90.0.1', rules)
         self.assertNotIn('ct state established,related accept', rules)
@@ -135,7 +138,7 @@ serve(8443)
             cfg = configuration(); cfg['providerFlows'] = []
             run('ip', 'netns', 'exec', client, 'nft', '-f', '-', input=materialize(cfg)['nftRules'])
             self.assertFalse(probe(443)); self.assertFalse(probe(8443))
-            run('ip', 'netns', 'exec', client, 'nft', 'delete', 'table', 'inet', 'ouf_test')
+            run('ip', 'netns', 'exec', client, 'nft', '-f', '-', input='delete table inet ouf_test\ndelete table bridge ouf_test\n')
             cfg = configuration(); cfg['providerFlows'][0]['leaseSeconds'] = 5
             run('ip', 'netns', 'exec', client, 'nft', '-f', '-', input=materialize(cfg)['nftRules'])
             self.assertTrue(probe(443)); self.assertFalse(probe(8443))

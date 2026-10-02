@@ -47,6 +47,8 @@ class DockerKernelPacketTest(unittest.TestCase):
         def tables():
             raw = json.loads(run('nft', '-j', 'list', 'tables'))
             return {(v['table']['family'], v['table']['name']) for v in raw['nftables'] if 'table' in v}
+        def delete_owned_tables():
+            run('nft', '-f', '-', input='delete table inet '+table+'\ndelete table bridge '+table+'\n')
         def inspect(name):
             return json.loads(run('docker', 'inspect', '--type', 'container', name))[0]
         def address(name):
@@ -83,6 +85,7 @@ serve(15444)
             existing_interfaces = [link['ifname'] for link in existing_links]
             self.assertNotIn(bridge, existing_interfaces)
             self.assertNotIn(('inet', table), tables())
+            self.assertNotIn(('bridge', table), tables())
             run('docker', 'network', 'create', '--internal', '--driver', 'bridge',
                 '--opt', 'com.docker.network.bridge.name=' + bridge, network)
             net_created = True
@@ -109,12 +112,12 @@ serve(15444)
             run('nft', '-f', '-', input=materialize(cfg)['nftRules']); table_created = True
             self.assertFalse(probe(client, server_ip, 15443), 'DOCKER_BRIDGE_HOOK_NOT_PROVEN')
             self.assertFalse(probe(client, server_ip, 15444), 'DOCKER_BRIDGE_HOOK_NOT_PROVEN')
-            deny_readback = json.loads(run('nft', '-j', 'list', 'table', 'inet', table))
+            deny_readback = json.loads(run('nft', '-j', 'list', 'table', 'bridge', table))
             drops = [expr['counter']['packets'] for item in deny_readback['nftables'] if 'rule' in item
                      for expr in item['rule']['expr'] if 'counter' in expr and any('drop' in e for e in item['rule']['expr'])]
             self.assertGreater(sum(drops), 0, 'scoped table must account for denied actual packets')
             # Replace only this uniquely owned fixture table, never a shared one.
-            run('nft', 'delete', 'table', 'inet', table); table_created = False
+            delete_owned_tables(); table_created = False
             cfg['providerFlows'] = [{'endpointRef': 'fixture-provider', 'endpoint': 'https://fixture.invalid:15443/sparql',
                 'source': client_ip, 'addresses': [server_ip], 'allowedPrivateAddresses': [server_ip],
                 'leaseSeconds': 8, 'resolutionEvidenceRef': 'fixture-docker-inspect'}]
@@ -132,12 +135,12 @@ serve(15444)
             self.assertEqual(persistent.returncode, 0, err)
             self.assertIn('OPEN', out); self.assertNotIn('LEAK', out)
             self.assertFalse(probe(client, server_ip, 15443))
-            run('nft', 'delete', 'table', 'inet', table); table_created = False
+            delete_owned_tables(); table_created = False
             self.assertEqual(rule_hash(before_rules), rule_hash(json.loads(run('nft', '-j', 'list', 'ruleset'))),
                              'SHARED_RULE_STRUCTURE_CHANGED')
             self.assertTrue(probe(client, server_ip, 15443))
             self.assertTrue(probe(bypass, server_ip, 15443))
-            print('SOUTHBOUND_DOCKER_KERNEL=PASS REAL_DOCKER_BRIDGE=true SCOPED_HOST_FORWARD_HOOK=true '
+            print('SOUTHBOUND_DOCKER_KERNEL=PASS REAL_DOCKER_BRIDGE=true NATIVE_BRIDGE_HOOK=true SCOPED_HOST_FORWARD_HOOK=true '
                   'DEFAULT_DENY=true UNREGISTERED_WORKLOAD_DENIED=true LEASE_EXPIRY_NEW_AND_ESTABLISHED_DENIED=true '
                   'SHARED_RULE_STRUCTURE_UNCHANGED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
@@ -154,7 +157,7 @@ serve(15444)
                 try: run('docker', 'network', 'rm', network)
                 except Exception: cleanup_errors.append('NETWORK')
             if table_created and not cleanup_errors:
-                try: run('nft', 'delete', 'table', 'inet', table)
+                try: delete_owned_tables()
                 except Exception: cleanup_errors.append('TABLE')
             elif table_created:
                 cleanup_errors.append('TABLE_RETAINED')

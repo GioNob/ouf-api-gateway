@@ -117,8 +117,19 @@ def materialize(config):
             lines.append(f'  oifname {interface_set} jump governed_flows')
         lines.append(' }')
     lines.append('}')
+    # Same-bridge frames do not necessarily traverse inet hooks. Native bridge
+    # filtering closes that path without changing shared br_netfilter sysctls.
+    lines += ['table bridge ' + table + ' {', *sets, ' chain governed_bridge_flows {',
+              '  ether type arp counter accept',
+              '  ether type ip6 ip6 hoplimit 255 icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert } counter accept',
+              '  ct state invalid counter drop', *('  '+rule for rule in rules),
+              '  counter drop', ' }', ' chain guard_bridge_forward {',
+              '  type filter hook forward priority 0; policy accept;',
+              f'  meta ibrname {interface_set} jump governed_bridge_flows',
+              f'  meta obrname {interface_set} jump governed_bridge_flows', ' }', '}']
     return {'schema': 'ouf.southbound-kernel-plan.v1', 'nftRules': '\n'.join(lines)+'\n',
-            'tableName': table, 'guardedInterfaces': list(guarded), 'installed': False,
+            'tableName': table, 'tableFamilies': ['inet', 'bridge'],
+            'guardedInterfaces': list(guarded), 'installed': False,
             'egressDefaultDenyProven': False, 'fqdnPolicyProven': False,
             'notReleaseAcceptance': True,
             'requirements': ['NEW_ISOLATED_INTERFACE_BINDINGS_READBACK', 'FAIL_CLOSED_DNS_LEASE_REFRESH',
