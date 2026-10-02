@@ -177,7 +177,7 @@ class TLSAdapterTest(unittest.TestCase):
     def test_invalid_framing_is_bounded_and_redacted(self):
         try:
             status, body, _ = self.call(form(), 'forged', {'Transfer-Encoding': 'chunked'})
-        except (http.client.RemoteDisconnected, http.client.IncompleteRead):
+        except (http.client.RemoteDisconnected, http.client.IncompleteRead, ConnectionResetError):
             # Early rejection of an unread ambiguous body may close TLS before
             # its error response is delivered; no unbounded drain is required.
             return

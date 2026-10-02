@@ -82,10 +82,10 @@ class RealProviderGatewayTest(unittest.TestCase):
                     wrong_tls['upstream']['nodes'] = cfg['upstream']['nodes']
                     wrong_tls['upstream']['upstream_host'] = 'foreign.invalid'
                     routes += materialize({'routes': []}, wrong_tls)['routes']
-                    runtime = {'apisix': {'node_listen': port, 'enable_admin': False},
+                    runtime = {'apisix': {'node_listen': port, 'enable_admin': False,
+                            'ssl': {'ssl_trusted_certificate': '/provider-fixture/cert.pem'}},
                         'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
-                        'nginx_config': {'envs': ['OIDC_SECRET', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY'],
-                            'http': {'ssl_trusted_certificate': '/provider-fixture/cert.pem'}}}
+                        'nginx_config': {'envs': ['OIDC_SECRET', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY']}}
                     (root/'config.yaml').write_text(yaml.safe_dump(runtime))
                     (root/'apisix.yaml').write_text(yaml.safe_dump({'routes': routes})+'\n#END\n')
                     name = 'ouf-provider-ci-'+str(os.getpid())
