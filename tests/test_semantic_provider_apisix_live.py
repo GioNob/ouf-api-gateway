@@ -75,7 +75,8 @@ class RealProviderGatewayTest(unittest.TestCase):
                     with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
                     cfg['upstream']['nodes'] = {'127.0.0.1:'+str(backend_port): 1}
                     cfg['upstream']['upstream_host'] = 'localhost'
-                    routes = materialize({'routes': []}, cfg)['routes']
+                    plan = materialize({'routes': []}, cfg)
+                    routes = plan['routes']
                     wrong_tls = config(); wrong_tls['issuer'] = cfg['issuer']
                     wrong_tls.update(searchPath='/provider/untrusted', fetchPath='/provider/untrusted-fetch',
                         searchRouteId='untrusted-search', fetchRouteId='untrusted-fetch')
@@ -83,9 +84,10 @@ class RealProviderGatewayTest(unittest.TestCase):
                     wrong_tls['upstream']['upstream_host'] = 'foreign.invalid'
                     routes += materialize({'routes': []}, wrong_tls)['routes']
                     runtime = {'apisix': {'node_listen': port, 'enable_admin': False,
-                            'ssl': {'ssl_trusted_certificate': '/provider-fixture/cert.pem'}},
+                            'ssl': {'ssl_trusted_certificate': plan['providerTLSRequirement']['apisixSSLTrustedCertificate']}},
                         'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
-                        'nginx_config': {'envs': ['OIDC_SECRET', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY']}}
+                        'nginx_config': {'envs': ['OIDC_SECRET', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY'],
+                            'http_configuration_snippet': plan['providerTLSRequirement']['nginxHTTPConfigurationSnippet']}}
                     (root/'config.yaml').write_text(yaml.safe_dump(runtime))
                     (root/'apisix.yaml').write_text(yaml.safe_dump({'routes': routes})+'\n#END\n')
                     name = 'ouf-provider-ci-'+str(os.getpid())

@@ -19,8 +19,10 @@ def config():
         'searchRouteId': 'provider-search', 'fetchRouteId': 'provider-fetch',
         'receiptKeyEnvironment': 'OUF_SEMANTIC_PROVIDER_OWNER_KEY', 'oidcSecretRef': '$ENV://OIDC_SECRET',
         'upstream': {'type': 'roundrobin', 'scheme': 'https', 'nodes': {'adapter.example:9443': 1},
-            'pass_host': 'rewrite', 'upstream_host': 'adapter.example', 'tls': {'verify': True},
+            'pass_host': 'rewrite', 'upstream_host': 'adapter.example',
             'timeout': {'connect': 3, 'send': 3, 'read': 20}},
+        'tlsProfile': {'role': 'DEDICATED_SOUTHBOUND', 'mode': 'NGINX_PROXY_SSL_VERIFY',
+            'trustedCertificateFile': '/provider-fixture/cert.pem', 'verifyDepth': 3},
         'rateLimit': {'count': 30, 'time_window': 60, 'key_type': 'var', 'key': 'remote_addr', 'policy': 'local', 'rejected_code': 429},
         'maxRequestBytes': 65536}
 
@@ -53,8 +55,10 @@ class ProviderMaterializationTest(unittest.TestCase):
             self.assertTrue(oidc['use_jwks']); self.assertTrue(oidc['ssl_verify'])
             self.assertEqual(oidc['required_scopes'], ['gateway.southbound.invoke'])
             self.assertTrue(oidc['claim_validator']['audience']['match_with_client_id'])
-            self.assertTrue(route['upstream']['tls']['verify']); self.assertEqual(route['upstream']['retries'], 0)
+            self.assertEqual(route['upstream']['scheme'], 'https'); self.assertEqual(route['upstream']['retries'], 0)
             self.assertNotIn('proxy-rewrite', route['plugins'])
+        self.assertIn('proxy_ssl_verify on;', result['providerTLSRequirement']['nginxHTTPConfigurationSnippet'])
+        self.assertFalse(result['providerTLSRequirement']['installed'])
         with self.assertRaises(ValueError): materialize(result, config())
 
     def test_actual_lua_receipt_crosses_adapter_and_strips_forged_credentials(self):
@@ -96,8 +100,10 @@ class ProviderMaterializationTest(unittest.TestCase):
         for key, value in cases:
             cfg = config(); cfg[key] = value
             with self.subTest(key=key), self.assertRaises(ValueError): materialize({'routes': []}, cfg)
-        cfg = config(); cfg['upstream']['tls']['verify'] = False
-        with self.assertRaises(ValueError): materialize({'routes': []}, cfg)
+        for profile in [{'role': 'NORTHBOUND'}, dict(config()['tlsProfile'], mode='DISABLED'),
+                        dict(config()['tlsProfile'], trustedCertificateFile='/ca.pem; proxy_ssl_verify off;')]:
+            cfg = config(); cfg['tlsProfile'] = profile
+            with self.assertRaises(ValueError): materialize({'routes': []}, cfg)
 
 
 if __name__ == '__main__': unittest.main()

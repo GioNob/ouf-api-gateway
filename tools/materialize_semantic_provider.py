@@ -10,7 +10,7 @@ from tools.semantic_provider_admission import AdmissionBinding
 def materialize(existing, config):
     required = {'installation', 'issuer', 'audience', 'workload', 'scope', 'tenants',
                 'searchPath', 'fetchPath', 'searchRouteId', 'fetchRouteId',
-                'receiptKeyEnvironment', 'oidcSecretRef', 'upstream', 'rateLimit', 'maxRequestBytes'}
+                'receiptKeyEnvironment', 'oidcSecretRef', 'upstream', 'tlsProfile', 'rateLimit', 'maxRequestBytes'}
     if not isinstance(config, dict) or set(config) != required:
         raise ValueError('explicit provider installation binding required')
     binding = AdmissionBinding(*(config[k] for k in ('installation', 'issuer', 'audience', 'workload', 'scope', 'tenants')))
@@ -35,16 +35,13 @@ def materialize(existing, config):
     if type(max_bytes) is not int or not 1 <= max_bytes <= 65536:
         raise ValueError('bounded request size required')
     upstream = config['upstream']
-    if not isinstance(upstream, dict) or set(upstream) != {'type', 'scheme', 'nodes', 'pass_host', 'upstream_host', 'tls', 'timeout'} \
+    if not isinstance(upstream, dict) or set(upstream) != {'type', 'scheme', 'nodes', 'pass_host', 'upstream_host', 'timeout'} \
             or upstream.get('type') != 'roundrobin' or upstream.get('scheme') != 'https' \
-            or (upstream.get('tls') or {}).get('verify') is not True or not upstream.get('nodes') \
+            or not upstream.get('nodes') \
             or upstream.get('pass_host') != 'rewrite' or not upstream.get('upstream_host'):
         raise ValueError('explicit certificate-verified HTTPS adapter binding required')
     if not isinstance(upstream['nodes'], dict) or len(upstream['nodes']) != 1 \
-            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}', upstream['upstream_host']) \
-            or set(upstream['tls']) not in ({'verify'}, {'verify', 'ca_certs'}) \
-            or (set(upstream['tls']) == {'verify', 'ca_certs'} and
-                (not isinstance(upstream['tls']['ca_certs'], str) or not upstream['tls']['ca_certs'].startswith('-----BEGIN CERTIFICATE-----'))):
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.-]{0,252}', upstream['upstream_host']):
         raise ValueError('exact installed adapter endpoint and trust binding required')
     for node, weight in upstream['nodes'].items():
         endpoint = urlsplit('https://'+node)
@@ -55,8 +52,17 @@ def materialize(existing, config):
     if not isinstance(timeout, dict) or set(timeout) != {'connect', 'send', 'read'} \
             or any(type(v) is not int or not 1 <= v <= 60 for v in timeout.values()):
         raise ValueError('bounded adapter upstream timeouts required')
-    # APISIX support for tls.verify/trust and deployed hostname verification must
-    # be demonstrated by a real pinned-runtime positive/negative TLS gate.
+    # APISIX 3.18's upstream.tls.verify is Kafka-only, not HTTPS enforcement.
+    # Require the explicit NGINX verification/trust profile for a separately
+    # governed southbound role; a route alone cannot enable this global setting.
+    tls = config['tlsProfile']
+    if not isinstance(tls, dict) or set(tls) != {'role', 'mode', 'trustedCertificateFile', 'verifyDepth'} \
+            or tls['role'] != 'DEDICATED_SOUTHBOUND' or tls['mode'] != 'NGINX_PROXY_SSL_VERIFY' \
+            or not isinstance(tls['trustedCertificateFile'], str) \
+            or not re.fullmatch(r'/[A-Za-z0-9_./-]{1,255}', tls['trustedCertificateFile']) \
+            or '..' in tls['trustedCertificateFile'].split('/') \
+            or type(tls['verifyDepth']) is not int or not 1 <= tls['verifyDepth'] <= 5:
+        raise ValueError('explicit dedicated southbound NGINX TLS profile required')
     rate = config['rateLimit']
     if not isinstance(rate, dict) or set(rate) != {'count', 'time_window', 'key_type', 'key', 'policy', 'rejected_code'} \
             or type(rate.get('count')) is not int or not 1 <= rate['count'] <= 1000 \
@@ -69,6 +75,12 @@ def materialize(existing, config):
     if any(route.get('id') in ids or route.get('uri') in paths for route in existing['routes']):
         raise ValueError('provider binding already exists; reconcile before installation')
     result = copy.deepcopy(existing)
+    if 'providerTLSRequirement' in result:
+        raise ValueError('provider TLS requirement already exists; reconcile first')
+    result['providerTLSRequirement'] = {'role': tls['role'], 'mode': tls['mode'],
+        'apisixSSLTrustedCertificate': tls['trustedCertificateFile'],
+        'nginxHTTPConfigurationSnippet': 'proxy_ssl_verify on;\nproxy_ssl_verify_depth '+str(tls['verifyDepth'])+';',
+        'installed': False}
     template = (Path(__file__).parent/'lua/admit_semantic_provider.lua').read_text()
     constants = {'INSTALLATION': binding.installation, 'ISSUER': binding.issuer, 'AUDIENCE': binding.audience,
                  'WORKLOAD': binding.workload, 'SCOPE': binding.scope, 'RECEIPT_KEY_ENV': config['receiptKeyEnvironment']}
