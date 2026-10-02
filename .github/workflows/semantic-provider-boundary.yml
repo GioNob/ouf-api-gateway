@@ -7,6 +7,7 @@ on:
       - 'scripts/inventory_semantic_provider_network.py'
       - 'tools/materialize_southbound_kernel.py'
       - 'tests/test_southbound_kernel.py'
+      - 'tests/test_southbound_docker_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
@@ -20,6 +21,7 @@ on:
       - 'scripts/inventory_semantic_provider_network.py'
       - 'tools/materialize_southbound_kernel.py'
       - 'tests/test_southbound_kernel.py'
+      - 'tests/test_southbound_docker_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
@@ -96,3 +98,6 @@ jobs:
           python-version: '3.13'
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
       - run: sudo env OUF_SOUTHBOUND_KERNEL_TEST=1 "$(command -v python3)" -B -m unittest tests.test_southbound_kernel
+
+      - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+      - run: sudo env OUF_SOUTHBOUND_DOCKER_KERNEL_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_kernel
