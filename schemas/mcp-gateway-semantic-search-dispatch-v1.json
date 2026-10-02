@@ -27,7 +27,7 @@
       "const": "semantic"
     },
     "OperationClass": {
-      "const": "SEARCH"
+      "const": "READ"
     },
     "Arguments": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

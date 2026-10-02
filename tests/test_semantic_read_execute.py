@@ -15,7 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def request(name='search'):
     e=envelope();cap='ouf.semantic.search' if name=='search' else 'ouf.semantic.read'
-    e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='semantic',OperationClass='SEARCH' if name=='search' else 'READ',Arguments={'q':'teatro','limit':20} if name=='search' else {'semanticId':'test:class','revisionId':'11111111-1111-4111-8111-111111111111','publicationSetId':'22222222-2222-4222-8222-222222222222'})
+    e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='semantic',OperationClass='READ',Arguments={'q':'teatro','limit':20} if name=='search' else {'semanticId':'test:class','revisionId':'11111111-1111-4111-8111-111111111111','publicationSetId':'22222222-2222-4222-8222-222222222222'})
     return e
 
 def execute(name='search',e=None,claims=None,delegation=None):
