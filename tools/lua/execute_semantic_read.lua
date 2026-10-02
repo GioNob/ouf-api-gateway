@@ -31,12 +31,12 @@ if type(e) ~= 'table' or type(e.Identity) ~= 'table' then return fail(400) end
 local i = e.Identity
 if i.PrincipalID ~= p.principal or i.TenantID ~= p.tenant or i.ActorType ~= p.actor
     or i.AuthenticationContextRef ~= p.acr or i.ServicePrincipalID ~= p.client then return fail(403) end
-local operations = {search={'ouf.semantic.search','READ'},get={'ouf.semantic.read','READ'}}
+local operations = {search={'ouf.semantic.search','READ'},get={'ouf.semantic.consultation.read','READ','ouf.semantic.read'}}
 local name = ngx.var.uri:match('/([a-z]+)$')
 local operation = name and operations[name]
 if not operation or e.CapabilityID ~= operation[1]
     or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'semantic'
-    or e.OperationClass ~= operation[2] or not scope_has(p.scope, e.CapabilityID) then return fail(403) end
+    or e.OperationClass ~= operation[2] or not scope_has(p.scope, operation[3] or e.CapabilityID) then return fail(403) end
 local a=e.Arguments
 if type(a)~='table' then return fail(400) end
 if name=='search' then

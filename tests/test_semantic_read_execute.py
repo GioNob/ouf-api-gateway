@@ -14,13 +14,13 @@ from tools.materialize_semantic_read import materialize
 ROOT=Path(__file__).resolve().parents[1]
 
 def request(name='search'):
-    e=envelope();cap='ouf.semantic.search' if name=='search' else 'ouf.semantic.read'
+    e=envelope();cap='ouf.semantic.search' if name=='search' else 'ouf.semantic.consultation.read'
     e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='semantic',OperationClass='READ',Arguments={'q':'teatro','limit':20} if name=='search' else {'semanticId':'test:class','revisionId':'11111111-1111-4111-8111-111111111111','publicationSetId':'22222222-2222-4222-8222-222222222222'})
     return e
 
 def execute(name='search',e=None,claims=None,delegation=None):
     e=e or request(name)
-    delegation=delegation or proof(dict(human(),scope='mcp.connect '+e['CapabilityID']))
+    delegation=delegation or proof(dict(human(),scope='mcp.connect '+('ouf.semantic.read' if name=='get' else e['CapabilityID'])))
     headers={'X-OUF-Delegation':delegation,'X-Correlation-ID':e['CorrelationID'],'Idempotency-Key':e['IdempotencyKey'],'X-Tool-Attempt-ID':e['AttemptID'],'X-OUF-Semantic-Read-Receipt':'forged','Cookie':'untrusted'}
     engine=Engine(claims or workload(),headers,e,uri='/api/internal/v1/semantic/consultation/'+name)
     engine.lua.execute(function('execute_semantic_read',INSTALL,'DELEGATION_KEY','SEMANTIC_OWNER_KEY').encode())(None,None)
@@ -65,3 +65,12 @@ def test_additive_materialization_preserves_upload_search_and_template():
     with pytest.raises(ValueError):materialize(existing,INSTALL,'KEY','KEY',upstream,ids)
     with pytest.raises(ValueError):materialize(existing,INSTALL,'DELEGATION_KEY','SEMANTIC_KEY',{},ids)
     with pytest.raises(ValueError):materialize(existing,INSTALL,'DELEGATION_KEY','SEMANTIC_KEY',upstream,{'search':'same','get':'same'})
+
+def test_human_get_requires_existing_read_scope_and_cannot_impersonate_service_read():
+    e=request('get')
+    assert e['CapabilityID']=='ouf.semantic.consultation.read'
+    with pytest.raises(Denied):
+        execute('get',e,delegation=proof(dict(human(),scope='mcp.connect ouf.semantic.consultation.read')))
+    e['CapabilityID']='ouf.semantic.read';e['GatewayBindingRef']='capability://ouf.semantic.read'
+    with pytest.raises(Denied):
+        execute('get',e,delegation=proof(dict(human(),scope='mcp.connect ouf.semantic.read')))

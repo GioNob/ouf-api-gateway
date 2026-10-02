@@ -18,10 +18,10 @@
   ],
   "properties": {
     "GatewayBindingRef": {
-      "const": "capability://ouf.semantic.read"
+      "const": "capability://ouf.semantic.consultation.read"
     },
     "CapabilityID": {
-      "const": "ouf.semantic.read"
+      "const": "ouf.semantic.consultation.read"
     },
     "Owner": {
       "const": "semantic"
