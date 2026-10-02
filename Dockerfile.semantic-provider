@@ -1,0 +1,17 @@
+ARG PYTHON_BASE_IMAGE
+FROM ${PYTHON_BASE_IMAGE}
+ARG PYTHON_BASE_IMAGE
+ARG SOURCE_REVISION
+ARG PAYLOAD_SHA256
+ARG RUNTIME_UID
+ARG RUNTIME_GID
+RUN python3 -c 'import os,re,sys; assert sys.version_info[:2] == (3,13); assert re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}", os.environ["PYTHON_BASE_IMAGE"]); assert re.fullmatch(r"[0-9a-f]{40}", os.environ["SOURCE_REVISION"]); assert re.fullmatch(r"[0-9a-f]{64}", os.environ["PAYLOAD_SHA256"]); assert 1 <= int(os.environ["RUNTIME_UID"]) <= 2147483647; assert 1 <= int(os.environ["RUNTIME_GID"]) <= 2147483647'
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION} \
+      ouf.component=semantic-provider-transport \
+      ouf.payload.sha256=${PAYLOAD_SHA256}
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY tools/semantic_provider_adapter.py tools/semantic_provider_admission.py tools/semantic_provider_boundary.py tools/semantic_provider_relay.py tools/southbound_security.py /app/tools/
+RUN python3 -c 'from pathlib import Path; root=Path("/app"); [p.chmod(0o444) for p in (root/"tools").glob("*.py")]; (root/"tools").chmod(0o555); root.chmod(0o555)'
+USER ${RUNTIME_UID}:${RUNTIME_GID}
+ENTRYPOINT ["python3", "-B", "-m", "tools.semantic_provider_adapter"]

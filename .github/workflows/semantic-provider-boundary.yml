@@ -2,6 +2,9 @@ name: Semantic provider request boundary
 on:
   push:
     paths:
+      - 'Dockerfile.semantic-provider'
+      - 'scripts/stage_semantic_provider_adapter.py'
+      - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
       - 'tools/lua/admit_semantic_provider.lua'
@@ -9,6 +12,9 @@ on:
       - '.github/workflows/semantic-provider-boundary.yml'
   pull_request:
     paths:
+      - 'Dockerfile.semantic-provider'
+      - 'scripts/stage_semantic_provider_adapter.py'
+      - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
       - 'tools/lua/admit_semantic_provider.lua'
@@ -40,3 +46,32 @@ jobs:
       - run: python3 -B -m unittest tests.test_semantic_provider_apisix_live
         env:
           OUF_SEMANTIC_PROVIDER_APISIX_TEST: '1'
+
+  provider-image-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_STAGE_ROOT_FIXTURE_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_stage_semantic_provider_adapter
+
+  provider-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -B -m unittest tests.test_semantic_provider_container
+        env:
+          OUF_PROVIDER_CONTAINER_TEST: '1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semantic-provider-package-proof-${{ github.run_id }}
+          path: generated/semantic-provider-package-proof.json
+          if-no-files-found: error
+          retention-days: 30
