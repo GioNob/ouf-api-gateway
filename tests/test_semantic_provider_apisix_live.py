@@ -40,7 +40,10 @@ class RealProviderGatewayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); certificate, private = root/'cert.pem', root/'key.pem'
             subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-                '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
+                # OpenResty lua-resty-http checks the literal host as a DNS name,
+                # whereas native TLS clients recognize IP SANs. Cover both in
+                # this generated loopback-only fixture; never disable validation.
+                '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,DNS:127.0.0.1,IP:127.0.0.1',
                 '-out', str(certificate), '-keyout', str(private)], capture_output=True, check=True, timeout=15)
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(certificate, private)
             cfg = config(); calls = root/'calls'; calls.write_text('')
