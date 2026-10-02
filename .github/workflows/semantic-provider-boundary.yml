@@ -1,0 +1,24 @@
+name: Semantic provider request boundary
+on:
+  push:
+    paths:
+      - 'tools/semantic_provider_boundary.py'
+      - 'tests/test_semantic_provider_boundary.py'
+      - '.github/workflows/semantic-provider-boundary.yml'
+  pull_request:
+    paths:
+      - 'tools/semantic_provider_boundary.py'
+      - 'tests/test_semantic_provider_boundary.py'
+      - '.github/workflows/semantic-provider-boundary.yml'
+permissions:
+  contents: read
+jobs:
+  request-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -B -m unittest discover -s tests -p 'test_semantic_provider_boundary.py'
