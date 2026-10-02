@@ -12,6 +12,7 @@ import signal
 import socket
 import ssl
 import threading
+import time
 from urllib.parse import urlencode, urlsplit
 
 from tools.semantic_provider_boundary import (
@@ -63,13 +64,24 @@ def request_deadline(seconds):
     if threading.current_thread() is not threading.main_thread():
         raise RelayDenied('BOUNDED_WORKER_PROCESS_REQUIRED')
     previous = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
     def expired(signum, frame):
         raise RelayDenied('PROVIDER_TIMEOUT')
-    signal.signal(signal.SIGALRM, expired); signal.setitimer(signal.ITIMER_REAL, seconds)
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, min(seconds, previous_timer[0]) if previous_timer[0] else seconds)
     try:
         yield
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0); signal.signal(signal.SIGALRM, previous)
+        if previous_timer[0]:
+            remaining = previous_timer[0] - (time.monotonic() - started)
+            if remaining <= 0:
+                if callable(previous):
+                    previous(signal.SIGALRM, None)
+                else:
+                    raise RelayDenied('PROVIDER_TIMEOUT')
+            signal.setitimer(signal.ITIMER_REAL, remaining, previous_timer[1])
 
 
 class PinnedHTTPSConnection(http.client.HTTPSConnection):

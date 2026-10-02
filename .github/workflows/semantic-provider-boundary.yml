@@ -2,17 +2,17 @@ name: Semantic provider request boundary
 on:
   push:
     paths:
-      - 'tools/semantic_provider_boundary.py'
-      - 'tools/semantic_provider_relay.py'
-      - 'tests/test_semantic_provider_boundary.py'
-      - 'tests/test_semantic_provider_relay.py'
+      - 'tools/semantic_provider_*.py'
+      - 'tools/materialize_semantic_provider.py'
+      - 'tools/lua/admit_semantic_provider.lua'
+      - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
   pull_request:
     paths:
-      - 'tools/semantic_provider_boundary.py'
-      - 'tools/semantic_provider_relay.py'
-      - 'tests/test_semantic_provider_boundary.py'
-      - 'tests/test_semantic_provider_relay.py'
+      - 'tools/semantic_provider_*.py'
+      - 'tools/materialize_semantic_provider.py'
+      - 'tools/lua/admit_semantic_provider.lua'
+      - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
 permissions:
   contents: read
@@ -25,4 +25,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
       - run: python3 -B -m unittest discover -s tests -p 'test_semantic_provider_*.py'
+
+  provider-apisix-tls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -B -m unittest tests.test_semantic_provider_apisix_live
+        env:
+          OUF_SEMANTIC_PROVIDER_APISIX_TEST: '1'
