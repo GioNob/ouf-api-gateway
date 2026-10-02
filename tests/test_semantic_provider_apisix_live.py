@@ -10,6 +10,7 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import socket
 import ssl
 import subprocess
@@ -24,6 +25,7 @@ from urllib.parse import urlencode
 from tools import semantic_provider_adapter as adapter
 from tools import semantic_provider_relay as relay
 from tools.materialize_semantic_provider import materialize
+from tools.materialize_semantic_provider_tls import materialize_tls
 from tests.test_semantic_provider_adapter import binding, form, KEY
 from tests.test_semantic_provider_materialization import config
 
@@ -43,7 +45,9 @@ class RealProviderGatewayTest(unittest.TestCase):
                 # OpenResty lua-resty-http checks the literal host as a DNS name,
                 # whereas native TLS clients recognize IP SANs. Cover both in
                 # this generated loopback-only fixture; never disable validation.
-                '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,DNS:127.0.0.1,IP:127.0.0.1',
+                # A valid extra SAN deliberately has no SSL/SNI resource, so its
+                # refusal proves server SNI matching rather than client rejection.
+                '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,DNS:127.0.0.1,IP:127.0.0.1,DNS:southbound.fixture,DNS:unregistered.example.invalid',
                 '-out', str(certificate), '-keyout', str(private)], capture_output=True, check=True, timeout=15)
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); context.load_cert_chain(certificate, private)
             cfg = config(); calls = root/'calls'; calls.write_text('')
@@ -78,21 +82,22 @@ class RealProviderGatewayTest(unittest.TestCase):
                     with socket.socket() as sock: sock.bind(('127.0.0.1', 0)); port = sock.getsockname()[1]
                     cfg['upstream']['nodes'] = {'127.0.0.1:'+str(backend_port): 1}
                     cfg['upstream']['upstream_host'] = 'localhost'
-                    plan = materialize({'routes': []}, cfg)
-                    routes = plan['routes']
+                    bootstrap = materialize_tls(cfg, {'listenAddress': '127.0.0.1', 'listenPort': port,
+                        'serverHostname': 'southbound.fixture', 'sslResourceId': 'provider-ci-tls'},
+                        certificate_pem=certificate.read_text(), private_key_pem=private.read_text())
+                    resources = bootstrap['resources']; routes = resources['routes']
                     wrong_tls = config(); wrong_tls['issuer'] = cfg['issuer']
                     wrong_tls.update(searchPath='/provider/untrusted', fetchPath='/provider/untrusted-fetch',
                         searchRouteId='untrusted-search', fetchRouteId='untrusted-fetch')
                     wrong_tls['upstream']['nodes'] = cfg['upstream']['nodes']
                     wrong_tls['upstream']['upstream_host'] = 'foreign.invalid'
                     routes += materialize({'routes': []}, wrong_tls)['routes']
-                    runtime = {'apisix': {'node_listen': port, 'enable_admin': False,
-                            'ssl': {'ssl_trusted_certificate': plan['providerTLSRequirement']['apisixSSLTrustedCertificate']}},
-                        'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
-                        'nginx_config': {'envs': ['OIDC_SECRET', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY'],
-                            'http_configuration_snippet': plan['providerTLSRequirement']['nginxHTTPConfigurationSnippet']}}
+                    # Synthetic misnamed SSL control proves client hostname
+                    # verification even when the server deliberately matches SNI.
+                    resources['ssls'].append(dict(resources['ssls'][0], id='misnamed-ci-tls', snis=['misnamed.example.invalid']))
+                    runtime = bootstrap['runtimeConfiguration']
                     (root/'config.yaml').write_text(yaml.safe_dump(runtime))
-                    (root/'apisix.yaml').write_text(yaml.safe_dump({'routes': routes})+'\n#END\n')
+                    (root/'apisix.yaml').write_text(yaml.safe_dump(resources)+'\n#END\n')
                     name = 'ouf-provider-ci-'+str(os.getpid())
                     subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'host',
                         '-e', 'OIDC_SECRET=fixture-only', '-e', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY='+KEY,
@@ -110,7 +115,8 @@ class RealProviderGatewayTest(unittest.TestCase):
                             claims.update(changes)
                             return jwt.encode(claims, signing, algorithm='RS256', headers={'kid': 'provider-ci'})
                         def request(method='POST', target='/provider/search', body=None, bearer=None):
-                            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
+                            conn = relay.PinnedHTTPSConnection('southbound.fixture', port, '127.0.0.1', 10,
+                                ssl.create_default_context(cafile=str(certificate)))
                             try:
                                 headers = {'Content-Type': 'application/x-www-form-urlencoded',
                                     'X-OUF-Semantic-Provider-Receipt': 'forged', 'X-OUF-Tenant-ID': 'forged'}
@@ -130,14 +136,37 @@ class RealProviderGatewayTest(unittest.TestCase):
                                     text=True, check=False, timeout=10)
                                 # This fixture contains only synthetic IAM keys,
                                 # identities and generated certificates, never live data.
-                                detail = (logs.stdout+logs.stderr).replace(KEY, '[fixture-key]')[-6000:]
+                                detail = re.sub(r'-----BEGIN [A-Z ]+-----.*?-----END [A-Z ]+-----',
+                                    '[fixture-PEM]', (logs.stdout+logs.stderr).replace(KEY, '[fixture-key]'), flags=re.S)[-6000:]
                                 self.fail('APISIX_PROVIDER_READY_NOT_PROVEN status='+str(code)+'\n'+detail)
                             time.sleep(0.25)
                         self.assertEqual(code, 200)
+                        # Read only generated NGINX configuration; never SSL YAML,
+                        # env values or private keys. Numeric listeners must be the
+                        # single TLS-only endpoint (internal Unix sockets excluded).
+                        nginx = subprocess.run(['docker', 'exec', name, 'cat', '/usr/local/apisix/conf/nginx.conf'],
+                            capture_output=True, text=True, check=True, timeout=10).stdout
+                        listeners = re.findall(r'^\s*listen\s+([^;]+);', nginx, re.M)
+                        numeric = [line for line in listeners if not line.startswith('unix:')]
+                        self.assertEqual(len(numeric), 1, 'no implicit HTTP/admin/control/metrics listener')
+                        self.assertIn('127.0.0.1:'+str(port), numeric[0]); self.assertIn(' ssl ', ' '+numeric[0]+' ')
                         target = '/provider/fetch?'+urlencode({'uri': 'https://vocab.example/class/Place'})
                         code, body = request('GET', target, b'', token())
                         self.assertEqual(code, 200); self.assertIn(b'Place', body)
                         before = len(calls.read_text().splitlines())
+                        # Extra SAN is trusted and correctly named but unregistered
+                        # SNI must fail the server handshake, with verification on.
+                        tls_client = ssl.create_default_context(cafile=str(certificate))
+                        for sni in ('unregistered.example.invalid', 'misnamed.example.invalid'):
+                            expected = ssl.SSLCertVerificationError if sni.startswith('misnamed') else ssl.SSLError
+                            with socket.create_connection(('127.0.0.1', port), timeout=5) as plain:
+                                with self.assertRaises(expected):
+                                    tls_client.wrap_socket(plain, server_hostname=sni)
+                        plaintext = http.client.HTTPConnection('127.0.0.1', port, timeout=5)
+                        try:
+                            plaintext.request('POST', '/provider/search', body=form())
+                            self.assertEqual(plaintext.getresponse().status, 400)
+                        finally: plaintext.close()
                         for bearer in [None, token()+'broken', token(aud='wrong'), token(iss='https://foreign.example'),
                                 token(scope='ouf.semantic.read'), token(ouf_actor_type='HUMAN'), token(azp='wrong'),
                                 token(tenant_id='wrong'), token(exp=int(time.time())-1)]:
@@ -157,12 +186,18 @@ class RealProviderGatewayTest(unittest.TestCase):
                         finally: direct.close()
                         self.assertEqual(len(calls.read_text().splitlines()), before)
                     finally:
-                        subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False, timeout=20)
+                        removed = subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, check=False, timeout=20)
+                        self.assertEqual(removed.returncode, 0, 'fixture container cleanup must succeed')
                 finally:
                     process.terminate(); process.join(timeout=5)
                     if process.is_alive(): process.kill(); process.join(timeout=5)
             finally:
                 issuer.shutdown(); issuer.server_close()
+        print('SOUTHBOUND_APISIX_TLS=PASS REAL_APISIX_3_18=true TLS_ONLY_LISTENER=true '
+            'EXACT_SNI=true CLIENT_HOSTNAME_VERIFY=true OIDC_RECEIPT_ADAPTER_TLS=true '
+            'UPSTREAM_HOSTNAME_MISMATCH_DENIED=true FIXTURE_CLEANUP=true '
+            'EXTERNAL_PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
 
 
 if __name__ == '__main__': unittest.main()
