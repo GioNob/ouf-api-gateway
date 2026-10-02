@@ -91,7 +91,9 @@ class RealProviderGatewayTest(unittest.TestCase):
                     name = 'ouf-provider-ci-'+str(os.getpid())
                     subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'host',
                         '-e', 'OIDC_SECRET=fixture-only', '-e', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY='+KEY,
-                        '-v', folder+':/provider-fixture:ro',
+                        # Bind only the public trust anchor. The host temp parent
+                        # is private; the APISIX worker cannot traverse that dir.
+                        '-v', str(certificate)+':/provider-fixture/cert.pem:ro',
                         '-v', str(root/'config.yaml')+':/usr/local/apisix/conf/config.yaml:ro',
                         '-v', str(root/'apisix.yaml')+':/usr/local/apisix/conf/apisix.yaml:ro',
                         'apache/apisix:3.18.0-debian'], check=True, stdout=subprocess.DEVNULL, timeout=180)
@@ -118,7 +120,13 @@ class RealProviderGatewayTest(unittest.TestCase):
                                 code, _ = request(bearer=token())
                                 if code == 200: break
                             except (OSError, http.client.HTTPException): pass
-                            if time.monotonic() > deadline: self.fail('APISIX_PROVIDER_READY_NOT_PROVEN status='+str(code))
+                            if time.monotonic() > deadline:
+                                logs = subprocess.run(['docker', 'logs', '--tail', '15', name], capture_output=True,
+                                    text=True, check=False, timeout=10)
+                                # This fixture contains only synthetic IAM keys,
+                                # identities and generated certificates, never live data.
+                                detail = (logs.stdout+logs.stderr).replace(KEY, '[fixture-key]')[-6000:]
+                                self.fail('APISIX_PROVIDER_READY_NOT_PROVEN status='+str(code)+'\n'+detail)
                             time.sleep(0.25)
                         self.assertEqual(code, 200)
                         target = '/provider/fetch?'+urlencode({'uri': 'https://vocab.example/class/Place'})
