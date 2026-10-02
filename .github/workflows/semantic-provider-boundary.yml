@@ -5,6 +5,8 @@ on:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
+      - 'tools/materialize_southbound_kernel.py'
+      - 'tests/test_southbound_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
@@ -16,6 +18,8 @@ on:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
+      - 'tools/materialize_southbound_kernel.py'
+      - 'tests/test_southbound_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'
       - 'tools/semantic_provider_*.py'
       - 'tools/materialize_semantic_provider.py'
@@ -81,3 +85,14 @@ jobs:
           path: generated/semantic-provider-package-proof.json
           if-no-files-found: error
           retention-days: 30
+
+  southbound-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
+      - run: sudo env OUF_SOUTHBOUND_KERNEL_TEST=1 "$(command -v python3)" -B -m unittest tests.test_southbound_kernel
