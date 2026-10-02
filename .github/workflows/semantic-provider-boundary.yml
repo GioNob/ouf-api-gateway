@@ -5,6 +5,8 @@ on:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
+      - 'scripts/prepare_semantic_provider_trust.py'
+      - 'tests/test_prepare_semantic_provider_trust.py'
       - 'tools/materialize_southbound_kernel.py'
       - 'tests/test_southbound_kernel.py'
       - 'tests/test_southbound_docker_kernel.py'
@@ -19,6 +21,8 @@ on:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
+      - 'scripts/prepare_semantic_provider_trust.py'
+      - 'tests/test_prepare_semantic_provider_trust.py'
       - 'tools/materialize_southbound_kernel.py'
       - 'tests/test_southbound_kernel.py'
       - 'tests/test_southbound_docker_kernel.py'
@@ -101,3 +105,13 @@ jobs:
 
       - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
       - run: sudo env OUF_SOUTHBOUND_DOCKER_KERNEL_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_kernel
+
+  provider-trust-prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_trust
