@@ -96,8 +96,9 @@ class RealProviderGatewayTest(unittest.TestCase):
                     # verification even when the server deliberately matches SNI.
                     resources['ssls'].append(dict(resources['ssls'][0], id='misnamed-ci-tls', snis=['misnamed.example.invalid']))
                     runtime = bootstrap['runtimeConfiguration']
-                    (root/'config.yaml').write_text(yaml.safe_dump(runtime))
-                    (root/'apisix.yaml').write_text(yaml.safe_dump(resources)+'\n#END\n')
+                    # Match the stdlib private preparer's JSON-as-YAML encoding.
+                    (root/'config.yaml').write_text(json.dumps(runtime)+'\n')
+                    (root/'apisix.yaml').write_text(json.dumps(resources)+'\n#END\n')
                     name = 'ouf-provider-ci-'+str(os.getpid())
                     subprocess.run(['docker', 'run', '-d', '--name', name, '--network', 'host',
                         '-e', 'OIDC_SECRET=fixture-only', '-e', 'OUF_SEMANTIC_PROVIDER_OWNER_KEY='+KEY,

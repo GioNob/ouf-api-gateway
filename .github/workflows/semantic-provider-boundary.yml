@@ -6,6 +6,8 @@ on:
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/prepare_semantic_provider_trust.py'
+      - 'scripts/prepare_semantic_provider_tls_runtime.py'
+      - 'tests/test_prepare_semantic_provider_tls_runtime.py'
       - 'examples/semantic-provider-runtime.ouf-lab.json'
       - 'scripts/stage_semantic_provider_runtime_plan.sh'
       - 'tests/test_prepare_semantic_provider_trust.py'
@@ -26,6 +28,8 @@ on:
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/prepare_semantic_provider_trust.py'
+      - 'scripts/prepare_semantic_provider_tls_runtime.py'
+      - 'tests/test_prepare_semantic_provider_tls_runtime.py'
       - 'examples/semantic-provider-runtime.ouf-lab.json'
       - 'scripts/stage_semantic_provider_runtime_plan.sh'
       - 'tests/test_prepare_semantic_provider_trust.py'
@@ -124,3 +128,4 @@ jobs:
           python-version: '3.13'
       - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_trust
       - run: sudo env OUF_RUNTIME_STAGE_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_stage
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_tls_runtime
