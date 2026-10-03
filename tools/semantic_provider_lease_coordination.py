@@ -6,13 +6,93 @@ rebinds a structure hash or grants startup authority. Refresh holds the common
 lock across fresh DNS, atomic apply and readback; no cooperating restore can race.
 """
 import copy
+from contextlib import contextmanager
+import fcntl
 import ipaddress
+import json
 import math
+import os
+from pathlib import Path
 import re
+import stat
+import uuid
 
 
 class CoordinationDenied(RuntimeError):
     pass
+
+
+def _ancestors(path):
+    if not isinstance(path, Path) or not path.is_absolute() or '..' in path.parts:
+        raise CoordinationDenied('SAFE_PRIVATE_PATH_REQUIRED')
+    for parent in (path.parent, *path.parent.parents):
+        info = parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise CoordinationDenied('PRIVATE_ANCESTOR_UNPROVEN')
+
+
+def _file(info):
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 \
+            or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+        raise CoordinationDenied('PRIVATE_FILE_UNPROVEN')
+
+
+@contextmanager
+def hold_common_lock(path):
+    """Reuse an existing private inode; never create/replace the boot lock."""
+    _ancestors(path)
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        _file(os.fstat(fd))
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
+
+
+class PrivateJournal:
+    """Existing root-private journal, compare-and-replace/fsync under caller lock."""
+    def __init__(self, path):
+        _ancestors(path); self.path = path
+
+    def read(self):
+        _ancestors(self.path)
+        fd = os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(fd); _file(info)
+            if info.st_size > 131072: raise CoordinationDenied('JOURNAL_SIZE_UNBOUNDED')
+            raw = os.read(fd, 131073)
+        finally:
+            os.close(fd)
+        if len(raw) > 131072: raise CoordinationDenied('JOURNAL_SIZE_UNBOUNDED')
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result: raise CoordinationDenied('DUPLICATE_JOURNAL_KEY')
+                result[key] = value
+            return result
+        return json.loads(raw, object_pairs_hook=unique)
+
+    def write(self, previous, value):
+        if self.read() != previous: raise CoordinationDenied('FOREIGN_JOURNAL_PRESERVED')
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        if len(raw) > 131072: raise CoordinationDenied('JOURNAL_SIZE_UNBOUNDED')
+        temp = self.path.parent/('.lease-journal-'+uuid.uuid4().hex)
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'wb', closefd=False) as stream:
+                stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+        finally:
+            os.close(fd)
+        try:
+            if self.read() != previous: raise CoordinationDenied('FOREIGN_JOURNAL_PRESERVED')
+            os.replace(temp, self.path)
+            directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try: os.fsync(directory)
+            finally: os.close(directory)
+        finally:
+            if temp.exists(): temp.unlink()
 
 
 class Coordinator:
@@ -25,9 +105,14 @@ class Coordinator:
                 or owner.backend.expected != binding['leaseStructureHash']:
             raise ValueError('sealed installation binding required')
         self.owner, self.binding = owner, copy.deepcopy(binding)
+        self.configuration = copy.deepcopy(owner.configuration)
+        self.dns_profile = copy.deepcopy(owner.profile)
         self.hold_lock, self.read, self.write = hold_lock, read_journal, write_journal
 
     def journal(self):
+        if self.owner.configuration != self.configuration or self.owner.profile != self.dns_profile \
+                or self.owner.backend.expected != self.binding['leaseStructureHash']:
+            raise CoordinationDenied('SEALED_OWNER_CONFIGURATION_DRIFT')
         value = self.read()
         if not isinstance(value, dict) or set(value) != {'schema', *self.binding, 'state',
                 'leaseAuthorized', 'startAuthorized', 'leaseAddresses'} \

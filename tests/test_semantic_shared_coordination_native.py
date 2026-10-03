@@ -17,7 +17,7 @@ import uuid
 
 from tools.materialize_semantic_shared_faces import materialize as shared
 from tools.materialize_southbound_kernel import materialize
-from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied
+from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied, PrivateJournal, hold_common_lock
 from tools.semantic_provider_lease_nft import NftBackend, structure_hash
 from tools.semantic_provider_lease_owner import LeaseOwner
 from tools import semantic_provider_dns as dns
@@ -181,17 +181,13 @@ finally:s.close()
         binding = {'transactionId': 'a'*64, 'configurationHash': 'b'*64, 'leaseStructureHash': expected}
         record = {'schema': 'ouf.semantic-lease-coordination.v1', **binding, 'state': 'LEASE_READY',
                   'leaseAuthorized': True, 'startAuthorized': False, 'leaseAddresses': [[]]}
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(prefix='ouf-coordination-', dir='/etc') as tmp:
+            Path(tmp).chmod(0o700)
             lock = Path(tmp)/'common.lock'; lock.touch(mode=0o600)
-            @contextmanager
-            def hold():
-                fd = os.open(lock, os.O_RDWR)
-                try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); yield
-                finally: os.close(fd)
-            def write(old, new):
-                nonlocal record
-                self.assertEqual(record, old); record = copy.deepcopy(new)
-            coord = Coordinator(owner, binding, hold, lambda: copy.deepcopy(record), write)
+            journal_path = Path(tmp)/'journal.json'; journal_path.write_text(json.dumps(record)); journal_path.chmod(0o600)
+            journal = PrivateJournal(journal_path)
+            def hold(): return hold_common_lock(lock)
+            coord = Coordinator(owner, binding, hold, journal.read, journal.write)
             coord.refresh(); self.assertEqual(set(queries), {1, 28}); self.assertTrue(any(backend.read_sets(cfg).values()))
             self.assertFalse(coord.guard()['dockerPrestartStructuralGate'])
             with hold():
@@ -203,9 +199,9 @@ finally:s.close()
             self.assertEqual(len(queries), count); self.assertTrue(coord.guard()['dockerPrestartStructuralGate'])
             # Explicit fixture authorization is separate from the protocol; no
             # automatic reactivation or reuse of a cached DNS observation.
-            record.update(state='LEASE_READY', leaseAuthorized=True)
+            record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_READY', 'leaseAuthorized': True})
             coord.refresh(); self.assertGreaterEqual(len(queries), count+2)
-            record['state'] = 'LEASE_UPDATING'
+            record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_UPDATING'})
             with self.assertRaises(CoordinationDenied): coord.guard()
             with self.assertRaises(CoordinationDenied): coord.refresh()
             coord.quiesce()

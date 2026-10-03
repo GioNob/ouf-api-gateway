@@ -1,9 +1,13 @@
 import copy
 from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import tempfile
 import unittest
 
 from tools.materialize_semantic_shared_faces import materialize
-from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied
+from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied, PrivateJournal, hold_common_lock
 
 
 def policy():
@@ -53,6 +57,7 @@ class CoordinationTest(unittest.TestCase):
                 return {(family, 0): {address: 5 for address in test.current} for family in ('inet', 'bridge')}
         class Owner:
             backend = Backend()
+            profile = {'resolvers': ['192.0.2.53']}
             configuration = {'providerFlows': [{'source': '10.77.0.2', 'leaseSeconds': 30,
                                                'allowedPrivateAddresses': ['10.78.0.2']}]}
             def refresh(self):
@@ -122,6 +127,41 @@ class CoordinationTest(unittest.TestCase):
         self.record['startAuthorized'] = True
         with self.assertRaises(CoordinationDenied): self.coord.refresh()
         self.assertEqual(self.events, [])
+
+    def test_configuration_dns_and_expected_handle_hash_drift_deny_before_dns(self):
+        original = copy.deepcopy(self.owner.configuration)
+        self.owner.configuration['providerFlows'][0]['leaseSeconds'] = 3600
+        with self.assertRaises(CoordinationDenied): self.coord.refresh()
+        self.owner.configuration = original
+        self.owner.profile['resolvers'] = ['198.51.100.53']
+        with self.assertRaises(CoordinationDenied): self.coord.refresh()
+        self.owner.profile['resolvers'] = ['192.0.2.53']
+        self.owner.backend.expected = 'd'*64
+        with self.assertRaises(CoordinationDenied): self.coord.guard()
+        self.assertEqual(self.events, [])
+
+
+@unittest.skipUnless(os.geteuid() == 0, 'root private journal fixture')
+class PrivateJournalTest(unittest.TestCase):
+    def test_atomic_owned_write_duplicate_foreign_mode_and_lock_inode_checks(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get('OUF_SHARED_COORDINATION_TEST_PARENT', str(Path.cwd()))) as tmp:
+            root = Path(tmp).resolve(); root.chmod(0o700)
+            path = root/'journal.json'; path.write_text('{"state":"LEASE_READY"}'); path.chmod(0o600)
+            journal = PrivateJournal(path); original = journal.read()
+            journal.write(original, {'state': 'QUIESCING'}); self.assertEqual(journal.read()['state'], 'QUIESCING')
+            with self.assertRaises(CoordinationDenied): journal.write(original, {'state': 'FOREIGN'})
+            path.write_text('{"state":1,"state":2}')
+            with self.assertRaises(CoordinationDenied): journal.read()
+            path.write_text('{}'); path.chmod(0o644)
+            with self.assertRaises(CoordinationDenied): journal.read()
+            lock = root/'common.lock'; lock.touch(mode=0o600); inode = lock.stat().st_ino
+            with hold_common_lock(lock):
+                with self.assertRaises(BlockingIOError):
+                    with hold_common_lock(lock): pass
+            self.assertEqual(lock.stat().st_ino, inode)
+            alias = root/'alias'; os.link(lock, alias)
+            with self.assertRaises(CoordinationDenied):
+                with hold_common_lock(lock): pass
 
 
 if __name__ == '__main__': unittest.main()
