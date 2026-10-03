@@ -6,6 +6,9 @@ import sys
 import time
 import unittest
 import uuid
+from unittest.mock import patch
+from tools.semantic_provider_lease_owner import LeaseOwner, LeaseDenied
+from tools.semantic_provider_lease_nft import NftBackend, structure_hash
 
 from tools.materialize_southbound_kernel import materialize
 from tools.materialize_southbound_lease_refresh import compile_refresh
@@ -170,6 +173,21 @@ serve(8443)
             self.assertFalse(probe(443))
             readback = run('ip', 'netns', 'exec', client, 'nft', '-j', 'list', 'table', 'inet', 'ouf_test')
             self.assertIn('governed_flows', readback)
+            command = ['ip', 'netns', 'exec', client, 'nft']
+            raw_tables = {f: json.loads(run(*command, '-j', 'list', 'table', f, 'ouf_test')) for f in ('inet', 'bridge')}
+            backend = NftBackend(command, cfg, structure_hash(raw_tables), 2)
+            owner = LeaseOwner(cfg, {'resolvers': ['127.0.0.1'], 'resolverPort': 53,
+                'timeoutSeconds': 2, 'maxLeaseSeconds': 10, 'applyBudgetSeconds': 2}, backend)
+            with patch('tools.semantic_provider_lease_owner.dns.observe',
+                       return_value={'usableAddresses': ['10.90.0.2'], 'remainingLeaseSecondsAtObservation': 10}):
+                self.assertTrue(owner.refresh()['bothFamiliesReadBack'])
+            self.assertTrue(probe(443)); self.assertFalse(probe(8443))
+            with patch('tools.semantic_provider_lease_owner.dns.observe', side_effect=OSError('controlled DNS failure')):
+                with self.assertRaisesRegex(LeaseDenied, 'SETS_REVOKED'): owner.refresh()
+            self.assertFalse(probe(443))
+            print('SOUTHBOUND_LEASE_OWNER_KERNEL_CI=PASS REAL_NFT=true BOTH_FAMILIES_READ_BACK=true'
+                  ' DNS_CONTROLLED_STUB=true FAILED_DNS_REVOKED=true PACKET_DENIED_AFTER_REVOCATION=true'
+                  ' PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
             print('SOUTHBOUND_KERNEL_CI=PASS REAL_NFT_NETNS=true DEFAULT_DENY=true LEASE_EXPIRY_NEW_AND_ESTABLISHED_DENIED=true DOCKER_HOOK_NOT_PROVEN=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
             print('SOUTHBOUND_LEASE_REFRESH_CI=PASS ATOMIC_INET_BRIDGE_REFRESH=true FAILED_BATCH_ROLLBACK=true MISSING_RESOLUTION_REVOKED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
