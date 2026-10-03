@@ -23,6 +23,7 @@ on:
       - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
       - 'scripts/prepare_semantic_provider_java_trust.py'
+      - 'scripts/inventory_semantic_provider_dns.py'
       - 'tests/test_prepare_semantic_provider_java_trust.py'
   pull_request:
     paths:
@@ -131,6 +132,7 @@ jobs:
       - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_trust
       - run: sudo env OUF_RUNTIME_STAGE_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_stage
       - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_tls_runtime
+      - run: sudo env OUF_DNS_ROOT_FIXTURE_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_dns
 
   semantic-java-trust:
     runs-on: ubuntu-latest
