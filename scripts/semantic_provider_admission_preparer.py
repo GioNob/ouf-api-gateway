@@ -86,7 +86,7 @@ def executable(path, expected):
 def load(path):
     raw = private(path); cfg = parse(raw)
     require(set(cfg) == {'schema','sourceRoot','sourceHashes','pythonPath','pythonHash','commands','commandHashes',
-            'candidate','kernel','dns','coordinationBinding','coordinationJournal','lockFile','budgetSeconds'}
+            'candidate','kernel','dns','coordinationBinding','coordinationJournal','lockFile','budgetSeconds','hostNetworkNamespace'}
             and cfg['schema'] == 'ouf.semantic-admission-preparer.v1','EXACT_PREPARER_CONFIGURATION_REQUIRED')
     root = Path(cfg['sourceRoot']); require(stat.S_IMODE(root.lstat().st_mode) == 0o700,'PRIVATE_SOURCE_ROOT_REQUIRED')
     paths = [SELF,DRIVER,*('tools/'+m+'.py' for m in MODULES)]
@@ -99,6 +99,7 @@ def load(path):
     executable(cfg['pythonPath'],cfg['pythonHash'])
     for name,p in cfg['commands'].items(): executable(p,cfg['commandHashes'][name])
     require(type(cfg['budgetSeconds']) is int and 1 <= cfg['budgetSeconds'] <= 5,'BOUNDED_DRIVER_REQUIRED')
+    require(type(cfg['hostNetworkNamespace']) is int and cfg['hostNetworkNamespace'] > 0,'SEALED_HOST_NAMESPACE_REQUIRED')
     package = types.ModuleType('tools'); package.__path__ = []; sys.modules['tools'] = package
     for name in MODULES:
         full = 'tools.'+name; module = types.ModuleType(full); module.__package__ = 'tools'
@@ -159,8 +160,10 @@ def operate(args):
     if args.mode == 'template':
         value = parse(sys.stdin.buffer.read(131073))
         require(set(value) == {'profile','mirrors','parentNamespace'},'EXACT_TEMPLATE_REQUEST_REQUIRED')
+        require(value['parentNamespace'] == cfg['hostNetworkNamespace'],'TEMPLATE_PARENT_NAMESPACE_BINDING_DRIFT')
         result = isolated_template(value['profile'],value['mirrors'],value['parentNamespace'],os.stat('/proc/self/ns/net').st_ino,run)
         print(json.dumps(result,sort_keys=True)); return
+    require(os.stat('/proc/self/ns/net').st_ino == cfg['hostNetworkNamespace'],'HOST_NAMESPACE_CUSTODY_DRIFT')
     journal = PrivateJournal(root/'admission.json'); record = journal.read()
     require(set(record) == {'schema','transactionId','configurationHash','state','driverHash','namespaceOwned','namespaceInode','containerGeneration'}
         and record['schema'] == 'ouf.semantic-admission-journal.v1'

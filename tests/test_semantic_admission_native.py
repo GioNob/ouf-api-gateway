@@ -93,7 +93,8 @@ class AdmissionNativeTest(unittest.TestCase):
             'pythonPath':python,'pythonHash':sha(python),'commands':commands,'commandHashes':{k:sha(v) for k,v in commands.items()},
             'candidate':candidate,'kernel':cfg_kernel,'dns':{'resolvers':['127.0.0.1'],'resolverPort':53,
             'timeoutSeconds':2,'maxLeaseSeconds':30,'applyBudgetSeconds':1},'coordinationBinding':binding,
-            'coordinationJournal':str(coordination),'lockFile':str(lock),'budgetSeconds':5}
+            'coordinationJournal':str(coordination),'lockFile':str(lock),'budgetSeconds':5,
+            'hostNetworkNamespace':os.stat('/proc/self/ns/net').st_ino}
         config = root/'preparer.json'; private(config,cfg)
         private(registry/'admission.json',{'schema':'ouf.semantic-admission-journal.v1','transactionId':'b'*64,
             'configurationHash':sha(config),'state':'STAGED','driverHash':None,'namespaceOwned':False,
@@ -107,6 +108,12 @@ class AdmissionNativeTest(unittest.TestCase):
         argv = [*([python,'-I','-B']),str(source/preparer.SELF),'--configuration',str(config),
             '--container-id',cid,'--bundle',str(bundle),'--runtime-root',str(runtime)]
         before = self.command('nft','-j','list','ruleset')
+        direct = subprocess.run([*argv,'--mode','template'],input=json.dumps(packet),text=True,capture_output=True,timeout=20)
+        self.assertNotEqual(direct.returncode,0); self.assertIn('ISOLATED_TEMPLATE_NAMESPACE_REQUIRED',direct.stderr)
+        spoofed = {**packet,'parentNamespace':packet['parentNamespace']+1}
+        direct = subprocess.run([*argv,'--mode','template'],input=json.dumps(spoofed),text=True,capture_output=True,timeout=20)
+        self.assertNotEqual(direct.returncode,0); self.assertIn('TEMPLATE_PARENT_NAMESPACE_BINDING_DRIFT',direct.stderr)
+        self.assertEqual(before,self.command('nft','-j','list','ruleset'))
         result = subprocess.run([commands['unshare'],'--net','--fork',*argv,'--mode','template'],
             input=json.dumps(packet),text=True,capture_output=True,timeout=20)
         self.assertEqual(result.returncode,0,result.stderr); template = json.loads(result.stdout)
