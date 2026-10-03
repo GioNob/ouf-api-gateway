@@ -35,6 +35,12 @@ def version(raw):
     return value
 
 
+def socket_identity(info):
+    # Access timestamps can change during this inventory's own connections.
+    # Bind only identity and security metadata, not file access clocks.
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink)
+
+
 def collect(query):
     server = version(query('{{.ServerVersion}}'))
     default = query('{{.DefaultRuntime}}').strip()
@@ -88,7 +94,8 @@ def main():
         if not raw or not raw[0].startswith('runc version '): raise InventoryDenied('RUNC_VERSION_UNPROVEN')
         runc_value = version(raw[0].removeprefix('runc version '))
         value = inventory(query, runc_value)
-        if socket.lstat() != metadata: raise InventoryDenied('DOCKER_SOCKET_METADATA_CHANGED')
+        if socket_identity(socket.lstat()) != socket_identity(metadata):
+            raise InventoryDenied('DOCKER_SOCKET_METADATA_CHANGED')
         print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY='+json.dumps(value, sort_keys=True))
         print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY=PASS READ_ONLY=true OCI_HOOK_INTEGRATION_PROVEN=false'
               ' NO_RULE_UNIT_CONTAINER_CHANGED=true START_AUTHORIZED=false NO_SECRETS_PRINTED=true')

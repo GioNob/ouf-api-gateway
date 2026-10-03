@@ -5,8 +5,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
-from scripts.inventory_semantic_preexec_runtime import InventoryDenied, inventory, version
+from scripts.inventory_semantic_preexec_runtime import InventoryDenied, inventory, socket_identity, version
 
 
 class InventoryTest(unittest.TestCase):
@@ -40,6 +41,13 @@ class InventoryTest(unittest.TestCase):
         self.assertEqual(version('1.3.1-0ubuntu1~24.04.1'), '1.3.1-0ubuntu1~24.04.1')
         for bad in ('secret\nvalue', '1.2.3\nsecret', '1.2.3;curl', 'x'*100, ''):
             with self.assertRaises(InventoryDenied): version(bad)
+
+    def test_socket_access_clocks_do_not_mask_identity_or_permissions(self):
+        value = dict(st_dev=1, st_ino=2, st_mode=0o140660, st_uid=0, st_gid=999, st_nlink=1, st_atime_ns=3)
+        initial = socket_identity(SimpleNamespace(**value))
+        self.assertEqual(initial, socket_identity(SimpleNamespace(**{**value, 'st_atime_ns': 4})))
+        for key in ('st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_gid', 'st_nlink'):
+            self.assertNotEqual(initial, socket_identity(SimpleNamespace(**{**value, key: value[key]+1})))
 
 
 @unittest.skipUnless(os.environ.get('OUF_PREEXEC_INVENTORY_NATIVE_TEST') == '1', 'local Docker read-only inventory opt-in')
