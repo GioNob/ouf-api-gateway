@@ -20,7 +20,9 @@ class Denied(RuntimeError): pass
 
 
 def require(value, reason='ADAPTER_BINDING_UNPROVEN'):
-    if not value: raise Denied(reason)
+    if not value:
+        if reason == 'ADAPTER_BINDING_UNPROVEN': reason += '_L'+str(sys._getframe(1).f_lineno)
+        raise Denied(reason)
 
 
 def digest(value): return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -248,7 +250,7 @@ def main():
         require(len(sys.argv) >= 4 and sys.argv[1] == '--configuration')
         return operate(Path(sys.argv[2]), sys.argv[3:])
     except Exception as error:
-        reason = str(error) if isinstance(error, Denied) and re.fullmatch('[A-Z_]{1,80}', str(error)) else 'DOCKER_RUNTIME_OPERATION_UNPROVEN'
+        reason = str(error) if isinstance(error, Denied) and re.fullmatch('[A-Z0-9_]{1,80}', str(error)) else 'DOCKER_RUNTIME_OPERATION_UNPROVEN'
         # containerd retrieves the standard runc JSON log on failure. Preserve
         # that protocol with a constant redacted message, never raw exceptions.
         try:
