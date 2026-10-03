@@ -32,6 +32,7 @@ on:
       - 'tests/test_semantic_shared_coordination.py'
       - 'tests/test_semantic_preexec*.py'
       - 'scripts/inventory_semantic_preexec_runtime.py'
+      - 'scripts/inventory_semantic_preexec_candidates.py'
       - 'scripts/semantic_provider_preexec_hook.py'
       - 'scripts/stage_semantic_preexec_package.py'
       - 'tests/test_semantic_shared_coordination_native.py'
@@ -82,6 +83,7 @@ on:
       - 'tests/test_semantic_shared_coordination.py'
       - 'tests/test_semantic_preexec*.py'
       - 'scripts/inventory_semantic_preexec_runtime.py'
+      - 'scripts/inventory_semantic_preexec_candidates.py'
       - 'scripts/semantic_provider_preexec_hook.py'
       - 'scripts/stage_semantic_preexec_package.py'
       - 'tests/test_semantic_shared_coordination_native.py'
@@ -265,7 +267,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root OUF_PREEXEC_INVENTORY_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination tests.test_semantic_preexec tests.test_semantic_preexec_inventory tests.test_semantic_preexec_native_backend
+      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root OUF_PREEXEC_INVENTORY_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination tests.test_semantic_preexec tests.test_semantic_preexec_inventory tests.test_semantic_preexec_native_backend tests.test_semantic_preexec_candidates
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
       - run: sudo unshare --net --fork env OUF_SHARED_COORDINATION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination_native
       - run: runc --version

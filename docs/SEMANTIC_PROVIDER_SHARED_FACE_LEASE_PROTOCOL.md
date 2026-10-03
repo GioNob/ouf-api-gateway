@@ -245,3 +245,15 @@ selected runtime/cohort lifecycle; this remains separate and no reload/restart
 or change of the default runtime is implicit. Existing EMPTY_ONLY cohorts and
 stopped candidates are preserved. IPv4 prepared-namespace backend is one
 implementation of the common contract, not a platform topology requirement.
+
+## Inventario dei candidati prima dell'integrazione Docker
+
+Lo staging privato VPS del source package 1a020ede è ESEGUITO: plan/apply/verify PASS, root semantic-preexec-package-20261003-195926, Python 3.13.5 e tutti gli strumenti metadata presenti. Nessuna registrazione runtime o modifica di regole/unit/container, startAuthorized=false. Il source package rimane immutabile.
+
+Il nuovo helper stdlib `scripts/inventory_semantic_preexec_candidates.py` legge manifest e creation journal root:root 0600 vincolati agli hash espliciti e al creation source commit; lega anche il network receipt al manifest. Interroga il socket Docker locale con CLI config privata vuota e ambiente minimale, soltanto inspect container/network con proiezioni allowlist: nessun Env, mount, comando applicativo o credenziale. Output e deadline cumulativa sono limitati; gli errori sono redatti. Due letture uguali attestano stabilità osservata, mai uno snapshot atomico.
+
+Controlla ID/immagine/label di custody, CREATED mai avviato/PID zero/restart no, runtime assegnato e configurazione dei network/IPAM/alias confrontata al manifest. NetworkID vuoto è ammesso soltanto come endpoint configurato e differito; verifica separatamente il network ID corrente. Sulle reti dedicate verifica owner/bridge/internal e assenza di membri estranei; sulle reti condivise non impone isolamento globale dei membri. Pubblica soltanto runtime, conteggi, hash e flag, senza indirizzi, nomi o namespace path. Non è verifica completa della configurazione di creazione, né proof di interfacce live, admission, regole o hook OCI.
+
+Docker documenta runtime drop-in runc tramite registrazione esplicita nel daemon, oppure integrazione tramite shim containerd: https://docs.docker.com/engine/daemon/alternative-runtimes/ . Scelta da validare: integrazione nominata/scoped, default e cohort esistenti preservati. Il percorso invocato da Docker non si deduce dalla versione standalone runc; non cambiare il runtime globale per riusare vecchi candidati. Eventuali nuove creazioni, registrazioni o reload richiedono un piano esplicito separato, con authority e rollback. Migliaia di Enti, distribuzione su host/reti diversi e co-localizzazione sulla stessa sottorete restano vincoli; le reti/IP della fixture non sono default.
+
+Validazione locale nuova: 32 PASS, 2 prove Docker opt-in skip (Docker assente). La nuova prova Docker CI importa un'immagine sintetica e crea due candidati mai avviati su rete dedicata, verifica il helper CLI privato contro i manifest e rimuove soltanto fixture possedute; nessun pull/provider/start. Stato CI da verificare sul nuovo head prima di presentare il comando VPS.
