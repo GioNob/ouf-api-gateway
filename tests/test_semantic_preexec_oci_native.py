@@ -14,10 +14,11 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 from scripts.semantic_provider_preexec_hook import MODULES, SELF
 from tests.test_semantic_preexec import profile as initial_profile
-from tests.test_semantic_shared_coordination_native import NativeTest
+from tests import test_semantic_shared_coordination_native as shared_fixture
 from tools.materialize_southbound_kernel import materialize
 from tools.semantic_provider_lease_nft import structure_hash
 from tools.semantic_provider_preexec import digest, rules
@@ -26,11 +27,11 @@ from tools.semantic_provider_preexec_native import NativeBackend
 
 @unittest.skipUnless(os.environ.get('OUF_PREEXEC_OCI_NATIVE_TEST') == '1', 'isolated real runc fixture opt-in')
 class OciTest(unittest.TestCase):
-    setUp = NativeTest.setUp
-    command = NativeTest.command
-    cleanup = NativeTest.cleanup
-    peer = NativeTest.peer
-    kernel = NativeTest.kernel
+    setUp = shared_fixture.NativeTest.setUp
+    command = shared_fixture.NativeTest.command
+    cleanup = shared_fixture.NativeTest.cleanup
+    peer = shared_fixture.NativeTest.peer
+    kernel = shared_fixture.NativeTest.kernel
 
     def test_real_runc_denials_prevent_application_and_valid_create_precedes_start(self):
         self.assertIsNotNone(shutil.which('runc')); self.assertIsNotNone(shutil.which('busybox'))
@@ -106,8 +107,13 @@ class OciTest(unittest.TestCase):
         def delete(): subprocess.run([*runc, 'delete', '--force', container], capture_output=True, timeout=10)
         self.addCleanup(delete)
         def create():
-            return subprocess.run([*runc, 'create', '--bundle', str(bundle), container],
-                                  capture_output=True, text=True, timeout=20)
+            # The created init process inherits stdio until start/delete. Pipe
+            # capture would wait for its EOF after the runc CLI already exited.
+            with tempfile.TemporaryFile() as output:
+                result = subprocess.run([*runc, 'create', '--bundle', str(bundle), container],
+                    stdout=output, stderr=output, timeout=20)
+                output.seek(0)
+                return SimpleNamespace(returncode=result.returncode, stdout='', stderr=output.read(131072).decode())
         def denied(reason):
             result = create(); self.assertNotEqual(result.returncode, 0)
             self.assertIn(reason, result.stderr+result.stdout)
