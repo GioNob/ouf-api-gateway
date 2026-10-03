@@ -64,6 +64,25 @@ class RealColdNetworkTest(unittest.TestCase):
             self.assertTrue(receipt['customGuardSharedRulesPreserved'])
             self.assertEqual(len(receipt['networks']), 2)
             args.mode = 'verify'; self.assertEqual(prep.operate(args), receipt)
+            # Controlled local packet negatives verify the newly installed guard,
+            # rather than accepting mere table existence as a denial proof.
+            server = 'ouf-cold-server-'+suffix
+            client = 'ouf-cold-client-'+suffix
+            code = 'import socket; s=socket.socket();s.bind(("0.0.0.0",15943));s.listen();\nwhile True:\n c,_=s.accept();c.sendall(b"ok");c.close()'
+            for container, command in ((server, code), (client, 'import time;time.sleep(240)')):
+                run('docker', 'run', '-d', '--pull=never', '--name', container, '--network', internal,
+                    '--user', '10006:10006', '--read-only', '--cap-drop=ALL',
+                    '--security-opt', 'no-new-privileges', '--pids-limit', '64',
+                    image, 'python3', '-B', '-c', command)
+                attached.append(container)
+            target = json.loads(run('docker', 'inspect', server))[0]['NetworkSettings']['Networks'][internal]['IPAddress']
+            probe = 'import socket; s=socket.socket();s.settimeout(0.5)\ntry:\n s.connect((%s,15943));print(s.recv(2)==b"ok")\nexcept OSError:print(False)\nfinally:s.close()'
+            self.assertEqual(run('docker', 'exec', server, 'python3', '-B', '-c', probe % repr('127.0.0.1')), 'True')
+            self.assertEqual(run('docker', 'exec', client, 'python3', '-B', '-c', probe % repr(target)), 'False')
+            with self.assertRaisesRegex(prep.trust.Blocked, 'OWNED_EMPTY_NETWORK'): prep.operate(args)
+            for container in (client, server):
+                run('docker', 'rm', '-f', container); attached.remove(container)
+            self.assertEqual(prep.operate(args), receipt)
             args.mode = 'apply'
             with self.assertRaisesRegex(prep.trust.Blocked, 'SNAPSHOT_EXISTS'): prep.operate(args)
             args.mode = 'verify'
@@ -72,6 +91,7 @@ class RealColdNetworkTest(unittest.TestCase):
             with self.assertRaisesRegex(prep.trust.Blocked, 'GUARD_OR_INTENT'): prep.operate(args)
             print('SEMANTIC_PROVIDER_COLD_NETWORK_CI=PASS REAL_DOCKER_NFT=true GUARD_BEFORE_NETWORKS=true'
                   ' EMPTY_NETWORKS_VERIFIED=true SHARED_RULES_PRESERVED_BY_CUSTOM_GUARD=true'
+                  ' SAME_BRIDGE_PACKET_DENIED=true UNEXPECTED_ATTACHMENT_DENIED=true'
                   ' TAMPERING_DENIED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
             for container in reversed(attached): run('docker', 'rm', '-f', container)
