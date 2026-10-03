@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 
 
 class Denied(RuntimeError): pass
@@ -182,7 +183,13 @@ def operate(config_path, argv):
             bundle = Path(options.get('--bundle', options.get('-b'))).resolve()
             require(str(bundle.parent) in entry['bundleParents'] and bundle.name == cid)
             oci = parse(read(bundle/'config.json', private=False))
-            require(Path(oci['root']['path']).is_absolute() and not set(oci.get('hooks', {})) - {'prestart','createRuntime'})
+            rootfs = Path(oci['root']['path'])
+            require('..' not in rootfs.parts and str(rootfs) not in ('', '.'), 'ROOTFS_PATH_ESCAPE_DENIED')
+            if not rootfs.is_absolute():
+                rootfs = (bundle/rootfs).resolve(strict=True)
+                require(rootfs.is_relative_to(bundle), 'ROOTFS_PATH_ESCAPE_DENIED')
+                oci['root']['path'] = str(rootfs)
+            require(not set(oci.get('hooks', {})) - {'prestart','createRuntime'}, 'UNSUPPORTED_DOCKER_HOOK_PHASE')
             networks = [v for v in oci['linux']['namespaces'] if v.get('type') == 'network']
             require(len(networks) == 1 and set(networks[0]) == {'type','path'}, 'DOCKER_PREPARED_NAMESPACE_REQUIRED')
             # Docker commonly spells the root-owned /run alias /var/run. The
@@ -242,6 +249,21 @@ def main():
         return operate(Path(sys.argv[2]), sys.argv[3:])
     except Exception as error:
         reason = str(error) if isinstance(error, Denied) and re.fullmatch('[A-Z_]{1,80}', str(error)) else 'DOCKER_RUNTIME_OPERATION_UNPROVEN'
+        # containerd retrieves the standard runc JSON log on failure. Preserve
+        # that protocol with a constant redacted message, never raw exceptions.
+        try:
+            if '--log' in sys.argv:
+                path = Path(sys.argv[sys.argv.index('--log')+1]); ancestors(path)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+                try:
+                    info = os.fstat(fd)
+                    require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                            and not info.st_mode & 0o022 and info.st_size < 131072)
+                    value = {'level':'error','msg':'SEMANTIC_DOCKER_RUNTIME_BLOCKED_'+reason,
+                             'time':datetime.now(timezone.utc).isoformat()}
+                    os.write(fd, (json.dumps(value)+'\n').encode())
+                finally: os.close(fd)
+        except Exception: pass
         print('SEMANTIC_DOCKER_RUNTIME=BLOCKED REASON='+reason, file=sys.stderr); return 1
 
 
