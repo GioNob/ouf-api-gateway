@@ -32,16 +32,19 @@ class Preexec:
     STATES = {'STAGED', 'INSTALLING', 'PROTECTED', 'REMOVING', 'ROLLED_BACK'}
 
     def __init__(self, profile, backend, coordinator, journal):
-        if set(profile) != {'schema', 'transactionId', 'containerId', 'bundlePath', 'bundleHash',
+        fields = {'schema', 'transactionId', 'containerId', 'bundlePath', 'bundleHash',
                 'namespacePath', 'namespaceInode', 'namespaceLinks', 'policy', 'expectedFootprint',
-                'applicationStartAuthorized', 'infrastructureAuthorityComplete'} \
-                or profile['schema'] != 'ouf.semantic-preexec-profile.v1' \
+                'applicationStartAuthorized', 'infrastructureAuthorityComplete'}
+        if profile.get('schema') == 'ouf.semantic-preexec-profile.v2': fields.add('namespaceOrigin')
+        if set(profile) != fields or profile['schema'] not in ('ouf.semantic-preexec-profile.v1','ouf.semantic-preexec-profile.v2') \
                 or any(not re.fullmatch('[0-9a-f]{64}', profile[k])
                        for k in ('transactionId', 'bundleHash', 'expectedFootprint')) \
                 or not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', profile['containerId']) \
                 or type(profile['namespaceInode']) is not int or profile['namespaceInode'] <= 0 \
                 or any(type(profile[k]) is not bool for k in ('applicationStartAuthorized', 'infrastructureAuthorityComplete')):
             raise ValueError('exact sealed preexec profile required')
+        if profile['schema'] == 'ouf.semantic-preexec-profile.v2' and profile['namespaceOrigin'] not in ('PREPARED','OCI_CREATED'):
+            raise ValueError('explicit namespace origin required')
         for k in ('bundlePath', 'namespacePath'):
             if not isinstance(profile[k], str) or not re.fullmatch('/[A-Za-z0-9_./-]+', profile[k]) \
                     or '..' in profile[k].split('/'):

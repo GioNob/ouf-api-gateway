@@ -62,7 +62,8 @@ class DockerAdapterTest(unittest.TestCase):
             def private(path, value): path.write_text(json.dumps(value)); path.chmod(0o600)
             commands = {k:str(Path(shutil.which(k)).resolve()) for k in ('nft','ip','nsenter')}
             admission = {'repository':str(repository),'source':str(source),'python':python,'commands':commands,
-                         'runc':runc,'runcHash':sha(runc),'approved':{}}
+                         'runc':runc,'runcHash':sha(runc),'approved':{},
+                         'mountCommands':{k:str(Path(shutil.which(k)).resolve()) for k in ('mount','umount')}}
             private(admission_path, admission)
             cfg = {'schema':'ouf.semantic-docker-runtime-adapter.v1','sourceHash':sha(source/'scripts/semantic_provider_docker_runtime.py'),
                 'runtimePath':runc,'runtimeSha256':sha(runc),'pythonPath':python,'pythonSha256':sha(python),
@@ -126,6 +127,8 @@ class DockerAdapterTest(unittest.TestCase):
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
             finally:
                 for cid in cids: dock('rm','--force',cid,check=False)
+                for namespace in registry.glob('*/netns'):
+                    run(admission['mountCommands']['umount'], str(namespace), check=False)
                 for table in tables:
                     for family in ('inet','bridge'): run(commands['nft'],'delete','table',family,table,check=False)
                 if network: dock('network','rm',network,check=False)

@@ -105,7 +105,9 @@ class NativeBackend:
         bundle = PrivateJournal(Path(profile['bundlePath'])/'config.json').read()
         if digest(bundle) != profile['bundleHash']: raise PreexecDenied('OCI_BUNDLE_DRIFT')
         networks = [v for v in bundle['linux']['namespaces'] if v.get('type') == 'network']
-        if networks != [{'type': 'network', 'path': profile['namespacePath']}] \
+        expected_networks = [{'type': 'network'}] if profile.get('namespaceOrigin') == 'OCI_CREATED' \
+            else [{'type': 'network', 'path': profile['namespacePath']}]
+        if networks != expected_networks \
                 or set(bundle.get('hooks', {})) - {'prestart', 'createRuntime'}:
             raise PreexecDenied('PREPARED_NAMESPACE_AND_HOOK_ORDER_REQUIRED')
         namespace = Path(profile['namespacePath']); _ancestors(namespace)

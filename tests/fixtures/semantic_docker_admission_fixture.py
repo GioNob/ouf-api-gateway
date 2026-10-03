@@ -27,11 +27,19 @@ driver_path = root/'driver.json'
 def driver(mode):
     return run(cfg['python'], '-I', '-B', str(Path(cfg['source'])/SELF), '--configuration', str(driver_path), '--mode', mode)
 if args.mode == 'rollback': driver('rollback'); raise SystemExit(0)
+if args.mode == 'cleanup':
+    assert json.loads((root/'preexec.json').read_bytes())['state'] == 'ROLLED_BACK'
+    if (root/'netns').exists(): run(cfg['mountCommands']['umount'], str(root/'netns')); (root/'netns').unlink()
+    raise SystemExit(0)
 assert args.mode == 'prepare' and approved['authority'] is True
+state = json.loads(sys.stdin.buffer.read(16385))
+assert state['id'] == cid and state['bundle'] == args.bundle and state['status'] in ('creating','created')
 oci = json.loads((Path(args.bundle)/'config.json').read_bytes())
 assert oci['process']['args'] == approved['command']
 assert any(m.get('destination') == '/proof' and m.get('source') == approved['proof'] for m in oci['mounts'])
-namespace = next(v['path'] for v in oci['linux']['namespaces'] if v['type'] == 'network')
+network_entry = next(v for v in oci['linux']['namespaces'] if v['type'] == 'network')
+namespace = str(root/'netns'); Path(namespace).touch(mode=0o600)
+run(cfg['mountCommands']['mount'], '--bind', '/proc/'+str(state['pid'])+'/ns/net', namespace)
 commands = cfg['commands']
 children = json.loads(run(commands['nsenter'], '--net='+namespace, commands['ip'], '-j', 'addr', 'show'))
 child = next(v for v in children if v['ifname'] != 'lo')
@@ -40,6 +48,10 @@ hosts = json.loads(run(commands['ip'], '-j', 'link', 'show'))
 host = next(v for v in hosts if v['ifindex'] == child['link_index'])
 assert host['link_index'] == child['ifindex'] and host['master'] == approved['bridge']
 profile = initial_profile(); profile['containerId'] = cid; profile['transactionId'] = hashlib.sha256(cid.encode()).hexdigest()
+profile['schema'] = 'ouf.semantic-preexec-profile.v2'
+profile['namespaceOrigin'] = 'PREPARED' if network_entry.get('path') else 'OCI_CREATED'
+# Prepared-path variants must retain the exact bundle path binding.
+if network_entry.get('path'): namespace = network_entry['path']
 profile['bundlePath'] = args.bundle; profile['bundleHash'] = digest(oci)
 profile['namespacePath'] = namespace; profile['namespaceInode'] = os.stat(namespace).st_ino
 profile['namespaceLinks'] = [{'interface': child['ifname'], 'ifindex': child['ifindex'], 'hostIfindex': host['ifindex']}]
