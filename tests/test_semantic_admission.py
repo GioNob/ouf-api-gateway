@@ -1,6 +1,11 @@
 import copy
 import hashlib
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -83,6 +88,35 @@ class AuthorityFenceTest(unittest.TestCase):
         def denied(): raise PreexecDenied('EXPIRED')
         with self.assertRaises(PreexecDenied): h.gate.operate('verify',denied)
         self.assertEqual(h.gate.operate('rollback',denied)['state'],'ROLLED_BACK')
+
+
+class AdmissionPackageTest(unittest.TestCase):
+    @unittest.skipUnless(os.geteuid() == 0,'root-private source package')
+    def test_fifteen_source_files_sealed_without_installation_and_replay_denied(self):
+        from scripts.semantic_provider_preexec_hook import MODULES,SELF
+        names = ['scripts/stage_semantic_admission_package.py','scripts/stage_semantic_preexec_package.py',
+                 'scripts/semantic_provider_docker_runtime.py',SELF,'scripts/semantic_provider_admission_preparer.py',
+                 *('tools/'+n+'.py' for n in MODULES),'tools/semantic_provider_admission.py']
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(dir=os.environ.get('OUF_SHARED_COORDINATION_TEST_PARENT',str(Path.cwd()))) as tmp:
+            root = Path(tmp).resolve(); root.chmod(0o700); source = root/'source'; source.mkdir(mode=0o700)
+            for name in names:
+                p = source/name; p.parent.mkdir(mode=0o700,exist_ok=True); p.write_bytes((repository/name).read_bytes()); p.chmod(0o600)
+            sha = hashlib.sha256((source/SELF).read_bytes()).hexdigest()
+            def call(mode):
+                return subprocess.run([sys.executable,'-I','-B',str(source/names[0]),'--mode',mode,
+                    '--package-root',str(root),'--source-commit','a'*40,'--hook-source-sha256',sha],
+                    capture_output=True,text=True,timeout=10)
+            self.assertEqual(call('plan').returncode,0); self.assertFalse((root/'source-package-receipt.json').exists())
+            result = call('apply'); self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            receipt = json.loads((root/'source-package-receipt.json').read_bytes())
+            self.assertEqual(receipt['schema'],'ouf.semantic-admission-source-package.v3')
+            self.assertEqual(len(receipt['sourceHashes']),15)
+            for key in ('runtimeAdapterInstalled','admissionPreparerInstalled','runtimeRegistered','startAuthorized',
+                        'rulesChanged','unitsChanged','containersChanged'): self.assertIs(receipt[key],False)
+            self.assertEqual(call('verify').returncode,0); self.assertNotEqual(call('apply').returncode,0)
+            p = source/'tools/semantic_provider_admission.py'; p.write_bytes(p.read_bytes()+b'\n# drift\n')
+            self.assertNotEqual(call('verify').returncode,0)
 
 
 if __name__ == '__main__': unittest.main()

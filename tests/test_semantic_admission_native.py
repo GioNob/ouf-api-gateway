@@ -25,7 +25,11 @@ class AdmissionNativeTest(unittest.TestCase):
     peer = fixture.NativeTest.peer
     kernel = fixture.NativeTest.kernel
 
-    def test_independent_template_authority_fence_start_and_cleanup(self):
+    def test_prepared_namespace_admission(self): self.exercise('PREPARED')
+
+    def test_oci_created_namespace_admission_and_owned_anchor_cleanup(self): self.exercise('OCI_CREATED')
+
+    def exercise(self, origin):
         bridge = 'bradmit'; self.command('ip','link','add',bridge,'type','bridge'); self.links.append(bridge)
         self.command('ip','link','set',bridge,'up')
         namespace,host,index = self.peer('admit','10.77.0.2/24','02:00:00:00:00:02',bridge)
@@ -58,7 +62,7 @@ class AdmissionNativeTest(unittest.TestCase):
                 {'destination':'/dev','type':'tmpfs','source':'tmpfs','options':['nosuid','strictatime','mode=755']}],
             'linux':{'cgroupsPath':'/ouf-admission-'+self.suffix,'namespaces':[
                 {'type':'mount'},{'type':'pid'},{'type':'ipc'},{'type':'uts'},
-                {'type':'network','path':'/run/netns/'+namespace}]}}
+                ({'type':'network','path':'/run/netns/'+namespace} if origin == 'PREPARED' else {'type':'network'})]}}
         private(bundle/'config.json',oci)
         candidate = {'containerId':cid,'transactionId':'b'*64,'bundlePath':str(bundle),
             'applicationHash':application_hash(oci),'tableName':'admission_owned',
@@ -119,6 +123,13 @@ class AdmissionNativeTest(unittest.TestCase):
             created = subprocess.run([*runc_args,'create','--bundle',str(bundle),cid],stdout=output,stderr=output,timeout=15)
             output.seek(0); self.assertEqual(created.returncode,0,output.read().decode())
         state = json.loads(self.command(*runc_args,'state',cid)); self.assertFalse(marker.exists())
+        if origin == 'OCI_CREATED':
+            # Model Docker initializeCreatedTask after runc create: attach the
+            # preapproved peer before calling the production preparer/start.
+            self.command('ip','-n',namespace,'link','set','eth0','netns',str(state['pid']))
+            ns = ['nsenter','--net=/proc/'+str(state['pid'])+'/ns/net','ip']
+            self.command(*ns,'addr','replace','10.77.0.2/24','dev','eth0')
+            self.command(*ns,'link','set','eth0','up')
         result = subprocess.run([*argv,'--mode','prepare'],input=json.dumps(state),text=True,capture_output=True,timeout=25)
         self.assertEqual(result.returncode,0,result.stderr)
         self.tables += [(f,'admission_owned') for f in ('inet','bridge')]
@@ -139,6 +150,7 @@ class AdmissionNativeTest(unittest.TestCase):
         cleaned = subprocess.run([*argv,'--mode','cleanup'],capture_output=True,text=True,timeout=15)
         self.assertEqual(cleaned.returncode,0,cleaned.stderr)
         self.assertEqual(json.loads((registry/'admission.json').read_bytes())['state'],'CLEANED')
+        self.assertFalse((registry/'netns').exists())
         print('SEMANTIC_ADMISSION_NATIVE=PASS ISOLATED_TEMPLATE_HOST_UNCHANGED=true'
             ' SEALED_PREPARER=true REAL_RUNC_NFT=true REVOCATION_BEFORE_START_DENIED=true'
             ' LIVE_ROLLBACK_DENIED=true OWNED_CLEANUP=true SYNTHETIC_CI_AUTHORITY=true TARGET_START_AUTHORIZED=false')
