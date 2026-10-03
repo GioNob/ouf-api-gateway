@@ -4,6 +4,7 @@ on:
     paths:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
+      - 'scripts/prepare_semantic_provider_transition_intent.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
@@ -41,6 +42,7 @@ on:
     paths:
       - 'Dockerfile.semantic-provider'
       - 'scripts/stage_semantic_provider_adapter.py'
+      - 'scripts/prepare_semantic_provider_transition_intent.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
@@ -208,3 +210,13 @@ jobs:
           python-version: '3.13'
       - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
       - run: sudo env OUF_STOPPED_CREATE_DOCKER_TEST=1 OUF_STOPPED_CREATE_TEST_PARENT=/root OUF_STOPPED_CREATE_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_create_semantic_provider_stopped_candidates
+
+  provider-transition-intent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_TRANSITION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_transition_intent
