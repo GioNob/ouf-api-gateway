@@ -90,9 +90,12 @@ def main():
         print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY='+json.dumps(value, sort_keys=True))
         print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY=PASS READ_ONLY=true OCI_HOOK_INTEGRATION_PROVEN=false'
               ' NO_RULE_UNIT_CONTAINER_CHANGED=true START_AUTHORIZED=false NO_SECRETS_PRINTED=true')
-    except (OSError, ValueError, subprocess.SubprocessError, InventoryDenied):
+    except (OSError, ValueError, subprocess.SubprocessError, InventoryDenied) as error:
         # Do not expose CLI stderr, paths, daemon configuration or credentials.
-        print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY=BLOCKED READ_ONLY=true START_AUTHORIZED=false NO_SECRETS_PRINTED=true')
+        reason = str(error) if isinstance(error, InventoryDenied) else 'LOCAL_READ_FAILED'
+        if not re.fullmatch('[A-Z_]{1,80}', reason): reason = 'LOCAL_READ_FAILED'
+        print('SEMANTIC_PREEXEC_RUNTIME_INVENTORY=BLOCKED REASON='+reason+
+              ' READ_ONLY=true START_AUTHORIZED=false NO_SECRETS_PRINTED=true')
         return 1
     return 0
 
