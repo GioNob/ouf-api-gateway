@@ -9,6 +9,7 @@ import unittest
 import uuid
 from unittest.mock import patch
 from scripts import create_semantic_provider_stopped_candidates as creator
+from scripts import inventory_semantic_provider_static_ipam as ipam
 
 @unittest.skipUnless(os.environ.get('OUF_STOPPED_CREATE_DOCKER_TEST')=='1','native Docker fixture is opt-in')
 class StoppedCreateDockerTest(unittest.TestCase):
@@ -26,7 +27,14 @@ class StoppedCreateDockerTest(unittest.TestCase):
             name='ouf-stopped-'+role+'-'+self.suffix
             options=['network','create','--label','ouf.fixture='+self.suffix]
             if role!='egress':options+=['--internal']
-            self.docker(*options,name);self.networks.append(name)
+            # Obtain a daemon-selected free subnet, then explicitly configure it
+            # on a new empty fixture network. Static IPs require user-configured IPAM.
+            probe=name+'-allocation'
+            self.docker(*options,probe)
+            allocated=json.loads(self.docker('network','inspect',probe))[0]['IPAM']['Config'][0]
+            self.docker('network','rm',probe)
+            self.docker(*options,'--subnet',allocated['Subnet'],'--gateway',allocated['Gateway'],name)
+            self.networks.append(name)
         netrows=[json.loads(self.docker('network','inspect',name))[0] for name in self.networks]
         ips=[creator.stage.reserve(row,2) for row in netrows]
         config=self.root/'private.json';creator.validator.write(config,b'{"fixture":true}')
@@ -101,5 +109,20 @@ class StoppedCreateDockerTest(unittest.TestCase):
         creator.save(self.args.creation_root/'creation-journal.json',journal)
         self.docker('update','--restart','no',cid)
         creator.operate(self.args)
+    def test_static_ipam_auto_rejected_explicit_accepted_without_start(self):
+        name='ouf-stopped-auto-'+self.suffix
+        self.docker('network','create','--internal','--label','ouf.fixture='+self.suffix,name)
+        self.networks.append(name)
+        automatic=json.loads(self.docker('network','inspect',name))[0]
+        explicit=json.loads(self.docker('network','inspect',self.networks[0]))[0]
+        args=argparse.Namespace(mode='plan',source_commit='b'*40,docker_path='/usr/bin/docker',image_id=self.image['Id'],
+            probe_entrypoint='/bin/false',snapshot_root=self.root/'ipam',network=[name+'='+automatic['Id'],explicit['Name']+'='+explicit['Id']])
+        ipam.operate(args);self.assertFalse(args.snapshot_root.exists())
+        args.mode='apply';result=ipam.operate(args)
+        self.assertFalse(result['staticIpReady'])
+        self.assertEqual([r['staticIpSupported'] for r in result['results']],[False,True])
+        self.assertTrue(all(r['probeRemoved'] for r in result['results']))
+        args.mode='verify';ipam.operate(args)
+        self.assertFalse(self.docker('ps','-a','--filter','name=ouf-ipam-probe-','--format','{{.ID}}'))
 
 if __name__=='__main__':unittest.main()

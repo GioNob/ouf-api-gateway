@@ -73,6 +73,8 @@ def verify_inputs(args,saved,initial,journal=None):
         checked.gateway_resources_target=southbound['mounts'][1]['target']
         stage.operate(checked)
     cold,_=inputs.private_json(args.network_root/'network-receipt.json')
+    if initial and cold['binding'].get('explicit_subnets') is not True:
+        raise inputs.Blocked('COLD_IPAM_PROFILE_NOT_EXPLICIT_NO_CONTAINER_CREATED')
     tables={family:json.loads(inputs.run([args.nft_path,'-j','list','table',family,cold['binding']['table_name']])) for family in ('inet','bridge')}
     if validator.digest(validator.encoded(stage.canonical(tables)))!=saved['guardHash']:
         raise inputs.Blocked('COLD_DENY_GUARD_CHANGED_RECONCILE')
