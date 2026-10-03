@@ -116,7 +116,7 @@ class SystemdTest(unittest.TestCase):
             unit_file.write_text(compiled['unit']); os.chmod(unit_file, 0o600)
             run('systemd-analyze','verify',str(unit_file)); run('systemctl','daemon-reload')
             run('systemctl','start',unit_name+'.service')
-            wait_for(lambda: all(backend.read_sets(cfg).values()))
+            wait_for(lambda: len(queries) >= 2 and all(backend.read_sets(cfg).values()))
             count = len(queries); self.assertGreaterEqual(count, 2)
             run('systemctl','stop',unit_name+'.service')
             self.assertFalse(any(backend.read_sets(cfg).values()))
