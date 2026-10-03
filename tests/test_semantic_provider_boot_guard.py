@@ -106,16 +106,28 @@ class RealBootOrderingTest(unittest.TestCase):
             installed_drop=dropdir/('90-'+args.guard_unit+'.conf')
             saved_drop=installed_drop.read_bytes(); installed_drop.write_bytes(saved_drop+b'\n')
             with self.assertRaises(ValueError): installation.operate(install_args)
+            install_args.mode='rollback'
+            with self.assertRaises(ValueError): installation.operate(install_args)
+            self.assertEqual(installed_drop.read_bytes(),saved_drop+b'\n')
             installed_drop.write_bytes(saved_drop)
             install_args.mode='rollback'; rolled=installation.operate(install_args)
             self.assertEqual(rolled['state'],'rolled-back')
             self.assertEqual(installation.show(install_args.systemctl_path,dependent+'.service')['MainPID'],planned['baseline']['MainPID'])
             self.assertFalse(installed_drop.exists())
             self.assertFalse((unit.parent/(args.guard_unit+'.service')).exists())
+            # Failure after file creation but before daemon-reload must remain recoverable.
+            interrupted=root/'interrupted'; interrupted.mkdir(mode=0o700)
+            retry_args=SimpleNamespace(**{**install_args.__dict__,'mode':'apply','snapshot_root':interrupted,
+                                         'analyze_path':'/usr/bin/false'})
+            with self.assertRaises(ValueError): installation.operate(retry_args)
+            self.assertEqual(json.loads((interrupted/'install-journal.json').read_bytes())['state'],'started')
+            retry_args.mode='rollback'; installation.operate(retry_args)
+            self.assertFalse(installed_drop.exists())
+            self.assertEqual(installation.show(install_args.systemctl_path,dependent+'.service')['MainPID'],planned['baseline']['MainPID'])
             run('systemctl','stop',dependent+'.service')
             print('SEMANTIC_BOOT_INSTALL_CI=PASS REAL_SYSTEMD=true ACTIVE_DEPENDENT_PID_PRESERVED=true'
                   ' PLAN_READ_ONLY=true INSTALLED_GRAPH_VERIFIED=true FILE_TAMPERING_DENIED=true'
-                  ' ROLLBACK_OWN_FILES_ONLY=true REAL_DOCKER_RESTART_NOT_PERFORMED=true PROVIDER_CALLS=0')
+                  ' ROLLBACK_OWN_FILES_ONLY=true INTERRUPTED_INSTALL_RECOVERY=true REAL_DOCKER_RESTART_NOT_PERFORMED=true PROVIDER_CALLS=0')
             before=guard.footprint(json.loads(run(nft,'-j','list','ruleset')))
             erase(); self.assertTrue(guard.restore(value))
             self.assertEqual(guard.footprint(json.loads(run(nft,'-j','list','ruleset'))),before)

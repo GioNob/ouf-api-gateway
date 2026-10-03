@@ -70,6 +70,8 @@ def show(systemctl, unit):
                             capture_output=True,text=True,timeout=15)
     if len(result.stdout) > 2_000_000: raise ValueError('output limit')
     value = dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
+    # systemd omits empty command arrays even with --all on some supported versions.
+    value.setdefault('ExecStartPre','')
     if result.returncode and value.get('LoadState') != 'not-found': raise ValueError('unit query failed')
     return value
 
