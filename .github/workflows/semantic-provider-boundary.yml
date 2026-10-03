@@ -28,6 +28,9 @@ on:
       - 'scripts/stage_semantic_provider_runtime_plan.sh'
       - 'tests/test_prepare_semantic_provider_trust.py'
       - 'tools/materialize_southbound_kernel.py'
+      - 'tools/materialize_semantic_shared_faces.py'
+      - 'tests/test_semantic_shared_coordination.py'
+      - 'tests/test_semantic_shared_coordination_native.py'
       - 'tools/materialize_southbound_lease_refresh.py'
       - 'tests/test_southbound_kernel.py'
       - 'tests/test_southbound_docker_kernel.py'
@@ -71,6 +74,9 @@ on:
       - 'scripts/stage_semantic_provider_runtime_plan.sh'
       - 'tests/test_prepare_semantic_provider_trust.py'
       - 'tools/materialize_southbound_kernel.py'
+      - 'tools/materialize_semantic_shared_faces.py'
+      - 'tests/test_semantic_shared_coordination.py'
+      - 'tests/test_semantic_shared_coordination_native.py'
       - 'tests/test_southbound_kernel.py'
       - 'tests/test_southbound_docker_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'
@@ -242,3 +248,15 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nftables
       - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
       - run: sudo env OUF_RUNTIME_TRANSITION_FULL_OWNER_TEST=1 OUF_RUNTIME_TRANSITION_TEST_PARENT=/root OUF_RUNTIME_TRANSITION_NATIVE_TEST=1 OUF_RUNTIME_TRANSITION_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_transition tests.test_semantic_runtime_readiness
+
+  shared-face-lease-coordination:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -B -m unittest tests.test_semantic_shared_coordination
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
+      - run: sudo unshare --net --fork env OUF_SHARED_COORDINATION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination_native
