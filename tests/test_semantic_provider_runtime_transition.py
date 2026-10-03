@@ -283,6 +283,19 @@ class NativeRuntimeTransitionTest(unittest.TestCase):
         self.installer.operate(self.install_args); self.assertFalse((self.stage_root/'transition-journal.json').exists())
         self.install_args.mode='apply'; self.installer.operate(self.install_args)
         self.install_args.mode='verify'; self.installer.operate(self.install_args); self.pid_unchanged()
+        from scripts import inventory_semantic_runtime_readiness as readiness
+        source=self.stage_root.parent/'source/scripts/transition_semantic_runtime_guard.py'
+        args=SimpleNamespace(stage_root=self.stage_root,stage_source_commit='e'*40,
+                             installer_sha256=g.digest(source.read_bytes()))
+        before={f:self.command(self.nft,'-j','list','table',f,self.table) for f in ('inet','bridge')}
+        journal=(self.stage_root/'transition-journal.json').read_bytes()
+        report=readiness.collect(args,readiness.installer(args))
+        self.assertTrue(report['runtimeCustodyVerified']); self.assertFalse(report['startupReady'])
+        self.assertEqual(report['candidateCount'],2); self.assertEqual(report['dnsCalls'],0)
+        self.assertEqual(journal,(self.stage_root/'transition-journal.json').read_bytes())
+        self.assertEqual(before,{f:self.command(self.nft,'-j','list','table',f,self.table) for f in ('inet','bridge')})
+        self.pid_unchanged()
+        print('RUNTIME_READINESS_NATIVE=PASS READ_ONLY=true STARTUP_READY=false DNS_CALLS=0')
         self.assertIn('RESTORED=false',self.command(*self.guard_command()))
         for family in ('inet','bridge'): self.command(self.nft,'delete','table',family,self.table)
         output=self.command(*self.guard_command()); self.assertIn('RESTORED=true',output)

@@ -8,6 +8,7 @@ on:
       - 'scripts/restore_semantic_runtime_boot_guard.py'
       - 'scripts/stage_semantic_runtime_transition.py'
       - 'scripts/transition_semantic_runtime_guard.py'
+      - 'scripts/inventory_semantic_runtime_readiness.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
@@ -50,6 +51,7 @@ on:
       - 'scripts/restore_semantic_runtime_boot_guard.py'
       - 'scripts/stage_semantic_runtime_transition.py'
       - 'scripts/transition_semantic_runtime_guard.py'
+      - 'scripts/inventory_semantic_runtime_readiness.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
@@ -239,4 +241,4 @@ jobs:
           python-version: '3.13'
       - run: sudo apt-get update && sudo apt-get install -y nftables
       - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
-      - run: sudo env OUF_RUNTIME_TRANSITION_FULL_OWNER_TEST=1 OUF_RUNTIME_TRANSITION_TEST_PARENT=/root OUF_RUNTIME_TRANSITION_NATIVE_TEST=1 OUF_RUNTIME_TRANSITION_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_transition
+      - run: sudo env OUF_RUNTIME_TRANSITION_FULL_OWNER_TEST=1 OUF_RUNTIME_TRANSITION_TEST_PARENT=/root OUF_RUNTIME_TRANSITION_NATIVE_TEST=1 OUF_RUNTIME_TRANSITION_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_transition tests.test_semantic_runtime_readiness

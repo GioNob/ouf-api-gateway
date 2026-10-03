@@ -15,7 +15,18 @@ or containers changed. The intent records the three prior custody hashes,
 runtime/lease input seals, owned tables and the normalized shared structure under
 the existing boot lock.
 
-The next target action is **private runtime staging only**. All roots, source
+Private runtime staging plan/apply/verify passed at
+`/etc/ouf/deploy-snapshots/semantic-runtime-transition-stage-20261003-160211/prepared`.
+The subsequent runtime plan and apply/verify passed; the journal is `RUNTIME_EMPTY`.
+The owned guard/drop-in and both runtime tables are installed, provider sets are
+empty, Docker was not restarted and startup remains unauthorized. The original
+deny-only receipts remain historical evidence. Do not replay these commands.
+The next target action is **read-only runtime readiness inventory**, after its CI.
+This verifies the completed journal, current native structure and separate lease
+hash, installed/loaded guard, unchanged Docker PID and never-started candidates
+under the original boot lock. It reports unproven authority/packet/admission and
+active-lease lifecycle gates without promoting inventory PASS to startup readiness.
+It performs no DNS/IAM request or rule/unit/container mutation. All roots, source
 pins/hashes, tool paths, endpoint reference and lease ceiling are explicit inputs.
 Do not replay stopped creation or normalize networks. Do not call old cold
 verifiers that require empty networks. All original and failed artifacts remain.
@@ -41,7 +52,7 @@ verifiers that require empty networks. All original and failed artifacts remain.
   **empty-only**: active lease elements block instead of being silently flushed.
 - `transition_semantic_runtime_guard.py` supplies plan/apply/verify, explicit
   reconcile and owned rollback. Runtime apply is implemented and native-tested,
-  but is a **separate later target operation** after staging evidence.
+  and target apply/verify have passed in the initial empty-only scope.
 
 Staging is not complete infrastructure authority: no WORKLOAD_GATEWAY, IDENTITY
 or TELEMETRY permission is invented. The shared backend/control networks are
@@ -116,3 +127,34 @@ packet bindings, fresh A+AAAA bounded DNS leases, OIDC/purpose receipt/TLS/
 hostname/revocation, migration-aware Semantic rollout, Discovery/THS adoption,
 chatbot-assisted mapping/HUMAN ACTIVE, immediate file ingestion or API
 scheduler-before-ingestion and UDP identity remain separate open gates.
+
+## Readiness and active-lease design boundary
+
+`inventory_semantic_runtime_readiness.py` loads the original private installer
+only after checking an explicit SHA256, root ownership, mode 0600, single link,
+size bound and no symlink. It reuses that sealed installer's independent custody
+checks, reads twice under the existing lock and rejects incomplete journals,
+source/artifact drift, active elements, changed handles or loaded-unit mismatch.
+No original cohort is edited. Only hashes/counts/purpose labels and explicit
+unproven gates are printed; raw configs/env/mounts/commands/endpoints are omitted.
+Stable reads do not establish a globally atomic host snapshot.
+
+Do not run the legacy deny-only custody inventory against the transitioned
+runtime, and do not rerun the old intent verifier that expects original tables.
+The new readiness inventory validates current runtime custody instead.
+
+The active lease owner is already native-tested in isolation, but cannot be
+activated under the installed EMPTY_ONLY guard. Its fresh-DNS populate/revoke
+cycle and table-handle binding require a later coordinated guard/owner lifecycle.
+A future active profile must gate incomplete transitions, preserve foreign tables,
+reconcile handle changes, avoid cached TTL replay, serialize recreation against
+owner writes and deny readiness/start on unproven authority/admission. It must
+also define safe Docker pre-start versus active lease behavior and stop/restart
+revocation. Selecting that profile is engineering work, not implicit activation.
+
+The native runtime fixture additionally runs the readiness inventory after a real
+transition and verifies both table bytes, journal and dependent PID unchanged.
+Five additional regressions cover journal/handle/active-element drift, read drift,
+redacted errors and source hash/mode/link checks. Target network namespaces remain
+unproven because the two provider candidates have never started; planned Docker
+addresses and inventory PASS cannot substitute for packet/live acceptance.
