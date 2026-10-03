@@ -126,6 +126,8 @@ jobs:
       - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
       - run: sudo env OUF_SOUTHBOUND_DOCKER_KERNEL_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_kernel
 
+      - run: sudo env OUF_SOUTHBOUND_DOCKER_DNS_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_dns
+
       - run: sudo env OUF_COLD_NETWORK_TEST=1 OUF_COLD_NETWORK_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_networks
 
   provider-trust-prepare:
