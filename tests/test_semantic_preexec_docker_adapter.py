@@ -32,6 +32,17 @@ class AdapterContractTest(unittest.TestCase):
         self.assertEqual(adapter.binding(cfg, 'a'), original)
         cfg['runtimePath'] = '/foreign'; self.assertNotEqual(adapter.binding(cfg, 'a'), original)
 
+    def test_per_candidate_admission_configuration_does_not_rebind_another_cohort(self):
+        cfg = {'schema':'ouf.semantic-docker-runtime-adapter.v2','runtimePath':'/runc',
+            'candidates':{'a':{'approvalRef':'a'*64,'bundleParents':['/bundles'],
+                'admissionConfiguration':'/entity-a/admission.json','admissionConfigurationHash':'b'*64}}}
+        original = adapter.binding(cfg,'a')
+        cfg['candidates']['b'] = {'approvalRef':'c'*64,'bundleParents':['/other'],
+            'admissionConfiguration':'/entity-b/admission.json','admissionConfigurationHash':'d'*64}
+        self.assertEqual(adapter.binding(cfg,'a'),original)
+        cfg['candidates']['a']['admissionConfigurationHash'] = 'e'*64
+        self.assertNotEqual(adapter.binding(cfg,'a'),original)
+
 
 @unittest.skipUnless(os.environ.get('OUF_DOCKER_ADAPTER_NATIVE_TEST') == '1', 'real named Docker adapter opt-in')
 class DockerAdapterTest(unittest.TestCase):

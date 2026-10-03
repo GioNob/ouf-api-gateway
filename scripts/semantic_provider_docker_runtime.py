@@ -139,23 +139,30 @@ def binding(config, cid):
 
 def operate(config_path, argv):
     original = read(config_path); config = parse(original)
-    require(set(config) == {'schema','sourceHash','runtimePath','runtimeSha256','pythonPath','pythonSha256',
+    fields = {'schema','sourceHash','runtimePath','runtimeSha256','pythonPath','pythonSha256',
         'driverPath','driverSha256','admissionPath','admissionSha256','admissionConfiguration',
         'admissionConfigurationHash','registryRoot','runtimeStateRoot','candidates'}
-        and config['schema'] == 'ouf.semantic-docker-runtime-adapter.v1')
+    if config.get('schema') == 'ouf.semantic-docker-runtime-adapter.v2':
+        fields -= {'admissionConfiguration','admissionConfigurationHash'}
+    require(set(config) == fields and config['schema'] in ('ouf.semantic-docker-runtime-adapter.v1','ouf.semantic-docker-runtime-adapter.v2'))
     require(hashlib.sha256(read(Path(__file__))).hexdigest() == config['sourceHash'], 'ADAPTER_SOURCE_DRIFT')
     executable(config['runtimePath'], config['runtimeSha256']); executable(config['pythonPath'], config['pythonSha256'])
     require(hashlib.sha256(read(Path(config['driverPath']))).hexdigest() == config['driverSha256'])
     require(hashlib.sha256(read(Path(config['admissionPath']))).hexdigest() == config['admissionSha256'])
-    require(hashlib.sha256(read(Path(config['admissionConfiguration']))).hexdigest() == config['admissionConfigurationHash'])
     operation, cid, options = arguments(argv)
     if cid is None:
         return subprocess.run([config['runtimePath'], *argv], stderr=subprocess.DEVNULL,
                               env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, timeout=5).returncode
     require(cid in config['candidates'], 'UNSTAGED_DOCKER_CANDIDATE')
     entry = config['candidates'][cid]
-    require(set(entry) == {'approvalRef','bundleParents'} and re.fullmatch('[0-9a-f]{64}', entry['approvalRef'])
+    entry_fields = {'approvalRef','bundleParents'}
+    if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v2':
+        entry_fields |= {'admissionConfiguration','admissionConfigurationHash'}
+    require(set(entry) == entry_fields and re.fullmatch('[0-9a-f]{64}', entry['approvalRef'])
             and isinstance(entry['bundleParents'], list) and 1 <= len(entry['bundleParents']) <= 4)
+    admission_config = config if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v1' else entry
+    require(hashlib.sha256(read(Path(admission_config['admissionConfiguration']))).hexdigest()
+            == admission_config['admissionConfigurationHash'], 'CANDIDATE_ADMISSION_CONFIGURATION_DRIFT')
     directory = Path(config['registryRoot'])/cid; ancestors(directory/'adapter.json')
     require(stat.S_IMODE(directory.lstat().st_mode) == 0o700)
     root = Path(options['--root']).resolve()
@@ -173,7 +180,7 @@ def operate(config_path, argv):
         require(read(config_path) == original, 'ADAPTER_CONFIGURATION_DRIFT')
         shadow = directory/'bundle'; driver = directory/'driver.json'
         python = [config['pythonPath'], '-I', '-B']
-        admission = [*python, config['admissionPath'], '--configuration', config['admissionConfiguration'],
+        admission = [*python, config['admissionPath'], '--configuration', admission_config['admissionConfiguration'],
                      '--container-id', cid, '--bundle', str(shadow), '--runtime-root', str(root)]
         def publish(state, **extra):
             nonlocal record
@@ -194,6 +201,9 @@ def operate(config_path, argv):
                     env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
                 require(result.returncode == 0, 'ADMISSION_PREPARATION_FAILED')
             grant_raw = read(driver); grant = parse(grant_raw)
+            if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v2':
+                require(grant['schema'] == 'ouf.semantic-preexec-driver.v3'
+                        and grant['authorityBinding']['sha256'] == entry['approvalRef'], 'SCOPED_V3_AUTHORITY_REQUIRED')
             require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3') and grant['profile']['containerId'] == cid
                     and grant['profile']['bundlePath'] == str(shadow) and grant['profile']['bundleHash'] == digest(oci)
                     and grant['profile']['applicationStartAuthorized'] is True
