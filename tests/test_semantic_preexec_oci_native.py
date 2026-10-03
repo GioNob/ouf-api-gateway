@@ -64,7 +64,7 @@ class OciTest(unittest.TestCase):
         profile['policy']['flows'][0]['peerIngress']['ifindex'] = peer_index
         profile['applicationStartAuthorized'] = True  # explicit synthetic fixture authority
         filesystem = bundle/'rootfs'; (filesystem/'bin').mkdir(parents=True)
-        (filesystem/'proof').mkdir(); (filesystem/'proc').mkdir()
+        (filesystem/'proof').mkdir(); (filesystem/'proc').mkdir(); (filesystem/'dev').mkdir()
         shutil.copyfile(shutil.which('busybox'), filesystem/'bin/busybox'); (filesystem/'bin/busybox').chmod(0o755)
         (filesystem/'bin/sh').symlink_to('busybox'); marker = filesystem/'proof/app-started'
         driver_path = root/'driver.json'
@@ -75,7 +75,8 @@ class OciTest(unittest.TestCase):
                 'args': ['/bin/sh', '-c', 'echo APP > /proof/app-started'], 'env': ['PATH=/bin'],
                 'noNewPrivileges': True, 'capabilities': {k: [] for k in
                     ('bounding', 'effective', 'inheritable', 'permitted', 'ambient')}},
-            'mounts': [{'destination': '/proc', 'type': 'proc', 'source': 'proc', 'options': ['nosuid', 'noexec', 'nodev']}],
+            'mounts': [{'destination': '/proc', 'type': 'proc', 'source': 'proc', 'options': ['nosuid', 'noexec', 'nodev']},
+                {'destination': '/dev', 'type': 'tmpfs', 'source': 'tmpfs', 'options': ['nosuid', 'strictatime', 'mode=755']}],
             'linux': {'cgroupsPath': '/'+profile['containerId'], 'namespaces': [
                 {'type': 'mount'}, {'type': 'pid'}, {'type': 'ipc'}, {'type': 'uts'},
                 {'type': 'network', 'path': profile['namespacePath']}]}, 'hooks': {'createRuntime': [hook]}}
@@ -111,7 +112,7 @@ class OciTest(unittest.TestCase):
             # capture would wait for its EOF after the runc CLI already exited.
             with tempfile.TemporaryFile() as output:
                 result = subprocess.run([*runc, 'create', '--bundle', str(bundle), container],
-                    stdout=output, stderr=output, timeout=20)
+                    stdin=subprocess.DEVNULL, stdout=output, stderr=output, timeout=20)
                 output.seek(0)
                 return SimpleNamespace(returncode=result.returncode, stdout='', stderr=output.read(131072).decode())
         def denied(reason):
