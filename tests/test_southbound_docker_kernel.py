@@ -12,6 +12,12 @@ import subprocess
 import time
 import unittest
 import uuid
+import socket
+import struct
+import threading
+from tools import semantic_provider_dns as dns
+from tools.semantic_provider_lease_owner import LeaseOwner, LeaseDenied
+from tools.semantic_provider_lease_nft import NftBackend, structure_hash
 
 from tools.materialize_southbound_kernel import materialize
 from tools.materialize_southbound_lease_refresh import compile_refresh
@@ -150,6 +156,44 @@ serve(15444)
             denied = compile_refresh(cfg, [], time.monotonic(), apply_budget_seconds=2)
             run('nft', '-f', '-', input=denied['nftTransaction'])
             self.assertFalse(probe(client, server_ip, 15443))
+            # Actual fresh UDP DNS -> lifecycle owner -> atomic nft/readback ->
+            # real Docker packet gate. DNS peer is local; no external provider.
+            udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp.bind(('127.0.0.1', 0)); udp.settimeout(3)
+            dns_failures = []
+            def dns_peer():
+                try:
+                    for _ in range(2):
+                        raw, source = udp.recvfrom(512)
+                        ident = struct.unpack('!H', raw[:2])[0]
+                        kind = struct.unpack('!H', raw[-4:-2])[0]
+                        if kind == 1:
+                            payload = socket.inet_aton(server_ip)
+                            header = struct.pack('!6H', ident, 0x8180, 1, 1, 0, 0)
+                            record = b'\xc0\x0c'+struct.pack('!HHIH', 1, 1, 30, len(payload))+payload
+                        else:
+                            payload = dns.wire_name('ns.fixture.invalid')+dns.wire_name('hostmaster.fixture.invalid')+struct.pack('!5I', 1, 30, 30, 30, 30)
+                            header = struct.pack('!6H', ident, 0x8180, 1, 0, 1, 0)
+                            record = b'\xc0\x0c'+struct.pack('!HHIH', 6, 1, 30, len(payload))+payload
+                        udp.sendto(header+raw[12:]+record, source)
+                except Exception as error: dns_failures.append(type(error).__name__)
+            thread = threading.Thread(target=dns_peer, daemon=True); thread.start()
+            raw_tables = {f: json.loads(run('nft', '-j', 'list', 'table', f, table)) for f in ('inet', 'bridge')}
+            backend = NftBackend(['nft'], cfg, structure_hash(raw_tables), 2)
+            owner = LeaseOwner(cfg, {'resolvers': ['127.0.0.1'], 'resolverPort': udp.getsockname()[1],
+                'timeoutSeconds': 2, 'maxLeaseSeconds': 10, 'applyBudgetSeconds': 2}, backend)
+            try:
+                self.assertTrue(owner.refresh()['bothFamiliesReadBack'])
+                self.assertTrue(probe(client, server_ip, 15443)); self.assertFalse(probe(bypass, server_ip, 15443))
+            finally:
+                thread.join(4); udp.close()
+            self.assertFalse(thread.is_alive()); self.assertEqual(dns_failures, [])
+            # The selected DNS peer is now unavailable: revoke rather than cache.
+            with self.assertRaisesRegex(LeaseDenied, 'SETS_REVOKED'): owner.refresh()
+            self.assertFalse(probe(client, server_ip, 15443))
+            print('SOUTHBOUND_LEASE_OWNER_DOCKER_CI=PASS REAL_DOCKER_BRIDGE=true REAL_LOCAL_DNS=true'
+                  ' A_AND_AAAA_CHECKED=true BOTH_FAMILIES_READ_BACK=true FAILED_DNS_REVOKED=true'
+                  ' PACKET_DENIED_AFTER_REVOCATION=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
             delete_owned_tables(); table_created = False
             self.assertEqual(rule_hash(before_rules), rule_hash(json.loads(run('nft', '-j', 'list', 'ruleset'))),
                              'SHARED_RULE_STRUCTURE_CHANGED')
