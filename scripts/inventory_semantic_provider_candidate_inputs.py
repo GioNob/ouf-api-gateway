@@ -24,14 +24,14 @@ def run(command, iam=False):
     return value.stdout
 
 
-def file_metadata(path,uid,gid,mode):
+def file_metadata(path,uid,gid,mode,limit=131072):
     if not path.is_absolute() or '..' in path.parts: raise Blocked('PATH_UNSAFE')
     for parent in path.parents:
         s=parent.lstat()
         if not stat.S_ISDIR(s.st_mode) or s.st_uid!=0 or s.st_mode & 0o022: raise Blocked('ANCESTOR_UNSAFE')
     s=path.lstat()
     if not stat.S_ISREG(s.st_mode) or s.st_uid!=uid or s.st_gid!=gid or s.st_nlink!=1 \
-            or stat.S_IMODE(s.st_mode)!=mode or s.st_size>131072: raise Blocked('ARTIFACT_METADATA_DRIFT')
+            or stat.S_IMODE(s.st_mode)!=mode or s.st_size>limit: raise Blocked('ARTIFACT_METADATA_DRIFT')
 
 
 def private_json(path):
@@ -68,7 +68,7 @@ def inventory(args):
             or json.loads(config_raw)!=binding['adapter'] or plan['adapterConfiguration']!=binding['adapter']:
         raise Blocked('ADAPTER_CONFIGURATION_DRIFT')
     for name in ('ca.crt','trust-bundle.pem'):
-        file_metadata(args.trust_root/name,0,0,0o644)
+        file_metadata(args.trust_root/name,0,0,0o644,limit=1048576)
         raw=(args.trust_root/name).read_bytes()
         if b'PRIVATE KEY' in raw or hashlib.sha256(raw).hexdigest()!=trust['artifactHashes'][name]:
             raise Blocked('PUBLIC_TRUST_CONTENT_DRIFT')
