@@ -46,8 +46,18 @@ def tables(args):
 
 
 def owned(args):
-    return {family: json_command([args.nft_path, '-j', 'list', 'table', family, args.table_name])
+    value = {family: json_command([args.nft_path, '-j', 'list', 'table', family, args.table_name])
             for family in ('inet', 'bridge')}
+    expected = {'inet': {'governed_flows', 'guard_input', 'guard_output', 'guard_forward'},
+                'bridge': {'governed_bridge_flows', 'guard_bridge_forward'}}
+    for family, raw in value.items():
+        chains = {v['chain']['name'] for v in raw['nftables'] if 'chain' in v}
+        if chains != expected[family]: raise trust.Blocked('GUARD_CHAINS_UNPROVEN')
+        for chain in ('governed_flows',) if family == 'inet' else ('governed_bridge_flows',):
+            rules = [v['rule'] for v in raw['nftables'] if 'rule' in v and v['rule']['chain'] == chain]
+            if not rules or not any('drop' in e for e in rules[-1]['expr']):
+                raise trust.Blocked('GUARD_FINAL_DENIAL_UNPROVEN')
+    return value
 
 
 def full_networks(args):
@@ -150,7 +160,7 @@ def operate(args):
     rules = materialize({'tableName': args.table_name,
                          'guardedInterfaces': [args.internal_bridge, args.egress_bridge],
                          'existingInterfaces': interfaces, 'staticFlows': [], 'providerFlows': []})['nftRules']
-    rules = rules.replace('table inet ', 'create table inet ', 1).replace('\ntable bridge ', '\ncreate table bridge ', 1)
+    rules = 'create table inet '+args.table_name+'\ncreate table bridge '+args.table_name+'\n'+rules
     execute([args.nft_path, '-c', '-f', '-'], rules)
     if args.mode == 'plan': return None
     args.snapshot_root.mkdir(mode=0o700)
