@@ -14,8 +14,11 @@ from scripts import prepare_semantic_provider_transition_intent as m
 from scripts import inventory_semantic_provider_guard_custody as g
 
 
+@unittest.skipUnless(os.geteuid()==0 or os.environ.get('OUF_TRANSITION_FULL_OWNER_TEST')=='1',
+                     'real root private-file/lock fixtures run in the dedicated CI job')
 class IntentTest(unittest.TestCase):
     def setUp(self):
+        if os.environ.get('OUF_TRANSITION_FULL_OWNER_TEST')=='1': self.assertEqual(os.geteuid(),0)
         # /tmp is intentionally forbidden by production ancestor checks.
         self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('OUF_TRANSITION_TEST_PARENT', str(Path.cwd())))
         self.addCleanup(self.temp.cleanup)
