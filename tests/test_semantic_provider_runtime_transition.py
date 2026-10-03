@@ -336,5 +336,30 @@ class NativeRuntimeTransitionTest(unittest.TestCase):
         print('RUNTIME_TRANSITION_RECOVERY_NATIVE=PASS LOADED_GATE_DENIES_PARTIAL=true'
               ' POST_RULE_CRASH_RECOVERED=true OWNED_ROLLBACK=true ORIGINAL_PID_PRESERVED=true PROVIDER_CALLS=0')
 
+    def test_native_failed_nft_transaction_preserves_old_pair_and_foreign_files(self):
+        prepared=self.installer.stage(self.install_args); runtime_guard=prepared[0]; real_run=runtime_guard.run
+        before=runtime_guard.digest(runtime_guard.encoded(runtime_guard.stable(runtime_guard.tables(prepared[3]),True)))
+        def invalid_transaction(command,raw=None):
+            if command==[self.nft,'-f','-'] and raw and raw.startswith('delete table inet '+self.table):
+                # A real nft parser failure must reject the entire replacement,
+                # including its delete/create operations, in both families.
+                return real_run(command,raw+'invalid fixture nft command\n')
+            return real_run(command,raw)
+        self.install_args.mode='apply'
+        with patch.object(self.installer,'stage',return_value=prepared),patch.object(runtime_guard,'run',side_effect=invalid_transaction):
+            with self.assertRaises(ValueError): self.installer.operate(self.install_args)
+        after=runtime_guard.digest(runtime_guard.encoded(runtime_guard.stable(runtime_guard.tables(prepared[3]),True)))
+        self.assertEqual(before,after); self.pid_unchanged()
+        self.assertEqual(g.read(self.stage_root/'transition-journal.json')['state'],'GATE_LOADED')
+        self.assertNotEqual(subprocess.run(self.guard_command(),capture_output=True,timeout=30).returncode,0)
+        drop=prepared[9]; owned=drop.read_bytes(); drop.write_bytes(owned+b'\n')
+        self.install_args.mode='reconcile'
+        with self.assertRaises(ValueError): self.installer.operate(self.install_args)
+        self.assertEqual(drop.read_bytes(),owned+b'\n'); drop.write_bytes(owned)
+        self.installer.operate(self.install_args); self.install_args.mode='verify'; self.installer.operate(self.install_args)
+        self.pid_unchanged()
+        print('RUNTIME_TRANSITION_ATOMIC_NATIVE=PASS FAILED_NFT_PRESERVES_BOTH_OLD_TABLES=true'
+              ' PERSISTENT_GATE_BLOCKS=true FOREIGN_FILE_PRESERVED=true ORIGINAL_PID_PRESERVED=true PROVIDER_CALLS=0')
+
 
 if __name__=='__main__': unittest.main()
