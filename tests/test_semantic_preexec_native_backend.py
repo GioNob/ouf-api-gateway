@@ -71,7 +71,7 @@ class NativeContractTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=os.environ.get('OUF_SHARED_COORDINATION_TEST_PARENT', str(Path.cwd()))) as tmp:
             root = Path(tmp).resolve(); root.chmod(0o700); source = root/'source'; source.mkdir(mode=0o700)
             repository = Path(__file__).resolve().parents[1]
-            names = ['scripts/stage_semantic_preexec_package.py', SELF, *('tools/'+name+'.py' for name in MODULES)]
+            names = ['scripts/stage_semantic_preexec_package.py', 'scripts/semantic_provider_docker_runtime.py', SELF, *('tools/'+name+'.py' for name in MODULES)]
             for name in names:
                 path = source/name; path.parent.mkdir(mode=0o700, exist_ok=True)
                 path.write_bytes((repository/name).read_bytes()); path.chmod(0o600)
@@ -83,7 +83,8 @@ class NativeContractTest(unittest.TestCase):
             self.assertEqual(call('plan').returncode, 0); self.assertFalse((root/'source-package-receipt.json').exists())
             self.assertEqual(call('apply').returncode, 0)
             receipt = json.loads((root/'source-package-receipt.json').read_bytes())
-            self.assertEqual(len(receipt['sourceHashes']), 11); self.assertFalse(receipt['startAuthorized'])
+            self.assertEqual(len(receipt['sourceHashes']), 12); self.assertFalse(receipt['startAuthorized'])
+            self.assertFalse(receipt['runtimeAdapterInstalled']); self.assertFalse(receipt['admissionPreparerInstalled'])
             self.assertFalse(receipt['runtimeRegistered']); self.assertFalse(receipt['rulesChanged'])
             self.assertEqual(call('verify').returncode, 0); self.assertNotEqual(call('apply').returncode, 0)
             path = source/'tools/semantic_provider_preexec.py'; path.write_bytes(path.read_bytes()+b'\n# changed\n')

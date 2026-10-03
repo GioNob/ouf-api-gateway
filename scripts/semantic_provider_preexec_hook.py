@@ -51,9 +51,10 @@ def parse(raw):
 
 def load(path):
     config_raw = private_bytes(path); value = parse(config_raw)
-    if set(value) != {'schema', 'sourceRoot', 'sourceHashes', 'profile', 'kernel', 'dns',
-            'coordinationBinding', 'coordinationJournal', 'preexecJournal', 'lockFile', 'commands', 'budgetSeconds'} \
-            or value['schema'] != 'ouf.semantic-preexec-driver.v1':
+    fields = {'schema', 'sourceRoot', 'sourceHashes', 'profile', 'kernel', 'dns',
+            'coordinationBinding', 'coordinationJournal', 'preexecJournal', 'lockFile', 'commands', 'budgetSeconds'}
+    if value.get('schema') == 'ouf.semantic-preexec-driver.v2': fields.add('runtimeBinding')
+    if set(value) != fields or value['schema'] not in ('ouf.semantic-preexec-driver.v1', 'ouf.semantic-preexec-driver.v2'):
         raise RuntimeError('EXACT_DRIVER_CONFIGURATION_REQUIRED')
     root = Path(value['sourceRoot'])
     if root.lstat().st_mode & 0o077 or not root.is_dir(): raise RuntimeError('PRIVATE_SOURCE_ROOT_REQUIRED')
@@ -83,7 +84,7 @@ def load(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--configuration', required=True)
-    parser.add_argument('--mode', required=True, choices=['plan', 'apply', 'verify', 'reconcile', 'rollback', 'hook'])
+    parser.add_argument('--mode', required=True, choices=['plan', 'apply', 'verify', 'reconcile', 'rollback', 'hook', 'start'])
     args = parser.parse_args()
     try:
         if os.geteuid() != 0 or not sys.flags.isolated or not sys.dont_write_bytecode:
@@ -102,7 +103,12 @@ def main():
             lambda: hold_common_lock(Path(value['lockFile'])), journal.read, journal.write)
         backend = NativeBackend(value['profile'], value['commands'], value['budgetSeconds'])
         gate = Preexec(value['profile'], backend, coordination, PrivateJournal(Path(value['preexecJournal'])))
-        if args.mode == 'hook':
+        if args.mode == 'start':
+            if value['schema'] != 'ouf.semantic-preexec-driver.v2':
+                raise RuntimeError('SEALED_RUNTIME_BINDING_REQUIRED')
+            state = backend.runtime(value['runtimeBinding'], 'state')
+            result = gate.before_process(state, lambda: backend.runtime(value['runtimeBinding'], 'start'))
+        elif args.mode == 'hook':
             raw = sys.stdin.buffer.read(16385)
             if len(raw) > 16384: raise RuntimeError('OCI_STATE_UNBOUNDED')
             result = gate.before_process(parse(raw))

@@ -103,18 +103,19 @@ class Preexec:
             raise PreexecDenied('LEASE_QUIESCENCE_REQUIRED')
         if self.coord.journal() != value: raise PreexecDenied('LEASE_JOURNAL_DRIFT')
 
-    def verified(self, value):
+    def verified(self, value, check_bindings=True):
         current = self.backend.tables()
         if current is None or self.backend.footprint(current) != self.profile['expectedFootprint'] \
                 or self.backend.structure_hash(current) != value['sharedStructureHash']:
             raise PreexecDenied('SHARED_STRUCTURE_RECONCILIATION_REQUIRED')
-        self.backend.bindings(self.profile, None)
+        if check_bindings: self.backend.bindings(self.profile, None)
 
     def operate(self, mode):
         if mode not in ('plan', 'apply', 'verify', 'reconcile', 'rollback'):
             raise ValueError('explicit install mode required')
         with self.coord.hold_lock():
-            self.quiesced(); value = self.record(); self.backend.bindings(self.profile, None)
+            self.quiesced(); value = self.record()
+            if mode != 'rollback': self.backend.bindings(self.profile, None)
             current = self.backend.tables()
             if mode == 'plan':
                 if value['state'] != 'STAGED' or current is not None:
@@ -131,7 +132,7 @@ class Preexec:
                 if current is not None:
                     if value['sharedStructureHash'] is None:
                         raise PreexecDenied('UNCOMMITTED_TABLES_REQUIRE_RECONCILE')
-                    self.verified(value)
+                    self.verified(value, check_bindings=False)
                 pending = {**value, 'state': 'REMOVING'}; self.publish(value, pending)
                 if current is not None: self.backend.remove()
                 if self.backend.tables() is not None: raise PreexecDenied('REMOVAL_UNPROVEN')
@@ -169,7 +170,7 @@ class Preexec:
                 self.verified(value)
             return {'state': value['state'], 'hostRulesChanged': mode != 'verify', 'startAuthorized': False}
 
-    def before_process(self, state):
+    def before_process(self, state, starter=None):
         # Runtime failure must prevent OCI create/start. This is a synchronous
         # createRuntime hook, not a post-start event callback.
         if not isinstance(state, dict) or state.get('id') != self.profile['containerId'] \
@@ -194,4 +195,10 @@ class Preexec:
             self.verified(value)
             if self.backend.bindings(self.profile, state) != generation:
                 raise PreexecDenied('OCI_GENERATION_CHANGED')
+            if starter is not None:
+                if state['status'] != 'created':
+                    raise PreexecDenied('CREATED_PROCESS_REQUIRED_FOR_START')
+                # The trusted v2 driver supplies the runtime starter. Keep the
+                # common lock through the FIFO release, not only the readback.
+                starter()
             return {'protectedBeforeProcess': True, 'leaseActivated': False, 'notReleaseAcceptance': True}

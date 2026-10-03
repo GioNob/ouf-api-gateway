@@ -4,6 +4,7 @@ No runtime registration, namespace creation, bundle modification or process
 start. Prepared root-private configuration and authority come from the driver.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -142,3 +143,43 @@ class NativeBackend:
         if generation['namespaceInode'] != profile['namespaceInode']:
             raise PreexecDenied('OCI_PROCESS_NAMESPACE_DRIFT')
         return generation
+
+    def runtime(self, binding, operation):
+        if set(binding) != {'path', 'sha256', 'root'} or operation not in ('state', 'start'):
+            raise PreexecDenied('SEALED_RUNTIME_BINDING_REQUIRED')
+        runtime = Path(binding['path']); _ancestors(runtime); before = runtime.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or not before.st_mode & 0o111:
+            raise PreexecDenied('TRUSTED_RUNTIME_REQUIRED')
+        fd = os.open(runtime, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            value = hashlib.sha256(); size = 0
+            while True:
+                raw = os.read(fd, 65536)
+                if not raw: break
+                size += len(raw)
+                if size > 64000000: raise PreexecDenied('RUNTIME_SIZE_UNBOUNDED')
+                value.update(raw)
+            info = os.fstat(fd)
+            if value.hexdigest() != binding['sha256'] or any(getattr(before, k) != getattr(info, k)
+                    for k in ('st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_size', 'st_mtime_ns', 'st_ctime_ns')):
+                raise PreexecDenied('RUNTIME_BINARY_DRIFT')
+        finally: os.close(fd)
+        root = Path(binding['root']); _ancestors(root/'state')
+        # The runtime state root must already exist; this gate creates none.
+        with tempfile.TemporaryFile() as output:
+            remaining = self.deadline-time.monotonic()
+            if remaining <= 0: raise PreexecDenied('NATIVE_DRIVER_DEADLINE_MISSED')
+            result = subprocess.run([str(runtime), '--root', str(root), operation, self.profile['containerId']],
+                stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL, timeout=remaining,
+                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+            if result.returncode: raise PreexecDenied('RUNTIME_OPERATION_UNPROVEN')
+            output.seek(0); raw = output.read(16385)
+            if len(raw) > 16384: raise PreexecDenied('RUNTIME_STATE_UNBOUNDED')
+        if operation == 'start': return None
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value: raise PreexecDenied('DUPLICATE_RUNTIME_STATE_KEY')
+                value[key] = item
+            return value
+        return json.loads(raw, object_pairs_hook=unique)

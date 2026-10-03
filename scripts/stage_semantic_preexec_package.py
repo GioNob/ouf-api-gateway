@@ -37,7 +37,7 @@ def operate(mode, root, commit, hook_hash):
     spec = spec_from_file_location('private_preexec_bootstrap', hook)
     module = module_from_spec(spec)
     exec(compile(raw, str(hook), 'exec'), module.__dict__)
-    names = ['scripts/stage_semantic_preexec_package.py', module.SELF,
+    names = ['scripts/stage_semantic_preexec_package.py', 'scripts/semantic_provider_docker_runtime.py', module.SELF,
              *('tools/'+name+'.py' for name in module.MODULES)]
     if Path(__file__).absolute() != source/names[0]: raise RuntimeError('EXACT_STAGE_SOURCE_REQUIRED')
     hashes = {name: hashlib.sha256(module.private_bytes(source/name)).hexdigest() for name in names}
@@ -55,10 +55,11 @@ def operate(mode, root, commit, hook_hash):
                 trusted = trusted and stat.S_ISDIR(item.st_mode) and item.st_uid == 0 and not item.st_mode & 0o022
         except OSError: trusted = False
         capabilities[name] = bool(trusted)
-    receipt = {'schema': 'ouf.semantic-preexec-source-package.v1', 'sourceCommit': commit,
+    receipt = {'schema': 'ouf.semantic-preexec-source-package.v2', 'sourceCommit': commit,
         'sourceHashes': hashes, 'pythonVersion': '.'.join(map(str, sys.version_info[:3])),
         'trustedToolsAvailable': capabilities, 'runtimeRegistered': False, 'rulesChanged': False,
         'unitsChanged': False, 'containersChanged': False, 'startAuthorized': False,
+        'runtimeAdapterInstalled': False, 'admissionPreparerInstalled': False,
         'providerCalls': 0, 'notReleaseAcceptance': True, 'noSecretsPrinted': True}
     path = root/'source-package-receipt.json'
     if mode == 'verify':

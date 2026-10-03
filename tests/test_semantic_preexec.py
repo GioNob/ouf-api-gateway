@@ -74,6 +74,27 @@ class PreexecTest(unittest.TestCase):
         self.gate = Preexec(self.profile, self.backend, self.coord, self.journal)
         self.record['configurationHash'] = self.gate.config_hash
 
+    def test_guarded_start_holds_common_lock_through_runtime_release(self):
+        self.enable_fixture_start(); self.gate.operate('apply')
+        self.state['status'] = 'created'
+        def starter():
+            self.assertTrue(self.held)
+            with self.assertRaises(BlockingIOError):
+                with self.coord.hold_lock(): pass
+            self.events.append('start')
+        self.gate.before_process(self.state, starter)
+        self.assertEqual(self.events[-1], 'start'); self.assertFalse(self.held)
+        self.phase = 'QUIESCING'
+        with self.assertRaises(PreexecDenied): self.gate.before_process(self.state, starter)
+        self.assertEqual(self.events.count('start'), 1)
+
+    def test_dead_generation_rollback_does_not_require_removed_namespace(self):
+        self.enable_fixture_start(); self.gate.operate('apply'); self.gate.before_process(self.state)
+        self.binding_ok = False; self.live = True
+        with self.assertRaises(PreexecDenied): self.gate.operate('rollback')
+        self.live = False
+        self.assertEqual(self.gate.operate('rollback')['state'], 'ROLLED_BACK')
+
     def test_owned_install_readback_verify_and_rollback(self):
         self.assertFalse(self.gate.operate('plan')['hostRulesChanged']); self.assertEqual(self.events, [])
         self.assertEqual(self.gate.operate('apply')['state'], 'PROTECTED')
