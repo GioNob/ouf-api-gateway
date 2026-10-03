@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import uuid
 from scripts import inventory_semantic_provider_candidate_inputs as inputs
 from scripts import prepare_semantic_southbound_validator_credentials as validator
@@ -19,7 +20,14 @@ MANIFEST='ouf.semantic.candidate.manifest'
 
 def command(args,*options):
     # All callers use fixed Docker verbs and argument arrays; no shell or start.
-    return inputs.run([args.docker_path,*map(str,options)])
+    value=subprocess.run([args.docker_path,*map(str,options)],capture_output=True,text=True,timeout=60)
+    if value.returncode:
+        error=(value.stdout+value.stderr).lower()
+        if 'user specified ip address' in error or 'user-specified ip address' in error:
+            raise inputs.Blocked('DOCKER_EXPLICIT_IPAM_SUBNET_REQUIRED')
+        raise inputs.Blocked('DOCKER_CANDIDATE_OPERATION_FAILED')
+    if len(value.stdout)>2_000_000:raise inputs.Blocked('DOCKER_READBACK_TOO_LARGE')
+    return value.stdout
 
 
 def inspect(args,name):
