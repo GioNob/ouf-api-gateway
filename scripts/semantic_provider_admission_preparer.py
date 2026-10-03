@@ -29,6 +29,12 @@ def require(ok, reason):
     if not ok: raise RuntimeError(reason)
 
 
+def signature(value):
+    # A successful read may update atime (relatime); that is not content drift.
+    return tuple(getattr(value,k) for k in ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink',
+                                          'st_size','st_mtime_ns','st_ctime_ns'))
+
+
 def private(path):
     path = Path(path)
     require(path.is_absolute() and '..' not in path.parts, 'PRIVATE_PATH_REQUIRED')
@@ -42,7 +48,7 @@ def private(path):
                 and stat.S_IMODE(before.st_mode) == 0o600 and before.st_nlink == 1
                 and before.st_size <= 131072, 'PRIVATE_FILE_REQUIRED')
         raw = os.read(fd,131073); after = os.fstat(fd)
-        require(len(raw) <= 131072 and before == after, 'PRIVATE_READ_DRIFT')
+        require(len(raw) <= 131072 and signature(before) == signature(after), 'PRIVATE_READ_DRIFT')
         return raw
     finally: os.close(fd)
 
@@ -72,7 +78,7 @@ def executable(path, expected):
             if not raw: break
             size += len(raw); require(size <= 64000000,'COMMAND_SIZE_UNBOUNDED')
             h.update(raw)
-        require(h.hexdigest() == expected and os.fstat(fd) == before,'COMMAND_BINARY_DRIFT')
+        require(h.hexdigest() == expected and signature(os.fstat(fd)) == signature(before),'COMMAND_BINARY_DRIFT')
     finally: os.close(fd)
 
 

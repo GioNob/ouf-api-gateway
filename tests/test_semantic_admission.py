@@ -2,10 +2,12 @@ import copy
 import hashlib
 import json
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from tools.semantic_provider_admission import authority,isolated_template,live_profile,mirrors,application_hash
 from tools.semantic_provider_preexec import PreexecDenied,digest
+from scripts.semantic_provider_admission_preparer import signature
 from tests import test_semantic_preexec as fixture
 profile = fixture.profile
 
@@ -18,6 +20,12 @@ class AdmissionTest(unittest.TestCase):
             'state':'ACTIVE','infrastructureAuthorized':True,'applicationStartAuthorized':True}
     def encoded(self): return json.dumps(self.receipt).encode()
     def binding(self): return {'path':'/sealed/approval','sha256':hashlib.sha256(self.encoded()).hexdigest(),'issuedAt':100,'expiresAt':200}
+    def test_read_metadata_ignores_atime_but_retains_content_and_owner_changes(self):
+        fields = ('st_dev','st_ino','st_mode','st_uid','st_gid','st_nlink','st_size','st_mtime_ns','st_ctime_ns')
+        original = dict.fromkeys(fields,1); first = SimpleNamespace(**original,st_atime_ns=1)
+        self.assertEqual(signature(first),signature(SimpleNamespace(**original,st_atime_ns=2)))
+        for key in fields:
+            self.assertNotEqual(signature(first),signature(SimpleNamespace(**{**original,key:2},st_atime_ns=1)))
     def test_authority_requires_exact_scope_freshness_and_sealed_content(self):
         b = self.binding(); authority(b,self.scope,lambda p:self.encoded(),lambda:150)
         for t in (99,200,201):
