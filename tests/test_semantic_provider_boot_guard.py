@@ -9,6 +9,7 @@ import unittest
 import uuid
 from types import SimpleNamespace
 from scripts import stage_semantic_boot_guard as staging
+from scripts import install_semantic_boot_guard as installation
 from scripts import stage_semantic_lease_package as package
 
 from scripts import restore_semantic_boot_guard as guard
@@ -90,6 +91,31 @@ class RealBootOrderingTest(unittest.TestCase):
             artifact=stage/'guard.service'; original=artifact.read_bytes(); artifact.write_bytes(original+b'\n')
             with self.assertRaises(ValueError): staging.operate(args)
             artifact.write_bytes(original)
+            # Install against an already running isolated dependent, never production Docker.
+            dep.write_text('[Unit]\nDescription=Isolated install fixture\n[Service]\nType=simple\nExecStart=/usr/bin/sleep 180\n')
+            run('systemctl','daemon-reload'); run('systemctl','start',dependent+'.service')
+            install_root=root/'install'; install_root.mkdir(mode=0o700)
+            install_args=SimpleNamespace(mode='plan',stage_root=stage,snapshot_root=install_root,
+                stage_commit='b'*40,unit_root=unit.parent,systemctl_path=shutil.which('systemctl'),
+                analyze_path=shutil.which('systemd-analyze'))
+            planned=installation.operate(install_args)
+            self.assertFalse((install_root/'install-journal.json').exists())
+            install_args.mode='apply'; installed=installation.operate(install_args)
+            self.assertEqual(installed['baseline']['MainPID'],planned['baseline']['MainPID'])
+            install_args.mode='verify'; installation.operate(install_args)
+            installed_drop=dropdir/('90-'+args.guard_unit+'.conf')
+            saved_drop=installed_drop.read_bytes(); installed_drop.write_bytes(saved_drop+b'\n')
+            with self.assertRaises(ValueError): installation.operate(install_args)
+            installed_drop.write_bytes(saved_drop)
+            install_args.mode='rollback'; rolled=installation.operate(install_args)
+            self.assertEqual(rolled['state'],'rolled-back')
+            self.assertEqual(installation.show(install_args.systemctl_path,dependent+'.service')['MainPID'],planned['baseline']['MainPID'])
+            self.assertFalse(installed_drop.exists())
+            self.assertFalse((unit.parent/(args.guard_unit+'.service')).exists())
+            run('systemctl','stop',dependent+'.service')
+            print('SEMANTIC_BOOT_INSTALL_CI=PASS REAL_SYSTEMD=true ACTIVE_DEPENDENT_PID_PRESERVED=true'
+                  ' PLAN_READ_ONLY=true INSTALLED_GRAPH_VERIFIED=true FILE_TAMPERING_DENIED=true'
+                  ' ROLLBACK_OWN_FILES_ONLY=true REAL_DOCKER_RESTART_NOT_PERFORMED=true PROVIDER_CALLS=0')
             before=guard.footprint(json.loads(run(nft,'-j','list','ruleset')))
             erase(); self.assertTrue(guard.restore(value))
             self.assertEqual(guard.footprint(json.loads(run(nft,'-j','list','ruleset'))),before)
@@ -119,9 +145,9 @@ class RealBootOrderingTest(unittest.TestCase):
                   ' PRIVATE_STAGE_AND_TAMPERING_VERIFIED=true FOREIGN_OR_PARTIAL_OWNERSHIP_DENIED=true SHARED_RULES_PRESERVED=true'
                   ' REAL_REBOOT_NOT_PROVEN=true REAL_DOCKER_RESTART_NOT_PERFORMED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
-            for selected in (dependent,name):
+            for selected in (dependent,name,'ouf-stage-'+suffix):
                 subprocess.run(['systemctl','stop',selected+'.service'],capture_output=True,timeout=30)
-            for f in (unit,dep):
+            for f in (unit,dep,unit.parent/('ouf-stage-'+suffix+'.service')):
                 if f.exists(): f.unlink()
             shutil.rmtree(dropdir); run('systemctl','daemon-reload')
             for net in reversed(nets): run('docker','network','rm',net)
