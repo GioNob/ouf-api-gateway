@@ -165,4 +165,5 @@ jobs:
         with:
           python-version: '3.13'
       - run: sudo apt-get update && sudo apt-get install -y nftables
+      - run: sudo env OUF_BOOT_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_boot_guard
       - run: sudo env OUF_LEASE_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_lease_service
