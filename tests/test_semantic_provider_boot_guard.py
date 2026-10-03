@@ -70,7 +70,7 @@ class RealBootOrderingTest(unittest.TestCase):
                               for role,net in (('internal',internal),('egress',egress))},
                 'guardHash':staging.digest(staging.encoded(staging.legacy(guard.observed(nft,table))))}
             for filename,content in (('network-receipt.json',json.dumps(cold_value).encode()),('deny-only.nft',rules.encode())):
-                (cold/filename).write_bytes(content); os.chmod(cold/name,0o600)
+                (cold/filename).write_bytes(content); os.chmod(cold/filename,0o600)
             lease=root/'lease'; lease.mkdir(mode=0o700); (lease/'source').mkdir(mode=0o700)
             for directory in ('scripts','tools'): (lease/'source'/directory).mkdir(mode=0o700)
             repo=Path(__file__).resolve().parents[1]
