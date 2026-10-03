@@ -22,6 +22,12 @@ class BootProfileTest(unittest.TestCase):
         self.assertEqual(guard.footprint({'handle':1,'counter':{'packets':8,'bytes':90},'verdict':'drop'}),
                          guard.footprint({'handle':2,'counter':{'packets':9,'bytes':99},'verdict':'drop'}))
         self.assertNotEqual(guard.footprint({'verdict':'drop'}),guard.footprint({'verdict':'accept'}))
+    def test_reload_metadata_is_not_command_authority(self):
+        first='{ path=/usr/bin/sleep ; argv[]=/usr/bin/sleep 180 ; ignore_errors=no ; pid=123 ; start_time=old ; }'
+        second=first.replace('pid=123','pid=0').replace('start_time=old','start_time=new')
+        self.assertEqual(installation.command_definition(first),installation.command_definition(second))
+        self.assertNotEqual(installation.command_definition(first),installation.command_definition(second.replace('sleep 180','sleep 90')))
+        with self.assertRaises(ValueError): installation.command_definition('')
     def test_unit_profile_injection_rejected(self):
         profile = dict(guardUnit='guard',dockerUnit='docker.service',runtimeDirectory='guard',
             pythonPath='/usr/bin/python3',scriptPath='/etc/guard/restore.py',root='/etc/guard')

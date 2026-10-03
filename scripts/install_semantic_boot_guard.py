@@ -76,8 +76,18 @@ def show(systemctl, unit):
     return value
 
 
+def command_definition(value):
+    fields = re.findall(r'(path|argv\[\]|ignore_errors)=([^;]*);',value)
+    if not fields or len(fields) % 3 or any(fields[i][0] != key
+            for i,key in enumerate(('path','argv[]','ignore_errors')*(len(fields)//3))):
+        raise ValueError('command definition unproven')
+    return [(key,text.strip()) for key,text in fields]
+
+
 def stable(value):
-    return {k: value[k] for k in ('MainPID','FragmentPath','ExecStart','UnitFileState')}
+    result={k:value[k] for k in ('MainPID','FragmentPath','UnitFileState')}
+    result['ExecStartDefinition']=command_definition(value['ExecStart'])
+    return result
 
 
 def identity(value, allow_reload=False):
@@ -132,7 +142,7 @@ def check_loaded(args, baseline, guard, dependent, unit, drop, artifacts):
             raise ValueError('dependency drift')
     command = next(line[len('ExecStartPre='):] for line in artifacts['docker-drop-in.conf'].decode().splitlines()
                    if line.startswith('ExecStartPre='))
-    if docker['ExecStartPre'].count('argv[]=') != 1 or 'argv[]='+command+' ;' not in docker['ExecStartPre']:
+    if command_definition(docker['ExecStartPre']) != [('path',command.split()[0]),('argv[]',command),('ignore_errors','no')]:
         raise ValueError('pre-start guard not loaded')
     observed = show(args.systemctl_path,guard)
     if observed['FragmentPath'] != str(unit) or observed['DropInPaths'] or observed['NeedDaemonReload'] != 'no' \
