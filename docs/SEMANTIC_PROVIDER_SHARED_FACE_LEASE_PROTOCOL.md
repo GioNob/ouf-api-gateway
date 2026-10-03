@@ -194,3 +194,54 @@ No daemon configuration, runtime arguments, container or credentials are printed
 The version of a standalone runc binary does not prove Docker uses that binary.
 Stable repeated reads do not prove an atomic snapshot or OCI hook integration.
 The helper performs no rule/unit/container mutation and authorizes no start.
+
+## Prepared-namespace native driver and private source package
+
+The next increment adds `semantic_provider_preexec_native.py`, a private
+`semantic_provider_preexec_hook.py` driver and source-only
+`stage_semantic_preexec_package.py`. Their CI status must be taken from the exact
+new commit; the older green core does not prove this increment.
+
+The native backend verifies an existing root-private OCI bundle hash, a prepared
+network namespace inode, exact host/child veth indexes and peer association,
+bridge membership, child MAC/IPv4 and governed peer ingress interfaces. It
+rejects hooks after createRuntime that could change the network before execution.
+No bundle/network creation or runtime registration is performed. Native reads
+use file-backed capture, a finite output bound and a cumulative five-second
+backend deadline. PID/start ticks/inode checks preserve denial on unknown death
+or changed live namespace. Partial native table pairs are not adopted.
+
+The hook requires root and Python -I -B. Before importing any tools module it
+checks ten exact root:root 0600 single-link source files against the private
+manifest and loads only verified bytes in dependency order into a closed tools
+package. It never reads PYTHONPATH or bytecode cache. Configuration and OCI state
+have bounded input and duplicate-key rejection. The trusted bootstrap must itself
+be pinned by the operator/installer: verification inside a bootstrap is not a
+defence against a privileged attacker substituting that bootstrap.
+
+Private source staging seals eleven source files (including the stager), records
+Python version and trusted-tool availability using metadata only, and exposes
+plan/apply/verify. It creates only an exclusive private receipt, fsyncs it and
+refuses replay. Interrupted receipt publication is BLOCKED and is not automatically
+repaired; preserve the old snapshot and prepare a new one if needed. It installs
+no driver profile, coordination journal, unit, native table, OCI hook or runtime;
+all receipt startup/runtime/rule/unit/container flags remain false. A tool's
+presence does not prove the busybox binary is static or a backend is usable.
+
+The new opt-in OCI test runs real runc with a prepared veth namespace, real nft
+tables, private source package/journals and a static shell. Synthetic authority
+is confined to that fixture. It checks source substitution, absent start
+authority, non-quiescent lease, MAC and bundle drift prevent application
+execution; successful create leaves the marker absent until explicit start;
+live-generation rollback and foreign recreated handles are denied. This is a
+standalone-runc proof, not Docker registration/target compatibility. CI must
+actually execute it without a skip before any PASS claim.
+
+Operator VPS inventory is PASS: Docker 29.8.1/default runc, local runc 1.5.1,
+runtime names runc/io.containerd.runc.v2, start/runtime registration unauthorized.
+The standalone binary's version does not prove the executable invoked by Docker.
+Docker drop-in runtime integration requires explicit daemon registration and
+selected runtime/cohort lifecycle; this remains separate and no reload/restart
+or change of the default runtime is implicit. Existing EMPTY_ONLY cohorts and
+stopped candidates are preserved. IPv4 prepared-namespace backend is one
+implementation of the common contract, not a platform topology requirement.
