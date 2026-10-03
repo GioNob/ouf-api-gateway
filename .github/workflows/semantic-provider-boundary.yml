@@ -169,6 +169,8 @@ jobs:
 
       - run: sudo env OUF_MANIFEST_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_stage_semantic_provider_candidates
 
+      - run: sudo env OUF_IPAM_ADMISSION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_ipam_admission
+
   semantic-java-trust:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -54,7 +54,7 @@ class StoppedCreateDockerTest(unittest.TestCase):
         mroot=self.root/'manifest';mroot.mkdir(mode=0o700)
         creator.validator.write(mroot/'stopped-manifest.json',creator.validator.encoded(self.manifest))
         self.args=argparse.Namespace(mode='plan',source_commit='a'*40,creation_root=self.root/'transaction',manifest_root=mroot,docker_path='/usr/bin/docker')
-        self.gate=patch.object(creator,'verify_inputs',return_value=None);self.gate.start();self.addCleanup(self.gate.stop)
+        self.gate=patch.object(creator,'verify_inputs',return_value='0'*64);self.gate.start();self.addCleanup(self.gate.stop)
     def docker(self,*options):
         result=subprocess.run(['/usr/bin/docker',*options],capture_output=True,text=True,timeout=60)
         if result.returncode:raise AssertionError('fixture Docker operation failed: '+str(options[:2]))
@@ -109,7 +109,7 @@ class StoppedCreateDockerTest(unittest.TestCase):
         creator.save(self.args.creation_root/'creation-journal.json',journal)
         self.docker('update','--restart','no',cid)
         creator.operate(self.args)
-    def test_static_ipam_auto_rejected_explicit_accepted_without_start(self):
+    def test_static_ipam_runtime_discovery_and_explicit_profile_without_start(self):
         name='ouf-stopped-auto-'+self.suffix
         self.docker('network','create','--internal','--label','ouf.fixture='+self.suffix,name)
         self.networks.append(name)
@@ -119,8 +119,8 @@ class StoppedCreateDockerTest(unittest.TestCase):
             probe_entrypoint='/bin/false',snapshot_root=self.root/'ipam',network=[name+'='+automatic['Id'],explicit['Name']+'='+explicit['Id']])
         ipam.operate(args);self.assertFalse(args.snapshot_root.exists())
         args.mode='apply';result=ipam.operate(args)
-        self.assertFalse(result['staticIpReady'])
-        self.assertEqual([r['staticIpSupported'] for r in result['results']],[False,True])
+        self.assertTrue(result['results'][1]['staticIpSupported'])
+        self.assertEqual(result['staticIpReady'],all(r['staticIpSupported'] for r in result['results']))
         self.assertTrue(all(r['probeRemoved'] for r in result['results']))
         args.mode='verify';ipam.operate(args)
         self.assertFalse(self.docker('ps','-a','--filter','name=ouf-ipam-probe-','--format','{{.ID}}'))

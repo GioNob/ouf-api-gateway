@@ -13,6 +13,7 @@ from scripts import inventory_semantic_provider_candidate_inputs as inputs
 from scripts import prepare_semantic_southbound_validator_credentials as validator
 from scripts import prepare_semantic_provider_launch_inputs as launch
 from scripts import stage_semantic_provider_candidates as stage
+from scripts import inventory_semantic_provider_static_ipam as ipam
 
 OWNER='ouf.semantic.candidate.transaction'
 MANIFEST='ouf.semantic.candidate.manifest'
@@ -54,7 +55,34 @@ def receipt(args):
     return saved,raw_hash
 
 
+def verify_ipam(args,saved):
+    proof,proof_hash=inputs.private_json(args.ipam_root/'ipam-receipt.json')
+    expected={n['id']:n['name'] for c in saved['containers'] for n in c['networks']}
+    if proof.get('schema')!='ouf.semantic-provider-static-ipam.v1' or proof.get('sourceCommit')!=args.ipam_source_commit \
+            or proof.get('sourceHash')!=validator.digest(Path(ipam.__file__).read_bytes()) \
+            or proof.get('imageId')!=saved['containers'][1]['image'] or proof.get('staticIpReady') is not True \
+            or proof.get('containersStarted')!=0 or proof.get('providerCalls')!=0 or proof.get('notReleaseAcceptance') is not True:
+        raise inputs.Blocked('TARGET_STATIC_IPAM_PROOF_UNPROVEN')
+    facts=proof.get('networkFacts',[]);results=proof.get('results',[])
+    if len(facts)!=len(expected) or len(results)!=len(expected) \
+            or {f['id']:f['name'] for f in facts}!=expected or {r['id']:r['name'] for r in results}!=expected \
+            or any(r.get('staticIpSupported') is not True or r.get('probeCreated') is not True or r.get('probeRemoved') is not True for r in results):
+        raise inputs.Blocked('TARGET_STATIC_IPAM_NETWORK_PROOF_DRIFT')
+    for fact in facts:
+        current=ipam.network(args,fact['name'],fact['id'])
+        # A removed probe reserves no address. After candidate configuration,
+        # compare immutable network facts without claiming the next-free address
+        # or a live endpoint/namespace as an admission proof.
+        keys=('name','id','internal','subnet','gateway')
+        if any(current[key]!=fact[key] for key in keys):
+            raise inputs.Blocked('TARGET_STATIC_IPAM_CURRENT_NETWORK_DRIFT')
+    return proof_hash
+
+
 def verify_inputs(args,saved,initial,journal=None):
+    proof_hash=verify_ipam(args,saved)
+    if journal and journal.get('ipamReceiptHash')!=proof_hash:
+        raise inputs.Blocked('CREATION_IPAM_RECEIPT_CHANGED')
     southbound,adapter=saved['containers']
     checked=argparse.Namespace(**vars(args))
     checked.source_commit=args.launch_source_commit;checked.mode='verify';checked.snapshot_root=args.launch_root
@@ -73,8 +101,6 @@ def verify_inputs(args,saved,initial,journal=None):
         checked.gateway_resources_target=southbound['mounts'][1]['target']
         stage.operate(checked)
     cold,_=inputs.private_json(args.network_root/'network-receipt.json')
-    if initial and cold['binding'].get('explicit_subnets') is not True:
-        raise inputs.Blocked('COLD_IPAM_PROFILE_NOT_EXPLICIT_NO_CONTAINER_CREATED')
     tables={family:json.loads(inputs.run([args.nft_path,'-j','list','table',family,cold['binding']['table_name']])) for family in ('inet','bridge')}
     if validator.digest(validator.encoded(stage.canonical(tables)))!=saved['guardHash']:
         raise inputs.Blocked('COLD_DENY_GUARD_CHANGED_RECONCILE')
@@ -98,6 +124,7 @@ def verify_inputs(args,saved,initial,journal=None):
     startup=json.loads(command(args,'image','inspect',southbound['image']))[0]['Config']
     if validator.digest(validator.encoded({k:startup.get(k) for k in ('Entrypoint','Cmd','WorkingDir')}))!=saved['gatewayPackagedStartupFingerprint']:
         raise inputs.Blocked('PACKAGED_STARTUP_DRIFT')
+    return proof_hash
 
 
 def environment(args,spec):
@@ -205,12 +232,12 @@ def operate(args):
     saved,manifest_hash=receipt(args)
     if args.mode in ('plan','apply'):
         if os.path.lexists(args.creation_root):raise inputs.Blocked('CREATION_ROOT_EXISTS_RECONCILE')
-        verify_inputs(args,saved,True)
+        proof_hash=verify_inputs(args,saved,True)
         for spec in saved['containers']:environment(args,spec)
         if args.mode=='plan':return {'state':'PLANNED','candidateIds':{}}
         args.creation_root.mkdir(mode=0o700)
         journal={'schema':'ouf.semantic-provider-stopped-create.v1','sourceCommit':args.source_commit,
-            'sourceHash':validator.digest(Path(__file__).read_bytes()),'manifestHash':manifest_hash,
+            'sourceHash':validator.digest(Path(__file__).read_bytes()),'manifestHash':manifest_hash,'ipamReceiptHash':proof_hash,
             'transaction':uuid.uuid4().hex,'state':'PREPARED','candidateIds':{},'startAuthorized':False,
             'liveNetworkNamespaceProven':False,'liveAddressAllocationProven':False,'kernelLeaseInstalled':False}
         validator.write(args.creation_root/'creation-journal.json',validator.encoded(journal))
@@ -259,9 +286,9 @@ def operate(args):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--mode',required=True,choices=('plan','apply','verify','cleanup'))
-    for name in ('manifest-root','creation-root','launch-root','credential-root','tls-root','trust-root','runtime-root','network-root'):
+    for name in ('manifest-root','creation-root','launch-root','credential-root','tls-root','trust-root','runtime-root','network-root','ipam-root'):
         p.add_argument('--'+name,type=Path,required=True)
-    for name in ('source-commit','launch-source-commit','validator-source-commit','docker-path','nft-path','openssl-path',
+    for name in ('source-commit','launch-source-commit','validator-source-commit','ipam-source-commit','docker-path','nft-path','openssl-path',
                  'gateway-container','iam-container','realm','kcadm-path'):
         p.add_argument('--'+name,required=True)
     p.add_argument('--minimum-cert-seconds',type=int,required=True)
