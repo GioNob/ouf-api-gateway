@@ -162,6 +162,11 @@ class PreexecTest(unittest.TestCase):
         self.live = True
         for mode in ('rollback', 'reconcile'):
             with self.assertRaises(PreexecDenied): self.gate.operate(mode)
+        # Unknown liveness is not proof of a dead generation.
+        for unknown in (None, 0, ''):
+            self.live = unknown
+            for mode in ('rollback', 'reconcile'):
+                with self.assertRaises(PreexecDenied): self.gate.operate(mode)
         self.generations = [{'pid': 43, 'startTicks': 567, 'namespaceInode': 123}]
         with self.assertRaises(PreexecDenied): self.gate.before_process(self.state)
         self.live = False; self.gate.operate('reconcile'); self.assertIsNone(self.record['containerGeneration'])

@@ -126,7 +126,7 @@ class Preexec:
             elif mode == 'rollback':
                 if value['state'] not in ('INSTALLING', 'PROTECTED', 'REMOVING'):
                     raise PreexecDenied('OWNED_ROLLBACK_REQUIRED')
-                if value['containerGeneration'] is not None and self.backend.generation_alive(value['containerGeneration']):
+                if value['containerGeneration'] is not None and self.backend.generation_alive(value['containerGeneration']) is not False:
                     raise PreexecDenied('LIVE_GENERATION_ROLLBACK_DENIED')
                 if current is not None:
                     if value['sharedStructureHash'] is None:
@@ -141,7 +141,7 @@ class Preexec:
                     raise PreexecDenied('DO_NOT_REPLAY_APPLY')
                 if mode == 'reconcile' and value['state'] not in ('INSTALLING', 'PROTECTED'):
                     raise PreexecDenied('EXPLICIT_RECOVERY_PHASE_REQUIRED')
-                if value['containerGeneration'] is not None and self.backend.generation_alive(value['containerGeneration']):
+                if value['containerGeneration'] is not None and self.backend.generation_alive(value['containerGeneration']) is not False:
                     raise PreexecDenied('LIVE_GENERATION_RECONCILE_DENIED')
                 if not self.profile['infrastructureAuthorityComplete']:
                     raise PreexecDenied('INFRASTRUCTURE_AUTHORITY_REQUIRED')
