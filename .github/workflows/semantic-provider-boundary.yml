@@ -12,6 +12,7 @@ on:
       - 'scripts/stage_semantic_provider_runtime_plan.sh'
       - 'tests/test_prepare_semantic_provider_trust.py'
       - 'tools/materialize_southbound_kernel.py'
+      - 'tools/materialize_southbound_lease_refresh.py'
       - 'tests/test_southbound_kernel.py'
       - 'tests/test_southbound_docker_kernel.py'
       - 'tests/test_stage_semantic_provider_adapter.py'

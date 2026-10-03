@@ -8,6 +8,7 @@ import unittest
 import uuid
 
 from tools.materialize_southbound_kernel import materialize
+from tools.materialize_southbound_lease_refresh import compile_refresh
 
 
 def configuration():
@@ -151,9 +152,26 @@ serve(8443)
             self.assertEqual(persistent.returncode, 0, err)
             self.assertIn('OPEN', out); self.assertNotIn('LEAK', out)
             self.assertFalse(probe(443))
+            # One native transaction refreshes both owned sets, never chains.
+            now = time.monotonic(); flow = cfg['providerFlows'][0]
+            fresh = [dict(endpointRef=flow['endpointRef'], endpoint=flow['endpoint'],
+                resolutionEvidenceRef=flow['resolutionEvidenceRef'], addresses=flow['addresses'],
+                observedMonotonic=now, expiresMonotonic=now+10, historicalEvidenceOnly=False)]
+            update = compile_refresh(cfg, fresh, now, apply_budget_seconds=2)
+            run('ip', 'netns', 'exec', client, 'nft', '-f', '-', input=update['nftTransaction'])
+            self.assertLess(time.monotonic(), update['mustApplyByMonotonic'])
+            self.assertTrue(probe(443)); self.assertFalse(probe(8443))
+            # A failure in the last bridge statement rolls back earlier flushes.
+            invalid = update['nftTransaction']+'add element bridge ouf_test missing_set { 10.90.0.2 }\n'
+            failed = subprocess.run(['ip','netns','exec',client,'nft','-f','-'], input=invalid, text=True, capture_output=True, timeout=20)
+            self.assertNotEqual(failed.returncode, 0); self.assertTrue(probe(443))
+            denied = compile_refresh(cfg, [], time.monotonic(), apply_budget_seconds=2)
+            run('ip', 'netns', 'exec', client, 'nft', '-f', '-', input=denied['nftTransaction'])
+            self.assertFalse(probe(443))
             readback = run('ip', 'netns', 'exec', client, 'nft', '-j', 'list', 'table', 'inet', 'ouf_test')
             self.assertIn('governed_flows', readback)
             print('SOUTHBOUND_KERNEL_CI=PASS REAL_NFT_NETNS=true DEFAULT_DENY=true LEASE_EXPIRY_NEW_AND_ESTABLISHED_DENIED=true DOCKER_HOOK_NOT_PROVEN=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
+            print('SOUTHBOUND_LEASE_REFRESH_CI=PASS ATOMIC_INET_BRIDGE_REFRESH=true FAILED_BATCH_ROLLBACK=true MISSING_RESOLUTION_REVOKED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
             for process in reversed(processes):
                 if process.poll() is None:

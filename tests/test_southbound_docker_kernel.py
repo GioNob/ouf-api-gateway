@@ -14,6 +14,7 @@ import unittest
 import uuid
 
 from tools.materialize_southbound_kernel import materialize
+from tools.materialize_southbound_lease_refresh import compile_refresh
 
 
 def stable_rules(value):
@@ -135,6 +136,20 @@ serve(15444)
             self.assertEqual(persistent.returncode, 0, err)
             self.assertIn('OPEN', out); self.assertNotIn('LEAK', out)
             self.assertFalse(probe(client, server_ip, 15443))
+            now = time.monotonic(); flow = cfg['providerFlows'][0]
+            fresh = [dict(endpointRef=flow['endpointRef'], endpoint=flow['endpoint'],
+                resolutionEvidenceRef=flow['resolutionEvidenceRef'], addresses=flow['addresses'],
+                observedMonotonic=now, expiresMonotonic=now+20, historicalEvidenceOnly=False)]
+            update = compile_refresh(cfg, fresh, now, apply_budget_seconds=2)
+            run('nft', '-f', '-', input=update['nftTransaction'])
+            self.assertLess(time.monotonic(), update['mustApplyByMonotonic'])
+            self.assertTrue(probe(client, server_ip, 15443)); self.assertFalse(probe(bypass, server_ip, 15443))
+            invalid = update['nftTransaction']+'add element bridge '+table+' missing_set { '+server_ip+' }\n'
+            failed = subprocess.run(['nft','-f','-'], input=invalid, text=True, capture_output=True, timeout=20)
+            self.assertNotEqual(failed.returncode, 0); self.assertTrue(probe(client, server_ip, 15443))
+            denied = compile_refresh(cfg, [], time.monotonic(), apply_budget_seconds=2)
+            run('nft', '-f', '-', input=denied['nftTransaction'])
+            self.assertFalse(probe(client, server_ip, 15443))
             delete_owned_tables(); table_created = False
             self.assertEqual(rule_hash(before_rules), rule_hash(json.loads(run('nft', '-j', 'list', 'ruleset'))),
                              'SHARED_RULE_STRUCTURE_CHANGED')
@@ -143,6 +158,7 @@ serve(15444)
             print('SOUTHBOUND_DOCKER_KERNEL=PASS REAL_DOCKER_BRIDGE=true NATIVE_BRIDGE_HOOK=true SCOPED_HOST_FORWARD_HOOK=true '
                   'DEFAULT_DENY=true UNREGISTERED_WORKLOAD_DENIED=true LEASE_EXPIRY_NEW_AND_ESTABLISHED_DENIED=true '
                   'SHARED_RULE_STRUCTURE_UNCHANGED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
+            print('SOUTHBOUND_DOCKER_LEASE_REFRESH_CI=PASS REAL_DOCKER_BRIDGE=true ATOMIC_INET_BRIDGE_REFRESH=true FAILED_BATCH_ROLLBACK=true MISSING_RESOLUTION_REVOKED=true PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
         finally:
             if persistent is not None and persistent.poll() is None:
                 persistent.terminate()
