@@ -111,6 +111,13 @@ class DockerAdapterTest(unittest.TestCase):
                     if not authorized or drift:
                         self.assertNotEqual(result.returncode, 0); self.assertFalse(marker.exists())
                         self.assertEqual(dock('inspect','--format','{{.State.Running}}',cid).stdout.strip(), b'false')
+                        self.assertFalse((directory/'fixture-failure.json').exists(), 'negative case failed before its intended gate')
+                        grant = json.loads((directory/'driver.json').read_bytes())
+                        self.assertEqual(grant['profile']['applicationStartAuthorized'], authorized)
+                        value = json.loads((directory/'preexec.json').read_bytes())
+                        self.assertEqual(value['state'], 'PROTECTED'); self.assertIsNone(value['containerGeneration'])
+                        coordination = json.loads((directory/'coordination.json').read_bytes())
+                        self.assertEqual(coordination['state'], 'QUIESCING' if drift else 'QUIESCED')
                     else:
                         diagnostic = {}
                         for filename in ('adapter.json','preexec.json','coordination.json','fixture-failure.json'):
@@ -125,6 +132,10 @@ class DockerAdapterTest(unittest.TestCase):
                         value = json.loads((directory/'preexec.json').read_bytes()); self.assertIsNotNone(value['containerGeneration'])
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
                     dock('rm','--force',cid,check=False); cids.remove(cid)
+                    if authorized and not drift:
+                        self.assertEqual(json.loads((directory/'adapter.json').read_bytes())['state'], 'DELETED')
+                        self.assertEqual(json.loads((directory/'preexec.json').read_bytes())['state'], 'ROLLED_BACK')
+                        self.assertFalse((directory/'netns').exists())
                     # Teardown only unique fixture tables, including deliberate incomplete cases.
                     for table in (shared,lease):
                         for family in ('inet','bridge'): run(commands['nft'],'delete','table',family,table,check=False)
