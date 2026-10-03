@@ -119,3 +119,65 @@ Do not enable the old lease service under EMPTY_ONLY.
 
 PET basis: Gateway v1.5 T11/T11.3 GW-NET-01..05, Semantic v1.3 sections 9.2/10–11.
 Transport controls do not transfer Semantic/THS adoption authority.
+
+## Preexec installation/recovery protocol core (2026-10-03)
+
+`tools/semantic_provider_preexec.py` adds a dependency-injected protocol core,
+not a deployable OCI hook or a Docker runtime registration. Its driver must
+provide root-private sealed configuration, bounded input/commands, the exact
+prepared namespace/bundle/port bindings, a native backend and both existing
+private journals. No namespace/container creation, service installation,
+runtime registration, start or lease activation is performed by this core.
+
+The common guard/lease lock covers binding checks, lease ownership/quiescence,
+table readback and every journal publication. Only QUIESCED with unauthorized,
+empty provider sets is admitted. A distinct inet/bridge table pair carries the
+unique transaction comment; the expected footprint must be independently
+compiled from the sealed policy and include both comments. The backend must
+create both tables exclusively in one atomic transaction, reject partial pairs
+and command/read errors, and remove only the verified owned pair atomically.
+Never derive the expected footprint from a preexisting target table.
+
+State progression is STAGED -> INSTALLING -> PROTECTED. INSTALLING is published
+before the native transaction; the observed structure hash including handles
+is persisted before PROTECTED. Apply cannot be replayed. A crash after native
+creation but before hash publication requires explicit reconcile: both tables
+must match the independently sealed, transaction-tagged footprint, all bindings
+must still match and the lease cohort must remain quiescent. An existing hash
+cannot be silently rebound to recreated tables. Changed structure, footprint,
+binding, profile, authority, journal or contended lock denies the operation.
+
+Rollback requires INSTALLING/PROTECTED/REMOVING, proven ownership if tables are
+present, and a proven dead previously recorded process generation. Uncommitted
+present tables require explicit reconcile before rollback. REMOVING is durable
+before deletion; a crash after deletion can finish with ROLLED_BACK without
+recreation. ROLLED_BACK is terminal. A backend must treat inability to prove a
+generation dead as a denial, not infer death from an unreadable proc entry.
+
+`before_process` is an interface intended for a synchronous createRuntime hook.
+It requires explicit infrastructure and application-start authority, OCI
+identity/status/PID, complete PROTECTED state and stable prepared live bindings.
+It persists PID/start ticks/network namespace inode under the common lock,
+rechecks rules and generation, and denies a replacement generation until an
+explicit reconcile after the old one is proven dead. Profile start authority is
+separate from the lease journal, which always retains startAuthorized=false.
+The method itself cannot prove it was called before the application: only a
+validated runtime hookup and negative process-execution tests can prove that.
+
+Ten additional regressions exercise interruption boundaries, exclusive
+ownership, readback failure, explicit reconcile, rollback, false start authority,
+OCI identity, quiescence, binding/lock/profile/journal drift and live/replaced
+generations. The opt-in native suite adds real nft table transactions and
+handles, fsynced journals, flock, prepared veth/namespace bindings and a fixture
+process generation. That process is already running: this test proves the
+generation/lifecycle protocol, **not OCI before-process enforcement**. CI runs
+19 regressions and three native cases; use the exact commit's CI result for
+pass/fail evidence. All authority in these fixtures is synthetic.
+
+Next required software increment: root-private source-sealed driver and
+configuration/staging, independently compiled native footprint, real synchronous
+OCI success/failure tests proving no application execution on denial, explicit
+runtime integration and owned service migration/recovery. Docker registration
+and the VPS's runtime compatibility remain unproven. Current VPS evidence stays
+RUNTIME_EMPTY/EMPTY_ONLY with two never-started candidates; no new VPS command,
+automatic start, replay or merge is authorized by this implementation.

@@ -21,6 +21,8 @@ from tools.semantic_provider_lease_coordination import Coordinator, Coordination
 from tools.semantic_provider_lease_nft import NftBackend, structure_hash
 from tools.semantic_provider_lease_owner import LeaseOwner
 from tools import semantic_provider_dns as dns
+from tools.semantic_provider_preexec import Preexec, PreexecDenied, digest, rules
+from tests.test_semantic_preexec import profile as preexec_profile
 
 
 @unittest.skipUnless(os.environ.get('OUF_SHARED_COORDINATION_NATIVE_TEST') == '1', 'isolated native fixture opt-in')
@@ -211,6 +213,105 @@ finally:s.close()
         print('LEASE_COORDINATION_NATIVE=PASS REAL_DNS_NFT_FLOCK=true QUIESCE_REVOKE=true'
               ' RESTART_FRESH_DNS=true INCOMPLETE_GATE_DENIED=true HANDLE_REBIND_REFUSED=true'
               ' START_AUTHORIZED=false PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
+
+    def test_real_nft_preexec_owned_install_crash_recovery_and_generation(self):
+        cfg = self.kernel()
+        self.command('nft', '-f', '-', raw=materialize(cfg, empty_provider_sets=True)['nftRules'])
+        self.tables += [(f, 'lease_owned') for f in ('inet', 'bridge')]
+        lease_tables = {f: json.loads(self.command('nft', '-j', 'list', 'table', f, 'lease_owned'))
+                        for f in ('inet', 'bridge')}
+        expected = structure_hash(lease_tables)
+        owner = LeaseOwner(cfg, {'resolvers': ['127.0.0.1'], 'resolverPort': 53, 'timeoutSeconds': 2,
+            'maxLeaseSeconds': 30, 'applyBudgetSeconds': 1}, NftBackend([shutil.which('nft')], cfg, expected, 2))
+        binding = {'transactionId': 'a'*64, 'configurationHash': 'b'*64, 'leaseStructureHash': expected}
+        bridge = 'brpre'; self.command('ip', 'link', 'add', bridge, 'type', 'bridge'); self.links.append(bridge)
+        self.command('ip', 'link', 'set', bridge, 'up')
+        ns, host, index = self.peer('pre', '10.77.0.2/24', '02:00:00:00:00:02', bridge)
+        _, _, peer_index = self.peer('next', '10.77.0.3/24', '02:00:00:00:00:03', bridge)
+        profile = preexec_profile(); profile['policy']['tableName'] = 'preexec_owned'
+        profile['policy']['attachments'][0].update(interface=host, ifindex=index, bridge=bridge)
+        profile['policy']['flows'][0]['peerIngress']['ifindex'] = peer_index
+        namespace = '/run/netns/'+ns; profile['namespacePath'] = namespace
+        profile['namespaceInode'] = os.stat(namespace).st_ino
+        child = json.loads(self.command('ip', '-n', ns, '-j', 'addr', 'show', 'eth0'))[0]
+        profile['namespaceLinks'] = [{'interface': 'eth0', 'ifindex': child['ifindex'], 'hostIfindex': index}]
+        test = self
+        def normalized(value):
+            if isinstance(value, list): return [normalized(v) for v in value if not (isinstance(v, dict) and 'metainfo' in v)]
+            if isinstance(value, dict): return {k: normalized(v) for k, v in value.items()
+                                               if k not in ('handle', 'packets', 'bytes')}
+            return value
+        class Backend:
+            crash = False
+            def tables(self):
+                entries = json.loads(test.command('nft', '-j', '-n', 'list', 'tables'))['nftables']
+                present = {v['table']['family'] for v in entries if 'table' in v
+                           and v['table']['name'] == 'preexec_owned' and v['table']['family'] in ('inet', 'bridge')}
+                if not present: return None
+                if present != {'inet', 'bridge'}: raise PreexecDenied('PARTIAL_TABLES')
+                return {f: json.loads(test.command('nft', '-j', '-n', 'list', 'table', f, 'preexec_owned')) for f in present}
+            def footprint(self, value): return digest(normalized(value))
+            def structure_hash(self, value): return structure_hash(value)
+            def create(self, raw):
+                test.command('nft', '-f', '-', raw='create table inet preexec_owned\ncreate table bridge preexec_owned\n'+raw)
+                if self.crash: raise RuntimeError('fixture crash after atomic create')
+            def remove(self):
+                test.command('nft', '-f', '-', raw='delete table inet preexec_owned\ndelete table bridge preexec_owned\n')
+            def bindings(self, value, state):
+                if os.stat(value['namespacePath']).st_ino != value['namespaceInode']:
+                    raise PreexecDenied('NAMESPACE_CHANGED')
+                link = json.loads(test.command('ip', '-j', 'link', 'show', host))[0]
+                child_link = json.loads(test.command('ip', '-n', ns, '-j', 'addr', 'show', 'eth0'))[0]
+                if link['ifindex'] != index or link.get('master') != bridge \
+                        or child_link['ifindex'] != child['ifindex'] or child_link['address'] != child['address'] \
+                        or child_link['addr_info'] != child['addr_info']:
+                    raise PreexecDenied('PORT_BINDING_CHANGED')
+                if state is None: return None
+                pid = state['pid']; inode = os.stat('/proc/'+str(pid)+'/ns/net').st_ino
+                ticks = int(Path('/proc/'+str(pid)+'/stat').read_text().rsplit(')', 1)[1].split()[19])
+                if inode != value['namespaceInode']: raise PreexecDenied('PROCESS_NAMESPACE_CHANGED')
+                return {'pid': pid, 'startTicks': ticks, 'namespaceInode': inode}
+            def generation_alive(self, generation):
+                try:
+                    return self.bindings(profile, {'pid': generation['pid']}) == generation
+                except (OSError, PreexecDenied): return False
+        backend = Backend(); backend.create(rules(profile)); profile['expectedFootprint'] = backend.footprint(backend.tables())
+        backend.remove(); self.tables += [(f, 'preexec_owned') for f in ('inet', 'bridge')]
+        with tempfile.TemporaryDirectory(prefix='ouf-preexec-', dir='/etc') as tmp:
+            root = Path(tmp); root.chmod(0o700)
+            lock = root/'guard.lock'; lock.touch(mode=0o600)
+            def private(name, value):
+                path = root/name; path.write_text(json.dumps(value)); path.chmod(0o600); return PrivateJournal(path)
+            journal = private('lease.json', {'schema': 'ouf.semantic-lease-coordination.v1', **binding,
+                'state': 'QUIESCED', 'leaseAuthorized': False, 'startAuthorized': False, 'leaseAddresses': [[]]})
+            coord = Coordinator(owner, binding, lambda: hold_common_lock(lock), journal.read, journal.write)
+            profile['applicationStartAuthorized'] = True  # synthetic fixture authority only
+            prejournal = private('preexec.json', {'schema': 'ouf.semantic-preexec-journal.v1', 'transactionId': 'a'*64,
+                'configurationHash': digest(profile), 'state': 'STAGED', 'sharedStructureHash': None, 'containerGeneration': None})
+            gate = Preexec(profile, backend, coord, prejournal)
+            gate.operate('plan'); backend.crash = True
+            with self.assertRaises(RuntimeError): gate.operate('apply')
+            with self.assertRaises(PreexecDenied): gate.operate('rollback')
+            gate.operate('reconcile'); gate.operate('verify'); backend.crash = False
+            with coord.hold_lock():
+                with self.assertRaises(BlockingIOError): gate.operate('verify')
+            process = subprocess.Popen(['ip', 'netns', 'exec', ns, sys.executable, '-c',
+                                        'import time; print("READY", flush=True); time.sleep(30)'],
+                                       stdout=subprocess.PIPE, text=True)
+            self.servers.append(process); self.assertEqual(process.stdout.readline().strip(), 'READY')
+            self.assertTrue(gate.before_process({'id': 'fixture', 'bundle': '/sealed/bundle',
+                'status': 'creating', 'pid': process.pid})['protectedBeforeProcess'])
+            for mode in ('rollback', 'reconcile'):
+                with self.assertRaises(PreexecDenied): gate.operate(mode)
+            process.terminate(); process.wait(timeout=3); process.stdout.close(); self.servers.remove(process)
+            # Replacement by another native structure must be preserved even
+            # if it has the same table name and transaction comment.
+            backend.remove(); backend.create(rules(profile))
+            with self.assertRaises(PreexecDenied): gate.operate('rollback')
+            self.assertIsNotNone(backend.tables())
+        print('PREEXEC_PROTOCOL_NATIVE=PASS REAL_NFT_PRIVATE_JOURNAL_FLOCK=true CRASH_RECONCILE=true'
+              ' LIVE_GENERATION_ROLLBACK_DENIED=true FOREIGN_HANDLES_PRESERVED=true'
+              ' OCI_HOOK_INTEGRATION_PROVEN=false START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
 
     def kernel(self):
         return {'tableName': 'lease_owned', 'guardedInterfaces': ['dedicated0'], 'existingInterfaces': [],
