@@ -12,7 +12,7 @@ import unittest
 from tests import test_semantic_shared_coordination_native as fixture
 from tools.materialize_southbound_kernel import materialize
 from tools.semantic_provider_lease_nft import structure_hash
-from tools.semantic_provider_admission import application_hash,transport_hash
+from tools.semantic_provider_deployment_admission import application_hash,transport_hash
 from tools.semantic_provider_preexec import digest
 from scripts import semantic_provider_admission_preparer as preparer
 
@@ -112,7 +112,7 @@ class AdmissionNativeTest(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr); template = json.loads(result.stdout)
         self.assertTrue(template['isolated']); self.assertEqual(before,self.command('nft','-j','list','ruleset'))
         # Sealed source substitution is refused before a native worker can write.
-        target = source/'tools/semantic_provider_admission.py'; original = target.read_bytes()
+        target = source/'tools/semantic_provider_deployment_admission.py'; original = target.read_bytes()
         target.write_bytes(original+b'\n# altered\n')
         denied = subprocess.run([commands['unshare'],'--net','--fork',*argv,'--mode','template'],
             input=json.dumps(packet),text=True,capture_output=True,timeout=20)

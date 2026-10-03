@@ -40,7 +40,7 @@ def operate(mode, root, commit, hook_hash):
     names = ['scripts/stage_semantic_admission_package.py', 'scripts/stage_semantic_preexec_package.py',
              'scripts/semantic_provider_docker_runtime.py', module.SELF,
              'scripts/semantic_provider_admission_preparer.py',
-             *('tools/'+name+'.py' for name in module.MODULES), 'tools/semantic_provider_admission.py']
+             *('tools/'+name+'.py' for name in module.MODULES), 'tools/semantic_provider_deployment_admission.py']
     if Path(__file__).absolute() != source/names[0]: raise RuntimeError('EXACT_STAGE_SOURCE_REQUIRED')
     hashes = {name: hashlib.sha256(module.private_bytes(source/name)).hexdigest() for name in names}
     capabilities = {}

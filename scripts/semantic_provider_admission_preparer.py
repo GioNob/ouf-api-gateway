@@ -23,7 +23,7 @@ DRIVER = 'scripts/semantic_provider_preexec_hook.py'
 MODULES = ('materialize_southbound_kernel','materialize_southbound_lease_refresh','semantic_provider_dns',
     'semantic_provider_lease_nft','semantic_provider_lease_owner','materialize_semantic_shared_faces',
     'semantic_provider_lease_coordination','semantic_provider_preexec','semantic_provider_preexec_native',
-    'semantic_provider_admission')
+    'semantic_provider_deployment_admission')
 
 
 def require(ok, reason):
@@ -123,7 +123,7 @@ def create(path,value):
 
 def operate(args):
     cfg,config_raw = load(args.configuration)
-    from tools.semantic_provider_admission import authority, application_hash, transport_hash, live_profile, mirrors, isolated_template
+    from tools.semantic_provider_deployment_admission import authority, application_hash, transport_hash, live_profile, mirrors, isolated_template
     from tools.semantic_provider_preexec import digest
     from tools.semantic_provider_preexec_native import NativeBackend
     from tools.semantic_provider_lease_coordination import PrivateJournal,hold_common_lock,Coordinator

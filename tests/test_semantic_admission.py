@@ -10,7 +10,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from tools.semantic_provider_admission import authority,isolated_template,live_profile,mirrors,application_hash
+from tools.semantic_provider_deployment_admission import authority,isolated_template,live_profile,mirrors,application_hash
 from tools.semantic_provider_preexec import PreexecDenied,digest
 from scripts.semantic_provider_admission_preparer import signature
 from tests import test_semantic_preexec as fixture
@@ -96,7 +96,7 @@ class AdmissionPackageTest(unittest.TestCase):
         from scripts.semantic_provider_preexec_hook import MODULES,SELF
         names = ['scripts/stage_semantic_admission_package.py','scripts/stage_semantic_preexec_package.py',
                  'scripts/semantic_provider_docker_runtime.py',SELF,'scripts/semantic_provider_admission_preparer.py',
-                 *('tools/'+n+'.py' for n in MODULES),'tools/semantic_provider_admission.py']
+                 *('tools/'+n+'.py' for n in MODULES),'tools/semantic_provider_deployment_admission.py']
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(dir=os.environ.get('OUF_SHARED_COORDINATION_TEST_PARENT',str(Path.cwd()))) as tmp:
             root = Path(tmp).resolve(); root.chmod(0o700); source = root/'source'; source.mkdir(mode=0o700)
@@ -115,7 +115,7 @@ class AdmissionPackageTest(unittest.TestCase):
             for key in ('runtimeAdapterInstalled','admissionPreparerInstalled','runtimeRegistered','startAuthorized',
                         'rulesChanged','unitsChanged','containersChanged'): self.assertIs(receipt[key],False)
             self.assertEqual(call('verify').returncode,0); self.assertNotEqual(call('apply').returncode,0)
-            p = source/'tools/semantic_provider_admission.py'; p.write_bytes(p.read_bytes()+b'\n# drift\n')
+            p = source/'tools/semantic_provider_deployment_admission.py'; p.write_bytes(p.read_bytes()+b'\n# drift\n')
             self.assertNotEqual(call('verify').returncode,0)
 
 

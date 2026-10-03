@@ -59,7 +59,7 @@ def load(path):
         raise RuntimeError('EXACT_DRIVER_CONFIGURATION_REQUIRED')
     root = Path(value['sourceRoot'])
     if root.lstat().st_mode & 0o077 or not root.is_dir(): raise RuntimeError('PRIVATE_SOURCE_ROOT_REQUIRED')
-    modules = (*MODULES, 'semantic_provider_admission') if value['schema'] == 'ouf.semantic-preexec-driver.v3' else MODULES
+    modules = (*MODULES, 'semantic_provider_deployment_admission') if value['schema'] == 'ouf.semantic-preexec-driver.v3' else MODULES
     paths = [SELF, *('tools/'+name+'.py' for name in modules)]
     if set(value['sourceHashes']) != set(paths) or Path(__file__).absolute() != root/SELF:
         raise RuntimeError('EXACT_SOURCE_PACKAGE_REQUIRED')
@@ -107,7 +107,7 @@ def main():
         gate = Preexec(value['profile'], backend, coordination, PrivateJournal(Path(value['preexecJournal'])))
         authorizer = None
         if value['schema'] == 'ouf.semantic-preexec-driver.v3':
-            from tools.semantic_provider_admission import authority
+            from tools.semantic_provider_deployment_admission import authority
             authorizer = lambda: authority(value['authorityBinding'], value['authorityScope'], lambda p: private_bytes(Path(p)))
         if args.mode == 'start':
             if value['schema'] not in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3'):
