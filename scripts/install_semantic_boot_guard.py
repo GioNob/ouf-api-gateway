@@ -66,7 +66,7 @@ PROPERTIES = ('LoadState','ActiveState','SubState','MainPID','FragmentPath','Dro
 
 
 def show(systemctl, unit):
-    result = subprocess.run([systemctl,'show',unit,*['--property='+p for p in PROPERTIES]],
+    result = subprocess.run([systemctl,'show','--all',unit,*['--property='+p for p in PROPERTIES]],
                             capture_output=True,text=True,timeout=15)
     if len(result.stdout) > 2_000_000: raise ValueError('output limit')
     value = dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
@@ -78,10 +78,10 @@ def stable(value):
     return {k: value[k] for k in ('MainPID','FragmentPath','ExecStart','UnitFileState')}
 
 
-def identity(value):
+def identity(value, allow_reload=False):
     # Commands stay private in the journal; external output never contains their text.
     if value['LoadState'] != 'loaded' or value['ActiveState'] != 'active' or value['SubState'] != 'running' \
-            or int(value['MainPID']) <= 0 or value['NeedDaemonReload'] != 'no':
+            or int(value['MainPID']) <= 0 or (not allow_reload and value['NeedDaemonReload'] != 'no'):
         raise ValueError('active dependent required')
     return stable(value)
 
@@ -91,6 +91,7 @@ def prepare(args):
         if not re.fullmatch('/[A-Za-z0-9_./-]+',path) or '..' in Path(path).parts:
             raise ValueError('explicit executable path required')
     directory(args.snapshot_root); directory(args.unit_root)
+    if stat.S_IMODE(args.snapshot_root.stat().st_mode) != 0o700: raise ValueError('private journal root required')
     raw = private(args.stage_root/'boot-stage-receipt.json'); receipt = json.loads(raw)
     if receipt['schema'] != 'ouf.semantic-boot-guard-stage.v1' or receipt['sourceCommit'] != args.stage_commit \
             or receipt['notReleaseAcceptance'] is not True: raise ValueError('stage binding invalid')
@@ -157,7 +158,7 @@ def operate(args):
             check_loaded(args,baseline,guard,dependent,unit,drop,artifacts)
             return record
         # No table removal and no dependent stop/restart. Only owned files may be removed.
-        if identity(show(args.systemctl_path,dependent)) != stable(baseline): raise ValueError('dependent changed')
+        if identity(show(args.systemctl_path,dependent),allow_reload=True) != stable(baseline): raise ValueError('dependent changed')
         for path,name in ((unit,'guard.service'),(drop,'docker-drop-in.conf')):
             if os.path.lexists(path) and private(path) != artifacts[name]: raise ValueError('foreign installed file')
         record['state']='rollback-started'; journal(journal_path,record)
@@ -165,7 +166,8 @@ def operate(args):
         if os.path.lexists(unit): unit.unlink()
         if record['dropDirectoryCreated'] and dropdir.exists(): dropdir.rmdir()
         run([args.systemctl_path,'daemon-reload'])
-        run([args.systemctl_path,'stop',guard])
+        if show(args.systemctl_path,guard)['ActiveState'] != 'inactive':
+            run([args.systemctl_path,'stop',guard])
         value = show(args.systemctl_path,dependent)
         if identity(value) != stable(baseline) or value['ExecStartPre'] != baseline['ExecStartPre'] \
                 or value['DropInPaths'] != baseline['DropInPaths']: raise ValueError('rollback unproven')
