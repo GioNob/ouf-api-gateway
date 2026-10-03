@@ -171,11 +171,18 @@ def verify_container(args,spec,journal,partial=False):
         raise inputs.Blocked('CANDIDATE_PRIVATE_MOUNT_DRIFT')
     expected_networks={n['name']:n for n in spec['networks']}
     actual=raw['NetworkSettings']['Networks']
+    if host['NetworkMode'] not in (spec['networks'][0]['id'],spec['networks'][0]['name']):
+        raise inputs.Blocked('CANDIDATE_PRIMARY_NETWORK_CONFIG_DRIFT')
     if (set(actual)!=set(expected_networks) if not partial else not set(actual)<=set(expected_networks)):
         raise inputs.Blocked('CANDIDATE_NETWORK_ATTACHMENT_DRIFT')
     for name,row in actual.items():
         intended=expected_networks[name]
-        if row['NetworkID']!=intended['id'] or (row.get('IPAMConfig') or {}).get('IPv4Address')!=intended['ipv4'] \
+        # Created containers can defer NetworkID and endpoint activation until
+        # start. Prove the configured network name/current ID separately; do not
+        # claim a live namespace, allocated endpoint, packet flow or lease.
+        configured=json.loads(command(args,'network','inspect',name))[0]
+        if configured['Id']!=intended['id'] or row['NetworkID'] not in ('',None,intended['id']) \
+                or (row.get('IPAMConfig') or {}).get('IPv4Address')!=intended['ipv4'] \
                 or row.get('GlobalIPv6Address') or spec['name'] not in (row.get('Aliases') or []):
             raise inputs.Blocked('CANDIDATE_STATIC_NETWORK_CONFIG_DRIFT')
     return raw['Id']
@@ -204,7 +211,8 @@ def operate(args):
         args.creation_root.mkdir(mode=0o700)
         journal={'schema':'ouf.semantic-provider-stopped-create.v1','sourceCommit':args.source_commit,
             'sourceHash':validator.digest(Path(__file__).read_bytes()),'manifestHash':manifest_hash,
-            'transaction':uuid.uuid4().hex,'state':'PREPARED','candidateIds':{},'startAuthorized':False}
+            'transaction':uuid.uuid4().hex,'state':'PREPARED','candidateIds':{},'startAuthorized':False,
+            'liveNetworkNamespaceProven':False,'liveAddressAllocationProven':False,'kernelLeaseInstalled':False}
         validator.write(args.creation_root/'creation-journal.json',validator.encoded(journal))
     validator.directory(args.creation_root)
     if args.creation_root.stat().st_mode & 0o777 != 0o700:raise inputs.Blocked('PRIVATE_ROOT_INVALID')
@@ -262,7 +270,7 @@ def main():
         if not 1<=args.minimum_cert_seconds<=86400:raise inputs.Blocked('CERTIFICATE_WINDOW_INVALID')
         result=operate(args)
         print('SEMANTIC_PROVIDER_STOPPED_CREATE=PASS MODE='+args.mode+' STATE='+result['state']+
-              ' CONTAINERS='+str(len(result['candidateIds']))+' NEVER_STARTED=true START_AUTHORIZED=false'+
+              ' CONTAINERS='+str(0 if result['state']=='CLEANED' else len(result['candidateIds']))+' NEVER_STARTED=true START_AUTHORIZED=false NETWORK_CONFIGURATION_ONLY=true'+
               ' NO_SHARED_CONTAINER_CHANGED=true NO_RULE_OR_ROUTE_OR_IAM_WRITES=true NO_PROVIDER_CALL=true NOT_RELEASE_ACCEPTANCE=true NO_SECRETS_PRINTED=true')
         if args.mode!='plan':print('SEMANTIC_PROVIDER_STOPPED_CREATE_JOURNAL='+str(args.creation_root/'creation-journal.json')+' PRIVATE=true')
     except Exception as error:
