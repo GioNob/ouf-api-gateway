@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import socket
 import subprocess
 import sys
 import tempfile
@@ -226,7 +227,16 @@ def operate(args):
     inode = os.stat(namespace).st_ino
     publish('PREPARING',namespaceOwned=owned,namespaceInode=inode)
     children = [v for v in parse(run('nsenter',['--net='+namespace,cfg['commands']['ip'],'-j','addr','show'])) if v['ifname'] != 'lo']
-    hosts = parse(run('ip',['-j','link','show']))
+    indexes = {v['link_index'] for v in children}
+    indexes.update(v['peerIngress']['ifindex'] for v in candidate['transport'] if v['peerIngress']['kind'] != 'HOST')
+    require(len(indexes) <= 160,'NATIVE_PEER_COUNT_UNBOUNDED')
+    hosts = []
+    for index in sorted(indexes):
+        name = socket.if_indextoname(index)
+        found = parse(run('ip',['-j','link','show','dev',name]))
+        require(len(found) == 1 and found[0]['ifindex'] == index and found[0]['ifname'] == name,
+                'HOST_INDEX_NAME_BINDING_DRIFT')
+        hosts.append(found[0])
     profile = live_profile(candidate,bundle,namespace,inode,children,hosts)
     backend = NativeBackend(profile,{k:cfg['commands'][k] for k in ('nft','ip','nsenter')},cfg['budgetSeconds'])
     runtime_state = backend.runtime(candidate['runtimeBinding'],'state')

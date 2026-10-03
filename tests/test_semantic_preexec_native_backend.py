@@ -16,6 +16,16 @@ from tools.semantic_provider_preexec_native import NativeBackend, footprint
 
 
 class NativeContractTest(unittest.TestCase):
+    @unittest.skipUnless(os.geteuid() == 0, 'trusted executable metadata fixture')
+    def test_binding_queries_selected_index_only_and_rejects_recreation(self):
+        backend = NativeBackend(profile(), {k:'/usr/bin/true' for k in ('ip','nft','nsenter')},5)
+        from unittest.mock import Mock
+        backend.run = Mock(return_value=json.dumps([{'ifindex':7,'ifname':'selected'}]))
+        with patch('tools.semantic_provider_preexec_native.socket.if_indextoname',return_value='selected'):
+            self.assertEqual(backend.link(7)['ifindex'],7)
+            backend.run.assert_called_once_with('ip',['-j','link','show','dev','selected'])
+            backend.run.return_value = json.dumps([{'ifindex':8,'ifname':'selected'}])
+            with self.assertRaises(PreexecDenied): backend.link(7)
     def test_footprint_retains_transaction_but_excludes_native_handles_counters(self):
         original = {'inet': {'nftables': [{'metainfo': {'version': '1'}},
             {'table': {'family': 'inet', 'name': 'owned', 'handle': 1, 'comment': 'ouf-preexec:fixture'}},

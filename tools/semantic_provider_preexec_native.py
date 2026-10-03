@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import socket
 import subprocess
 import tempfile
 import time
@@ -115,8 +116,12 @@ class NativeBackend:
         if not stat.S_ISREG(value.st_mode) or value.st_uid != 0 or value.st_mode & 0o022 \
                 or value.st_ino != profile['namespaceInode']:
             raise PreexecDenied('PREPARED_NAMESPACE_DRIFT')
-        host = json.loads(self.run('ip', ['-j', 'link', 'show']))
-        indexed = {v['ifindex']: v for v in host}
+        # Query only approved indexes, so thousands of unrelated host ports do
+        # not consume this candidate's bounded native output/time budget.
+        indexes = {v['ifindex'] for v in profile['policy']['attachments']}
+        indexes.update(v['peerIngress']['ifindex'] for v in profile['policy']['flows']
+                       if v['peerIngress']['kind'] != 'HOST')
+        indexed = {i:self.link(i) for i in indexes}
         for attachment, child in zip(profile['policy']['attachments'], profile['namespaceLinks']):
             link = indexed.get(attachment['ifindex'])
             if link is None or link['ifname'] != attachment['interface'] or link.get('master') != attachment['bridge'] \
@@ -145,6 +150,13 @@ class NativeBackend:
         if generation['namespaceInode'] != profile['namespaceInode']:
             raise PreexecDenied('OCI_PROCESS_NAMESPACE_DRIFT')
         return generation
+
+    def link(self, index):
+        name = socket.if_indextoname(index)
+        result = json.loads(self.run('ip',['-j','link','show','dev',name]))
+        if len(result) != 1 or result[0]['ifindex'] != index or result[0]['ifname'] != name:
+            raise PreexecDenied('HOST_INDEX_NAME_BINDING_DRIFT')
+        return result[0]
 
     def runtime(self, binding, operation):
         if set(binding) != {'path', 'sha256', 'root'} or operation not in ('state', 'start'):
