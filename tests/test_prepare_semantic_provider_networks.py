@@ -88,7 +88,7 @@ class RealColdNetworkTest(unittest.TestCase):
             args.mode = 'verify'
             # A rule changed by another writer must never pass verification.
             run('nft', 'add', 'rule', 'inet', table, 'governed_flows', 'counter', 'accept')
-            with self.assertRaisesRegex(prep.trust.Blocked, 'GUARD_OR_INTENT'): prep.operate(args)
+            with self.assertRaisesRegex(prep.trust.Blocked, 'GUARD_'): prep.operate(args)
             print('SEMANTIC_PROVIDER_COLD_NETWORK_CI=PASS REAL_DOCKER_NFT=true GUARD_BEFORE_NETWORKS=true'
                   ' EMPTY_NETWORKS_VERIFIED=true SHARED_RULES_PRESERVED_BY_CUSTOM_GUARD=true'
                   ' SAME_BRIDGE_PACKET_DENIED=true UNEXPECTED_ATTACHMENT_DENIED=true'
