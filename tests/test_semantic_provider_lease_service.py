@@ -13,6 +13,8 @@ import time
 import unittest
 import uuid
 
+from scripts import stage_semantic_lease_package as package
+from types import SimpleNamespace
 from scripts.run_semantic_provider_lease_owner import supervise, read_configuration, lock
 from tools import semantic_provider_dns as dns
 from tools.materialize_semantic_lease_service import compile_service
@@ -55,6 +57,7 @@ class SystemdTest(unittest.TestCase):
         table = 'ouf_lease_'+suffix; cfg = configuration(); cfg['tableName'] = table
         cfg['guardedInterfaces'] = ['olf-'+suffix]; cfg['existingInterfaces'] = []
         cfg['providerFlows'][0]['leaseSeconds'] = 5
+        cfg['providerFlows'][0]['addresses'] = []
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); udp.bind(('127.0.0.1', 0)); udp.settimeout(0.25)
         dns_stop = threading.Event(); queries = []; errors = []
         def peer():
@@ -85,15 +88,21 @@ class SystemdTest(unittest.TestCase):
                     self.fail('isolated service condition timed out: '+logs)
                 time.sleep(0.1)
         try:
-            run('nft', '-f', '-', raw=materialize(cfg)['nftRules']); created = True
+            run('nft', '-f', '-', raw=materialize(cfg, empty_provider_sets=True)['nftRules']); created = True
             source = root/'source'; source.mkdir(mode=0o700)
             for directory in ('scripts', 'tools'): (source/directory).mkdir(mode=0o700)
             repo = Path(__file__).resolve().parents[1]
-            paths = ('scripts/run_semantic_provider_lease_owner.py', 'scripts/prepare_semantic_provider_trust.py',
-                'tools/materialize_southbound_kernel.py', 'tools/materialize_southbound_lease_refresh.py',
-                'tools/semantic_provider_dns.py', 'tools/semantic_provider_lease_owner.py', 'tools/semantic_provider_lease_nft.py')
+            paths = package.FILES
             for path in paths:
                 (source/path).write_bytes((repo/path).read_bytes()); os.chmod(source/path, 0o600)
+            stage_args = SimpleNamespace(mode='plan', package_root=root, source_commit='a'*40)
+            package.operate(stage_args)
+            stage_args.mode = 'apply'; sealed = package.operate(stage_args)
+            stage_args.mode = 'verify'; self.assertEqual(package.operate(stage_args), sealed)
+            altered = source/'tools/materialize_semantic_lease_service.py'
+            original = altered.read_bytes(); altered.write_bytes(original+b'\n')
+            with self.assertRaises(Exception): package.operate(stage_args)
+            altered.write_bytes(original)
             tables = {f: json.loads(run('nft','-j','list','table',f,table)) for f in ('inet','bridge')}
             expected = structure_hash(tables)
             backend = NftBackend([shutil.which('nft')], cfg, expected, 2)

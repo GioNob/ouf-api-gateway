@@ -14,7 +14,7 @@ from tools.materialize_southbound_kernel import materialize, fields
 def compile_refresh(configuration, resolutions, now_monotonic, *, apply_budget_seconds):
     # A malformed ownership/configuration cannot safely identify tables to empty.
     # Reject it; the future worker must let existing finite leases expire.
-    baseline = materialize(configuration)
+    baseline = materialize(configuration, empty_provider_sets=True)
     table = baseline['tableName']; flows = configuration['providerFlows']
     if type(now_monotonic) not in (int, float) or not math.isfinite(now_monotonic) or now_monotonic < 0:
         raise ValueError('finite monotonic clock required')

@@ -35,7 +35,7 @@ def fields(value, expected):
         raise ValueError('explicit exact kernel configuration required')
 
 
-def materialize(config):
+def materialize(config, *, empty_provider_sets=False):
     fields(config, ('tableName', 'guardedInterfaces', 'existingInterfaces', 'staticFlows', 'providerFlows'))
     table = name(config['tableName'], 32)
     guarded = config['guardedInterfaces']
@@ -79,7 +79,7 @@ def materialize(config):
         p = port(endpoint.port if endpoint.port is not None else 443)
         source = ip(flow['source'])
         addresses = flow['addresses']; private = flow['allowedPrivateAddresses']; lease = flow['leaseSeconds']
-        if not isinstance(addresses, list) or not 1 <= len(addresses) <= 32 or len(set(addresses)) != len(addresses):
+        if not isinstance(addresses, list) or not (0 if empty_provider_sets else 1) <= len(addresses) <= 32 or len(set(addresses)) != len(addresses):
             raise ValueError('bounded distinct resolved addresses required')
         if not isinstance(private, list) or any(not isinstance(v, str) for v in private):
             raise ValueError('explicit private destination exception required')
@@ -95,12 +95,15 @@ def materialize(config):
             if not address.is_global and str(address) not in private_set:
                 raise ValueError('non-global destination not explicitly registered')
             selected.append(str(address))
-        if not private_set.issubset(set(selected)):
+        if not empty_provider_sets and not private_set.issubset(set(selected)):
             raise ValueError('unused private destination exception')
         family = 'ip' if source.version == 4 else 'ip6'; set_name = 'provider_' + str(index)
         nft_type = 'ipv4_addr' if source.version == 4 else 'ipv6_addr'
-        sets.append(f' set {set_name} {{ type {nft_type}; flags timeout; elements = {{ ' +
-                    ', '.join(f'{value} timeout {lease}s' for value in selected) + ' }; }')
+        if empty_provider_sets:
+            sets.append(f' set {set_name} {{ type {nft_type}; flags timeout; }}')
+        else:
+            sets.append(f' set {set_name} {{ type {nft_type}; flags timeout; elements = {{ ' +
+                        ', '.join(f'{value} timeout {lease}s' for value in selected) + ' }; }')
         # Check the expiring set on every packet, including established/reply
         # traffic: expiration must not leave an already-open socket admitted.
         rules += [f'{family} saddr {source} {family} daddr @{set_name} tcp dport {p} ct state {{ new, established }} counter accept',

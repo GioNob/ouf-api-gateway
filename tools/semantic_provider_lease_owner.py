@@ -20,7 +20,7 @@ class LeaseDenied(RuntimeError):
 
 class LeaseOwner:
     def __init__(self, configuration, profile, backend, *, clock=time.monotonic):
-        materialize(configuration)
+        materialize(configuration, empty_provider_sets=True)
         if not configuration['providerFlows']: raise ValueError('explicit provider flows required')
         fields(profile, ('resolvers', 'resolverPort', 'timeoutSeconds', 'maxLeaseSeconds', 'applyBudgetSeconds'))
         for key, maximum in (('timeoutSeconds', 30), ('maxLeaseSeconds', 3600), ('applyBudgetSeconds', 30)):

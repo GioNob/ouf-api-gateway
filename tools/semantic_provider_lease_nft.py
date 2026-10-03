@@ -28,7 +28,7 @@ def structure_hash(value):
 
 class NftBackend:
     def __init__(self, command, configuration, expected_structure_hash, read_budget_seconds, *, clock=time.monotonic):
-        materialize(configuration)
+        materialize(configuration, empty_provider_sets=True)
         if not isinstance(command, list) or not command or any(not isinstance(v, str) or not v for v in command):
             raise ValueError('explicit trusted nft command required')
         if not re.fullmatch('[0-9a-f]{64}', expected_structure_hash): raise ValueError('installation structure hash required')
