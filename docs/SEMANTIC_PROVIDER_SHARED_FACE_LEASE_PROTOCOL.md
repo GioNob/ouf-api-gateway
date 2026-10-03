@@ -171,7 +171,7 @@ generations. The opt-in native suite adds real nft table transactions and
 handles, fsynced journals, flock, prepared veth/namespace bindings and a fixture
 process generation. That process is already running: this test proves the
 generation/lifecycle protocol, **not OCI before-process enforcement**. CI runs
-22 regressions, one actual local-Docker read-only inventory and three native
+23 regressions, one actual local-Docker read-only inventory and three native
 network cases; use the exact commit's CI result for
 pass/fail evidence. All authority in these fixtures is synthetic.
 
