@@ -223,7 +223,9 @@ def operate(config_path, argv):
             rewritten = list(argv); option = '--bundle' if '--bundle' in options else '-b'
             rewritten[rewritten.index(option)+1] = str(shadow)
             require(read(config_path) == original, 'ADAPTER_CONFIGURATION_DRIFT')
-            result = subprocess.run([config['runtimePath'], *rewritten], stderr=subprocess.DEVNULL,
+            # Preserve the init process's inherited stderr, which becomes the
+            # container's application stderr stream after explicit start.
+            result = subprocess.run([config['runtimePath'], *rewritten],
                 env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, timeout=20)
             require(result.returncode == 0, 'RUNTIME_CREATE_DENIED'); publish('CREATED'); return 0
         require(record['state'] in {'PREPARING','CREATING','CREATED','STARTING','STARTED','DELETING','DELETED'})

@@ -38,7 +38,9 @@ class DockerAdapterTest(unittest.TestCase):
     def test_named_docker_runtime_gate_and_default_preserved(self):
         self.assertEqual(os.geteuid(), 0)
         docker = shutil.which('docker'); runc = str(Path(shutil.which('runc')).resolve())
-        python = str(Path(sys.executable).resolve()); repository = Path(__file__).resolve().parents[1]
+        # setup-python's cache can be owned by the runner user. The deployed
+        # adapter requires a root-owned interpreter and ancestor chain.
+        python = str(Path('/usr/bin/python3').resolve()); repository = Path(__file__).resolve().parents[1]
         suffix = uuid.uuid4().hex[:8]; name = 'ouf-gate-'+suffix; bridge = 'dg'+suffix
         daemon_path = Path('/etc/docker/daemon.json'); old = daemon_path.read_bytes() if daemon_path.exists() else None
         def run(*argv, check=True, payload=None):
