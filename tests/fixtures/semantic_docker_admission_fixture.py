@@ -22,6 +22,13 @@ from tools.semantic_provider_preexec_native import NativeBackend
 
 root = Path(args.bundle).parent; cid = args.container_id; approved = cfg['approved'][cid]
 def private(path, value): path.write_text(json.dumps(value)); path.chmod(0o600)
+def fixture_failure(kind, value, traceback):
+    lines = []
+    while traceback:
+        if traceback.tb_frame.f_code.co_filename == __file__: lines.append(traceback.tb_lineno)
+        traceback = traceback.tb_next
+    private(root/'fixture-failure.json', {'type':kind.__name__, 'lines':lines})
+sys.excepthook = fixture_failure
 def run(*argv): return subprocess.run(argv, capture_output=True, text=True, timeout=20, check=True).stdout
 driver_path = root/'driver.json'
 def driver(mode):

@@ -112,7 +112,13 @@ class DockerAdapterTest(unittest.TestCase):
                         self.assertNotEqual(result.returncode, 0); self.assertFalse(marker.exists())
                         self.assertEqual(dock('inspect','--format','{{.State.Running}}',cid).stdout.strip(), b'false')
                     else:
-                        self.assertEqual(result.returncode, 0, result.stderr.decode())
+                        diagnostic = {}
+                        for filename in ('adapter.json','preexec.json','coordination.json','fixture-failure.json'):
+                            path = directory/filename
+                            if path.exists():
+                                value = json.loads(path.read_bytes())
+                                diagnostic[filename] = {k:v for k,v in value.items() if k in ('state','type','lines')}
+                        self.assertEqual(result.returncode, 0, result.stderr.decode()+' CI fixture states: '+json.dumps(diagnostic))
                         until = time.monotonic()+5
                         while not marker.exists() and time.monotonic() < until: time.sleep(.02)
                         self.assertEqual(marker.read_text().strip(), 'APP')
