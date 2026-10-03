@@ -38,7 +38,9 @@ def version(raw):
 def collect(query):
     server = version(query('{{.ServerVersion}}'))
     default = query('{{.DefaultRuntime}}').strip()
-    names = query('{{range $key, $value := .Runtimes}}{{$key}}{{println}}{{end}}').splitlines()
+    # Go template println plus Docker's formatter can append an extra newline.
+    # Remove only trailing line terminators; keep rejecting blank/internal names.
+    names = query('{{range $key, $value := .Runtimes}}{{$key}}{{println}}{{end}}').rstrip('\n').splitlines()
     if not 1 <= len(names) <= 32 or len(set(names)) != len(names) \
             or any(not re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', v) for v in [default, *names]) \
             or default not in names:

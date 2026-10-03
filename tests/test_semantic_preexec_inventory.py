@@ -13,7 +13,7 @@ class InventoryTest(unittest.TestCase):
     def query(self, template):
         if template == '{{.ServerVersion}}': return '28.5.1\n'
         if template == '{{.DefaultRuntime}}': return 'runc\n'
-        return 'runc\nio.containerd.runc.v2\n'
+        return 'runc\nio.containerd.runc.v2\n\n'
 
     def test_only_allowlisted_fields_and_no_start_or_integration_claim(self):
         result = inventory(self.query, '1.3.1')
