@@ -9,6 +9,8 @@ on:
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_launch_inputs.py'
       - 'scripts/stage_semantic_provider_candidates.py'
+      - 'scripts/create_semantic_provider_stopped_candidates.py'
+      - 'tests/test_create_semantic_provider_stopped_candidates.py'
       - 'tests/test_stage_semantic_provider_candidates.py'
       - 'tests/test_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_networks.py'
@@ -43,6 +45,8 @@ on:
       - 'scripts/prepare_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_launch_inputs.py'
       - 'scripts/stage_semantic_provider_candidates.py'
+      - 'scripts/create_semantic_provider_stopped_candidates.py'
+      - 'tests/test_create_semantic_provider_stopped_candidates.py'
       - 'tests/test_stage_semantic_provider_candidates.py'
       - 'tests/test_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_networks.py'
@@ -189,3 +193,14 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y nftables
       - run: sudo env OUF_BOOT_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_boot_guard
       - run: sudo env OUF_LEASE_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_lease_service
+
+  provider-stopped-create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+      - run: sudo env OUF_STOPPED_CREATE_DOCKER_TEST=1 OUF_STOPPED_CREATE_TEST_PARENT=/root OUF_STOPPED_CREATE_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_create_semantic_provider_stopped_candidates
