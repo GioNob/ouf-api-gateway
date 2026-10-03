@@ -53,12 +53,14 @@ def load(path):
     config_raw = private_bytes(path); value = parse(config_raw)
     fields = {'schema', 'sourceRoot', 'sourceHashes', 'profile', 'kernel', 'dns',
             'coordinationBinding', 'coordinationJournal', 'preexecJournal', 'lockFile', 'commands', 'budgetSeconds'}
-    if value.get('schema') == 'ouf.semantic-preexec-driver.v2': fields.add('runtimeBinding')
-    if set(value) != fields or value['schema'] not in ('ouf.semantic-preexec-driver.v1', 'ouf.semantic-preexec-driver.v2'):
+    if value.get('schema') in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3'): fields.add('runtimeBinding')
+    if value.get('schema') == 'ouf.semantic-preexec-driver.v3': fields.update(('authorityBinding','authorityScope'))
+    if set(value) != fields or value['schema'] not in ('ouf.semantic-preexec-driver.v1', 'ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3'):
         raise RuntimeError('EXACT_DRIVER_CONFIGURATION_REQUIRED')
     root = Path(value['sourceRoot'])
     if root.lstat().st_mode & 0o077 or not root.is_dir(): raise RuntimeError('PRIVATE_SOURCE_ROOT_REQUIRED')
-    paths = [SELF, *('tools/'+name+'.py' for name in MODULES)]
+    modules = (*MODULES, 'semantic_provider_admission') if value['schema'] == 'ouf.semantic-preexec-driver.v3' else MODULES
+    paths = [SELF, *('tools/'+name+'.py' for name in modules)]
     if set(value['sourceHashes']) != set(paths) or Path(__file__).absolute() != root/SELF:
         raise RuntimeError('EXACT_SOURCE_PACKAGE_REQUIRED')
     verified = {}
@@ -72,7 +74,7 @@ def load(path):
     # No sys.path/PYTHONPATH imports or bytecode cache: execute only the exact
     # verified modules in dependency order, with a synthetic closed package.
     package = types.ModuleType('tools'); package.__path__ = []; sys.modules['tools'] = package
-    for name in MODULES:
+    for name in modules:
         full = 'tools.'+name; module = types.ModuleType(full)
         module.__file__ = str(root/'tools'/str(name+'.py')); module.__package__ = 'tools'
         sys.modules[full] = module; setattr(package, name, module)
@@ -103,16 +105,20 @@ def main():
             lambda: hold_common_lock(Path(value['lockFile'])), journal.read, journal.write)
         backend = NativeBackend(value['profile'], value['commands'], value['budgetSeconds'])
         gate = Preexec(value['profile'], backend, coordination, PrivateJournal(Path(value['preexecJournal'])))
+        authorizer = None
+        if value['schema'] == 'ouf.semantic-preexec-driver.v3':
+            from tools.semantic_provider_admission import authority
+            authorizer = lambda: authority(value['authorityBinding'], value['authorityScope'], lambda p: private_bytes(Path(p)))
         if args.mode == 'start':
-            if value['schema'] != 'ouf.semantic-preexec-driver.v2':
+            if value['schema'] not in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3'):
                 raise RuntimeError('SEALED_RUNTIME_BINDING_REQUIRED')
             state = backend.runtime(value['runtimeBinding'], 'state')
-            result = gate.before_process(state, lambda: backend.runtime(value['runtimeBinding'], 'start'))
+            result = gate.before_process(state, lambda: backend.runtime(value['runtimeBinding'], 'start'), authorizer)
         elif args.mode == 'hook':
             raw = sys.stdin.buffer.read(16385)
             if len(raw) > 16384: raise RuntimeError('OCI_STATE_UNBOUNDED')
-            result = gate.before_process(parse(raw))
-        else: result = gate.operate(args.mode)
+            result = gate.before_process(parse(raw), authorizer=authorizer)
+        else: result = gate.operate(args.mode, authorizer)
         print('SEMANTIC_PREEXEC='+json.dumps({'schema': 'ouf.semantic-preexec-result.v1',
             'mode': args.mode, 'result': result, 'providerCalls': 0, 'notReleaseAcceptance': True,
             'noSecretsPrinted': True}, sort_keys=True))

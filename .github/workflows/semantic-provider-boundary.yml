@@ -34,6 +34,10 @@ on:
       - 'scripts/inventory_semantic_preexec_runtime.py'
       - 'scripts/inventory_semantic_preexec_candidates.py'
       - 'scripts/semantic_provider_preexec_hook.py'
+      - 'scripts/semantic_provider_admission_preparer.py'
+      - 'tools/semantic_provider_admission.py'
+      - 'tests/test_semantic_admission.py'
+      - 'tests/test_semantic_admission_native.py'
       - 'scripts/semantic_provider_docker_runtime.py'
       - 'tests/fixtures/semantic_docker_admission_fixture.py'
       - 'scripts/stage_semantic_preexec_package.py'
@@ -87,6 +91,10 @@ on:
       - 'scripts/inventory_semantic_preexec_runtime.py'
       - 'scripts/inventory_semantic_preexec_candidates.py'
       - 'scripts/semantic_provider_preexec_hook.py'
+      - 'scripts/semantic_provider_admission_preparer.py'
+      - 'tools/semantic_provider_admission.py'
+      - 'tests/test_semantic_admission.py'
+      - 'tests/test_semantic_admission_native.py'
       - 'scripts/semantic_provider_docker_runtime.py'
       - 'tests/fixtures/semantic_docker_admission_fixture.py'
       - 'scripts/stage_semantic_preexec_package.py'
@@ -287,3 +295,15 @@ jobs:
           python-version: '3.13'
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
       - run: sudo env OUF_DOCKER_ADAPTER_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_preexec_docker_adapter
+
+  semantic-admission-preparer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_admission
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
+      - run: sudo unshare --net --fork env OUF_ADMISSION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_admission_native

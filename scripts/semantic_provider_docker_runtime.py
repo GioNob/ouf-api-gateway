@@ -194,7 +194,7 @@ def operate(config_path, argv):
                     env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
                 require(result.returncode == 0, 'ADMISSION_PREPARATION_FAILED')
             grant_raw = read(driver); grant = parse(grant_raw)
-            require(grant['schema'] == 'ouf.semantic-preexec-driver.v2' and grant['profile']['containerId'] == cid
+            require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3') and grant['profile']['containerId'] == cid
                     and grant['profile']['bundlePath'] == str(shadow) and grant['profile']['bundleHash'] == digest(oci)
                     and grant['profile']['applicationStartAuthorized'] is True
                     and grant['profile']['infrastructureAuthorityComplete'] is True

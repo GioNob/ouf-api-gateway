@@ -113,10 +113,11 @@ class Preexec:
             raise PreexecDenied('SHARED_STRUCTURE_RECONCILIATION_REQUIRED')
         if check_bindings: self.backend.bindings(self.profile, None)
 
-    def operate(self, mode):
+    def operate(self, mode, authorizer=None):
         if mode not in ('plan', 'apply', 'verify', 'reconcile', 'rollback'):
             raise ValueError('explicit install mode required')
         with self.coord.hold_lock():
+            if authorizer is not None and mode != 'rollback': authorizer()
             self.quiesced(); value = self.record()
             if mode != 'rollback': self.backend.bindings(self.profile, None)
             current = self.backend.tables()
@@ -173,7 +174,7 @@ class Preexec:
                 self.verified(value)
             return {'state': value['state'], 'hostRulesChanged': mode != 'verify', 'startAuthorized': False}
 
-    def before_process(self, state, starter=None):
+    def before_process(self, state, starter=None, authorizer=None):
         # Runtime failure must prevent OCI create/start. This is a synchronous
         # createRuntime hook, not a post-start event callback.
         if not isinstance(state, dict) or state.get('id') != self.profile['containerId'] \
@@ -184,6 +185,7 @@ class Preexec:
         if not self.profile['applicationStartAuthorized'] or not self.profile['infrastructureAuthorityComplete']:
             raise PreexecDenied('APPLICATION_START_NOT_AUTHORIZED')
         with self.coord.hold_lock():
+            if authorizer is not None: authorizer()
             self.quiesced(); value = self.record()
             if value['state'] != 'PROTECTED': raise PreexecDenied('PREEXEC_PROTECTION_INCOMPLETE')
             self.verified(value)
@@ -198,6 +200,7 @@ class Preexec:
             self.verified(value)
             if self.backend.bindings(self.profile, state) != generation:
                 raise PreexecDenied('OCI_GENERATION_CHANGED')
+            if authorizer is not None: authorizer()
             if starter is not None:
                 if state['status'] != 'created':
                     raise PreexecDenied('CREATED_PROCESS_REQUIRED_FOR_START')
