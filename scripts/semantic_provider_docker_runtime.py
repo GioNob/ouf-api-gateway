@@ -137,7 +137,7 @@ def binding(config, cid):
     return digest({**{k: v for k, v in config.items() if k != 'candidates'}, 'candidate': config['candidates'][cid]})
 
 
-def operate(config_path, argv, hook_state=None):
+def operate(config_path, argv):
     original = read(config_path); config = parse(original)
     require(set(config) == {'schema','sourceHash','runtimePath','runtimeSha256','pythonPath','pythonSha256',
         'driverPath','driverSha256','admissionPath','admissionSha256','admissionConfiguration',
@@ -148,12 +148,7 @@ def operate(config_path, argv, hook_state=None):
     require(hashlib.sha256(read(Path(config['driverPath']))).hexdigest() == config['driverSha256'])
     require(hashlib.sha256(read(Path(config['admissionPath']))).hexdigest() == config['admissionSha256'])
     require(hashlib.sha256(read(Path(config['admissionConfiguration']))).hexdigest() == config['admissionConfigurationHash'])
-    if hook_state is None: operation, cid, options = arguments(argv)
-    else:
-        operation, cid, options = 'hook', argv[0], {}
-        require(re.fullmatch('[0-9a-f]{64}', cid) and hook_state.get('id') == cid
-                and hook_state.get('status') in ('creating','created') and type(hook_state.get('pid')) is int
-                and hook_state['pid'] > 1, 'OCI_ADMISSION_STATE_REQUIRED')
+    operation, cid, options = arguments(argv)
     if cid is None:
         return subprocess.run([config['runtimePath'], *argv], stderr=subprocess.DEVNULL,
                               env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, timeout=5).returncode
@@ -163,7 +158,7 @@ def operate(config_path, argv, hook_state=None):
             and isinstance(entry['bundleParents'], list) and 1 <= len(entry['bundleParents']) <= 4)
     directory = Path(config['registryRoot'])/cid; ancestors(directory/'adapter.json')
     require(stat.S_IMODE(directory.lstat().st_mode) == 0o700)
-    root = None if operation == 'hook' else Path(options['--root']).resolve()
+    root = Path(options['--root']).resolve()
     state_parent = Path(config['runtimeStateRoot'])
     if root is not None: require(root.is_relative_to(state_parent) and root != state_parent, 'RUNTIME_STATE_ROOT_UNPROVEN')
     lock = directory/'operation.lock'; read(lock)
@@ -174,10 +169,7 @@ def operate(config_path, argv, hook_state=None):
         require(set(record) == {'schema','containerId','configurationHash','state','runtimeRoot','bundleHash','driverHash'}
                 and record['schema'] == 'ouf.semantic-docker-runtime-journal.v1'
                 and record['containerId'] == cid and record['configurationHash'] == binding(config, cid))
-        if operation == 'hook':
-            root = Path(record['runtimeRoot'])
-            require(root.is_relative_to(state_parent) and root != state_parent, 'RUNTIME_STATE_ROOT_UNPROVEN')
-        else: require(record['runtimeRoot'] in (None, str(root)))
+        require(record['runtimeRoot'] in (None, str(root)))
         require(read(config_path) == original, 'ADAPTER_CONFIGURATION_DRIFT')
         shadow = directory/'bundle'; driver = directory/'driver.json'
         python = [config['pythonPath'], '-I', '-B']
@@ -189,9 +181,11 @@ def operate(config_path, argv, hook_state=None):
         def driver_call(mode):
             require(hashlib.sha256(read(driver)).hexdigest() == record['driverHash'], 'SEALED_ADMISSION_DRIVER_DRIFT')
             return capture([*python, config['driverPath'], '--configuration', str(driver), '--mode', mode])
-        if operation == 'hook':
-            require(record['state'] == 'CREATING' and record['driverHash'] is None
-                    and hook_state['bundle'] == str(shadow), 'EXCLUSIVE_OCI_ADMISSION_REQUIRED')
+        def admit(hook_state):
+            require(record['state'] == 'PREPARING' and record['driverHash'] is None
+                    and hook_state['bundle'] == str(shadow) and hook_state['id'] == cid
+                    and hook_state['status'] == 'created' and type(hook_state['pid']) is int
+                    and hook_state['pid'] > 1, 'EXCLUSIVE_OCI_ADMISSION_REQUIRED')
             oci = parse(read(shadow/'config.json')); require(digest(oci) == record['bundleHash'])
             raw_state = json.dumps(hook_state).encode()
             with tempfile.TemporaryFile() as output:
@@ -207,12 +201,12 @@ def operate(config_path, argv, hook_state=None):
                     and grant['sourceRoot']+'/scripts/semantic_provider_preexec_hook.py' == config['driverPath']
                     and grant['sourceHashes']['scripts/semantic_provider_preexec_hook.py'] == config['driverSha256']
                     and grant['runtimeBinding'] == {'path':config['runtimePath'],'sha256':config['runtimeSha256'],'root':str(root)})
-            publish('CREATING', driverHash=hashlib.sha256(grant_raw).hexdigest())
+            publish('PREPARING', driverHash=hashlib.sha256(grant_raw).hexdigest())
             result = subprocess.run([*python, config['driverPath'], '--configuration', str(driver), '--mode', 'hook'],
                 input=raw_state, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
                 env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
             require(result.returncode == 0, 'OCI_ADMISSION_GATE_DENIED')
-            publish('ADMITTED'); return 0
+            publish('ADMITTED')
         if operation == 'create':
             require(record['state'] == 'STAGED', 'DO_NOT_REPLAY_RUNTIME_CREATE')
             bundle = Path(options.get('--bundle', options.get('-b'))).resolve()
@@ -230,9 +224,6 @@ def operate(config_path, argv, hook_state=None):
             # Docker commonly spells the root-owned /run alias /var/run. The
             # admission broker still verifies the actual inode and live links.
             if networks[0].get('path'): networks[0]['path'] = str(Path(networks[0]['path']).resolve(strict=True))
-            hook = {'path':config['pythonPath'], 'args':[*python, str(Path(__file__).absolute()),
-                    '--configuration',str(config_path),'--hook',cid], 'timeout':30}
-            oci.setdefault('hooks', {}).setdefault('createRuntime', []).append(hook)
             publish('PREPARING', runtimeRoot=str(root), bundleHash=digest(oci))
             shadow.mkdir(mode=0o700)
             target = shadow/'config.json'
@@ -248,20 +239,18 @@ def operate(config_path, argv, hook_state=None):
             require(read(config_path) == original, 'ADAPTER_CONFIGURATION_DRIFT')
             # Preserve the init process's inherited stderr, which becomes the
             # container's application stderr stream after explicit start.
-            # The createRuntime child acquires this same CID lock. Release only
-            # after durable CREATING; other creates still fail on that phase.
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            try:
-                result = subprocess.run([config['runtimePath'], *rewritten],
-                    env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'}, timeout=40)
-            finally: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            record = parse(read(record_path))
-            require(record['configurationHash'] == binding(config,cid) and record['state'] == 'ADMITTED'
-                    and result.returncode == 0, 'RUNTIME_CREATE_DENIED')
+            result = subprocess.run([config['runtimePath'], *rewritten],
+                env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'}, timeout=40)
+            require(result.returncode == 0, 'RUNTIME_CREATE_DENIED')
             publish('CREATED'); return 0
         require(record['state'] in {'PREPARING','CREATING','ADMITTED','CREATED','STARTING','STARTED','DELETING','DELETED'})
         if operation == 'start':
             require(record['state'] == 'CREATED', 'OWNED_CREATED_RUNTIME_REQUIRED')
+            # Docker prepares OCI-created network interfaces after NewTask
+            # (runc create) and before Task.Start. Admission must inspect that
+            # final live network here, before releasing runc's exec FIFO.
+            state = parse(capture([config['runtimePath'], '--root', str(root), 'state', cid]))
+            publish('PREPARING'); admit(state)
             publish('STARTING'); driver_call('start'); publish('STARTED'); return 0
         require(read(config_path) == original, 'ADAPTER_CONFIGURATION_DRIFT')
         if operation == 'delete':
@@ -281,10 +270,6 @@ def main():
     try:
         require(os.geteuid() == 0 and sys.flags.isolated and sys.dont_write_bytecode)
         require(len(sys.argv) >= 4 and sys.argv[1] == '--configuration')
-        if sys.argv[3] == '--hook':
-            require(len(sys.argv) == 5)
-            raw = sys.stdin.buffer.read(16385); require(len(raw) <= 16384, 'OCI_STATE_UNBOUNDED')
-            return operate(Path(sys.argv[2]), [sys.argv[4]], parse(raw))
         return operate(Path(sys.argv[2]), sys.argv[3:])
     except Exception as error:
         reason = str(error) if isinstance(error, Denied) and re.fullmatch('[A-Z0-9_]{1,80}', str(error)) else 'DOCKER_RUNTIME_OPERATION_UNPROVEN'
