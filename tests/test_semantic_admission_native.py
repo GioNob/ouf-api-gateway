@@ -46,6 +46,7 @@ class AdmissionNativeTest(unittest.TestCase):
         commands = {n:str(Path(shutil.which(n)).resolve()) for n in ('nft','ip','nsenter','unshare','mount','umount')}
         cid = 'a'*64; runtime = root/'runtime'; lock = root/'guard.lock'; lock.touch(mode=0o600)
         fs = bundle/'rootfs'; (fs/'bin').mkdir(parents=True); (fs/'proof').mkdir()
+        (fs/'proc').mkdir(); (fs/'dev').mkdir()
         shutil.copyfile(shutil.which('busybox'),fs/'bin/busybox'); (fs/'bin/busybox').chmod(0o755)
         (fs/'bin/sh').symlink_to('busybox'); marker = fs/'proof/started'
         oci = {'ociVersion':'1.0.2','root':{'path':str(fs),'readonly':False},
@@ -53,7 +54,9 @@ class AdmissionNativeTest(unittest.TestCase):
             'args':['/bin/sh','-c','echo APP > /proof/started; /bin/busybox sleep 2'],
             'env':['PATH=/bin'],'noNewPrivileges':True,
             'capabilities':{k:[] for k in ('bounding','effective','inheritable','permitted','ambient')}},
-            'mounts':[],'linux':{'cgroupsPath':'/ouf-admission-'+self.suffix,'namespaces':[
+            'mounts':[{'destination':'/proc','type':'proc','source':'proc','options':['nosuid','noexec','nodev']},
+                {'destination':'/dev','type':'tmpfs','source':'tmpfs','options':['nosuid','strictatime','mode=755']}],
+            'linux':{'cgroupsPath':'/ouf-admission-'+self.suffix,'namespaces':[
                 {'type':'mount'},{'type':'pid'},{'type':'ipc'},{'type':'uts'},
                 {'type':'network','path':'/run/netns/'+namespace}]}}
         private(bundle/'config.json',oci)
