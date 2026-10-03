@@ -1,99 +1,118 @@
 # Semantic provider boot/runtime custody transition
 
-This procedure continues an existing stopped deployment. It neither recreates
-networks nor replays sources. All installation roots, executables, identities,
-interfaces, destinations and timing bounds are explicit inputs or references to
-sealed, hash-bound installation evidence. Main, PR software and target evidence
-remain separate.
+The existing deny-only boot guard cannot accept runtime timeout sets. The new
+scripts coordinate its replacement with the two owned nft tables while preserving
+the running Docker service, the stopped candidates and the original sealed cohorts.
 
-## Current boundary
+## Target evidence and next operator action
 
-Target custody inventory passed on 2026-10-03: two candidates have never started;
-the installed boot profile is DENY_ONLY; no kernel lease exists; startup is not
-authorized. The returned manifest, creation-journal and boot-install-journal
-hashes must be explicit preconditions, not reconstructed from branch heads.
-The inventory was read-only and did not take a lock; it is not an atomic host
-snapshot or a release acceptance.
+On 2026-10-03 the custody inventory passed, then transition intent
+plan/apply/verify passed at
+`/etc/ouf/deploy-snapshots/semantic-provider-transition-intent-20261003-151036/prepared`.
+This is a laboratory receipt binding, not a product default. Two candidates have
+never started; startup is not authorized; no kernel lease exists. No rules, units
+or containers changed. The intent records the three prior custody hashes,
+runtime/lease input seals, owned tables and the normalized shared structure under
+the existing boot lock.
 
-The installed restore helper rejects sets and removes nft handles/metadata only
-when computing its footprint. It must not be pointed at a runtime profile.
-The frozen lease backend separately removes set elements from its structure
-hash but retains handles/metadata. These hashes are not interchangeable.
+The next target action is **private runtime staging only**. All roots, source
+pins/hashes, tool paths, endpoint reference and lease ceiling are explicit inputs.
+Do not replay stopped creation or normalize networks. Do not call old cold
+verifiers that require empty networks. All original and failed artifacts remain.
 
-## Implemented next step: private transition intent
+## Implemented scripts
 
-`scripts/prepare_semantic_provider_transition_intent.py` provides plan, apply and
-verify. Here **apply means write new private evidence files only**. There is no
-nft write, systemd mutation/reload, container change, IAM/DNS/provider call or
-lease activation. The existing custody helper is its only executable dependency,
-loaded only after root-private ownership and caller-pinned SHA256 validation.
+- `prepare_semantic_provider_transition_intent.py` creates the completed private
+  preflight evidence; its apply writes evidence files only.
+- `stage_semantic_runtime_transition.py` revalidates that exact original intent,
+  derives planned gateway→adapter and selected UDP/TCP DNS flows from the sealed
+  manifest/runtime binding, and keeps provider addresses empty. It reuses the
+  frozen lease kernel compiler. A child under explicit `unshare --net --fork`
+  compiles the rules with real nft and reads back an independent template.
+  The child refuses the parent's network namespace; no host table is touched.
+  Plan creates no prepared snapshot; apply creates private configuration/template,
+  guard unit/drop-in and receipt files; verify rechecks. No installed unit, Docker
+  state, IAM/DNS/provider call or shared runtime rule changes.
+- `restore_semantic_runtime_boot_guard.py` checks the sealed configuration and
+  compiler, common boot lock and private transition journal. Incomplete or
+  rolled-back phases refuse startup. Exact present empty runtime structure is
+  read-only; both tables absent may be reconstructed atomically from the verified
+  compiler; partial/foreign structure refuses. This initial profile is
+  **empty-only**: active lease elements block instead of being silently flushed.
+- `transition_semantic_runtime_guard.py` supplies plan/apply/verify, explicit
+  reconcile and owned rollback. Runtime apply is implemented and native-tested,
+  but is a **separate later target operation** after staging evidence.
 
-The helper checks the three operator-returned custody hashes; revalidates the
-installed boot files, loaded Docker pre-start and PID via custody; acquires the
-existing boot lock inode with nonblocking flock; and takes two bounded readbacks
-under that lock. It seals runtime receipt/binding/plan hashes, the nine-file
-frozen lease cohort and its boot linkage, both owned nft tables and the normalized
-shared structure. It rejects changed evidence, lock contention/replacement,
-foreign/started candidates, existing/partial intent roots, mismatched saved
-evidence and source drift. Boot lock path must match the runtime directory in
-the verified boot profile. No new lock file is created.
+Staging is not complete infrastructure authority: no WORKLOAD_GATEWAY, IDENTITY
+or TELEMETRY permission is invented. The shared backend/control networks are
+excluded from dedicated guards. Planned IPs remain unproven as live endpoints.
+Source-specific protection on shared faces, IAM reachability/authority and
+packet/spoofing/bypass/IPv6 acceptance remain startup gates. The receipt therefore
+sets infrastructureAuthorityComplete=false, liveAddressAllocationProven=false,
+leaseLifecycleActivationReady=false and startAuthorized=false.
 
-The snapshot contains root0600 `transition-intent.json`, `owned-before.json` and
-`shared-before.json` in an exclusive root0700 directory. Partial snapshots remain
-for reconciliation; apply cannot overwrite or resume them blindly. The boot lock
-coordinates cooperating boot operations only: Docker/network/firewall writers
-outside that lock may race, so globalAtomicSnapshotProven is explicitly false.
-An eventual installer must repeat all preconditions at point of mutation.
+## Journalled runtime apply and recovery
 
-Eight tests use real private files and flock with simulated host readbacks.
-They cover custody hashes, runtime/lease drift, shared/owned changes, saved
-tampering/collisions, lock contention/symlinks/absence, interrupted writes,
-untrusted imports and output redaction. They do not prove target nft/systemd or
-runtime packets. A dedicated root CI job runs these tests without owner skips.
+The installer takes the existing boot lock, rechecks the sealed stage/intent,
+candidate IDs/image/labels/never-started/restart=no, dedicated network ownership,
+runtime/lease sources, current shared structure and original Docker PID/command.
+It only replaces byte-identical owned old/new unit files and the two owned tables.
+No Docker/candidate restart or provider request exists in this operation.
 
-## Required activation protocol — design, not implemented
+| Journal phase | Required behavior |
+| --- | --- |
+| PREPARING | Fsynced intent before mutation; new guard refuses startup. |
+| GATE_FILES_WRITTEN | Dedicated guard/drop-in atomically published; originals retained. |
+| GATE_LOADED | systemd graph and exact pre-start verified; Docker PID unchanged. |
+| RULES_APPLIED | One nft transaction replaces both owned tables with empty provider sets. |
+| RUNTIME_EMPTY | Native compiled layout, empty sets, shared structure, inputs/PID/pre-start rechecked; lease structure hash recorded; completion persisted last. |
+| ROLLBACK_BLOCKED | Incomplete gate remains blocked while rollback reconciles only owned artifacts. |
+| ROLLED_BACK | Original logical deny profile and loaded unit commands restored; no automatic legacy custody adoption. |
 
-1. Compile a new immutable profile with the existing kernel compiler and
-   `empty_provider_sets=True`. Declare exact gateway→adapter, selected DNS and
-   governed identity/infrastructure flows. Use only dedicated guarded interfaces;
-   preserve shared backend/control networks. Provider addresses start empty;
-   historical DNS evidence is never a seed. Planned stopped addresses are not
-   proof of live allocation or packet source identity.
-2. Implement a new sealed runtime boot guard and transition gate using the same
-   existing boot lock. The loaded Docker ExecStartPre must refuse startup while
-   a transition is incomplete; an installer-held lock alone is insufficient
-   after a crash. Gate installation must be journalled and loaded/verified before
-   rule replacement. Never edit the old sealed stage or lease source cohort.
-3. Under that lock, recheck candidate ownership/never-started, private input
-   hashes, Docker PID/command, installed/loaded files and both owned tables.
-   Record an fsynced intent before mutation. Replace only the two owned tables
-   atomically in one nft transaction, with empty timeout sets. At every failure,
-   prevent startup and keep default-deny. Shared structure must remain equal.
-4. Compare native readback with the independently verified compiled rule
-   structure; do not adopt an arbitrary observed hash as trusted ownership.
-   Publish the sealed runtime boot files, verify systemd graph/pre-start and
-   unchanged Docker PID/command, then mark the journal complete last. No Docker
-   restart, reboot, candidate start or provider request belongs to this apply.
-5. Runtime restore must distinguish exact present structure, both tables absent,
-   partial tables and foreign structure. Only the verified missing pair may be
-   restored. Sets are empty on restore/start validation; active elements must be
-   governed separately and revoked without accepting unrelated structure. After
-   table recreation, the lease backend's handle-bound structure hash requires an
-   explicit trusted reconciliation; no silent adoption or cached TTL replay.
-6. Reconcile crashes by journal phase and exact owned files/rules. Rollback must
-   restore the old deny-only pair/profile and loaded pre-start while holding the
-   common lock, without removing foreign files, altering shared services or
-   restarting Docker. Retain original and failed artifacts. An unknown partial
-   state must remain blocked, not be solved by blind apply or table deletion.
+After interruption, retain the stage/journal and use explicit reconcile or
+rollback after diagnosis; **never replay apply**. Unknown journal phases, foreign
+files/tables, running/foreign candidates, active leases and changed shared
+structure block. Reconcile rechecks the independently compiled template before
+recording a new lease structure binding. It does not infer ownership from an
+arbitrary observed hash. A failed nft transaction must retain both old tables.
 
-Before any target activation, test these phases natively: failed file publication,
-failed daemon reload, failed nft transaction/readback, interrupted phases,
-lock contention, partial/foreign tables, preservation of shared structure and
-running dependent PID, and restoration before an isolated dependent start.
-Real VPS reboot remains a separate gate with a prepared maintenance plan.
+Rollback atomically restores the original deny pair and then original installed
+unit commands, preserving the running dependent PID and shared structure. Table
+recreation changes nft handles: the old logical boot footprint may match while
+the old manifest/custody hash does not. The journal explicitly marks
+legacyCustodyReconciliationRequired; it does not fabricate an original custody
+PASS. Preserve the rollback evidence for a separate new custody reconciliation.
 
-After coordinated apply, separate gates remain for live namespace/source binding,
-packets/spoofing/direct bypass/IPv6, fresh A+AAAA DNS/TTL leases, OIDC admission,
-purpose receipt/TLS/hostname/revocation, migration-aware Semantic PR30 rollout,
-Discovery authority and THS adoption, chatbot-assisted mapping and HUMAN ACTIVE,
-immediate file ingestion or API scheduler-before-ingestion, and UDP identity.
+## Hashes, locks and lifecycle limits
+
+The runtime boot footprint removes metadata/handles and provider set elements.
+The frozen lease backend's structure hash removes elements but keeps metadata/
+handles. The hashes are distinct. Restoration reports lease reconciliation when
+handles differ; no automatic lease owner installation/activation or cached TTL
+replay occurs. A later active-lease/Docker lifecycle requires a separately
+coordinated profile. This empty-only guard intentionally blocks active elements.
+
+The shared-structure comparison preserves shared set membership, while ignoring
+counter values, expiry metrics and handles. The boot lock coordinates cooperating
+boot/install operations only; external Docker/firewall/network writers can race.
+It is not a globally atomic host snapshot. RuntimeDirectoryPreserve retains the
+common lock inode across the new guard lifecycle.
+
+## Verification
+
+The root CI suite contains eight private-file/lock/profile regressions and three
+real native systemd/nft/Docker fixture cases. It tests isolated template staging,
+plan/apply/verify, missing-table reconstruction before a separate dependent
+start, handle reconciliation, foreign/partial denial, interrupted reload,
+post-rule crash recovery, owned rollback, real atomic nft parser failure,
+foreign-file preservation and unchanged running dependent PID. The synthetic
+Docker candidates are created, never started and removed with owned cleanup.
+Native tests must execute with no owner/native skips; general unprivileged
+discovery skips the root/native fixtures. No provider/DNS call or production
+Docker restart/reboot occurs.
+
+These tests are not target runtime acceptance. Real VPS reboot, live namespace/
+packet bindings, fresh A+AAAA bounded DNS leases, OIDC/purpose receipt/TLS/
+hostname/revocation, migration-aware Semantic rollout, Discovery/THS adoption,
+chatbot-assisted mapping/HUMAN ACTIVE, immediate file ingestion or API
+scheduler-before-ingestion and UDP identity remain separate open gates.

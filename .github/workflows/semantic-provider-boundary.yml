@@ -38,6 +38,7 @@ on:
       - 'tools/lua/admit_semantic_provider.lua'
       - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
+      - 'docs/SEMANTIC_PROVIDER_BOOT_RUNTIME_TRANSITION.md'
       - 'scripts/prepare_semantic_provider_java_trust.py'
       - 'scripts/inventory_semantic_provider_dns.py'
       - 'tests/test_prepare_semantic_provider_java_trust.py'
@@ -78,6 +79,7 @@ on:
       - 'tools/lua/admit_semantic_provider.lua'
       - 'tests/test_semantic_provider_*.py'
       - '.github/workflows/semantic-provider-boundary.yml'
+      - 'docs/SEMANTIC_PROVIDER_BOOT_RUNTIME_TRANSITION.md'
 permissions:
   contents: read
 jobs:
