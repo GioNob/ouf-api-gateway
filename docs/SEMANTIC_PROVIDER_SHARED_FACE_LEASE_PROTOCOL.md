@@ -171,7 +171,8 @@ generations. The opt-in native suite adds real nft table transactions and
 handles, fsynced journals, flock, prepared veth/namespace bindings and a fixture
 process generation. That process is already running: this test proves the
 generation/lifecycle protocol, **not OCI before-process enforcement**. CI runs
-19 regressions and three native cases; use the exact commit's CI result for
+22 regressions, one actual local-Docker read-only inventory and three native
+network cases; use the exact commit's CI result for
 pass/fail evidence. All authority in these fixtures is synthetic.
 
 Next required software increment: root-private source-sealed driver and
@@ -181,3 +182,15 @@ runtime integration and owned service migration/recovery. Docker registration
 and the VPS's runtime compatibility remain unproven. Current VPS evidence stays
 RUNTIME_EMPTY/EMPTY_ONLY with two never-started candidates; no new VPS command,
 automatic start, replay or merge is authorized by this implementation.
+
+Before selecting a target runtime integration, run the newly pinned
+`scripts/inventory_semantic_preexec_runtime.py` from a root-private source
+directory without a Docker CLI config.json. It requires explicit root-owned
+Docker/runc executable paths and the local root-owned /run/docker.sock; it never
+inherits DOCKER_HOST, proxy or credential helper settings. It reads only Docker
+server version/default runtime/runtime names twice and the local runc binary
+version. Invalid, changing or unavailable data blocks with redacted output.
+No daemon configuration, runtime arguments, container or credentials are printed.
+The version of a standalone runc binary does not prove Docker uses that binary.
+Stable repeated reads do not prove an atomic snapshot or OCI hook integration.
+The helper performs no rule/unit/container mutation and authorizes no start.
