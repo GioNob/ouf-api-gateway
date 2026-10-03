@@ -6,6 +6,8 @@ on:
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
+      - 'scripts/prepare_semantic_southbound_validator_credentials.py'
+      - 'tests/test_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_networks.py'
       - 'tests/test_prepare_semantic_provider_networks.py'
       - 'scripts/prepare_semantic_provider_trust.py'
@@ -35,6 +37,8 @@ on:
       - 'scripts/stage_semantic_provider_adapter.py'
       - 'scripts/inventory_semantic_provider_network.py'
       - 'scripts/inventory_semantic_provider_candidate_inputs.py'
+      - 'scripts/prepare_semantic_southbound_validator_credentials.py'
+      - 'tests/test_semantic_southbound_validator_credentials.py'
       - 'scripts/prepare_semantic_provider_networks.py'
       - 'tests/test_prepare_semantic_provider_networks.py'
       - 'scripts/prepare_semantic_provider_trust.py'
@@ -146,6 +150,8 @@ jobs:
       - run: sudo env OUF_DNS_ROOT_FIXTURE_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_dns
 
       - run: sudo env OUF_CANDIDATE_METADATA_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_candidate_inputs
+
+      - run: sudo env OUF_VALIDATOR_TEST_PARENT=/root OUF_VALIDATOR_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_southbound_validator_credentials
 
   semantic-java-trust:
     runs-on: ubuntu-latest
