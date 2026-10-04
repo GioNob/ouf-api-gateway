@@ -1,4 +1,4 @@
-"""Source-sealed real created-candidate node attestor CLI; no mandate/key generation or start."""
+"""Source-sealed node attestor; explicit v2 live mandate, no key generation or start."""
 import argparse
 import copy
 import hashlib

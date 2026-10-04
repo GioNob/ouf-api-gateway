@@ -18,6 +18,25 @@ def require(ok,reason):
     if not ok:raise PreexecDenied(reason)
 
 
+def publish_once(path,raw,exists_reason):
+    """Publish private evidence durably; partial issuance is never replayed."""
+    from tools.semantic_provider_deployment_authentication import ancestors
+    path=Path(path);ancestors(path);info=path.parent.lstat()
+    require(stat.S_ISDIR(info.st_mode) and info.st_uid==info.st_gid==0 and stat.S_IMODE(info.st_mode)==0o700,
+            'PRIVATE_INSTALLER_ISSUANCE_DIRECTORY_REQUIRED')
+    require(type(raw) is bytes and 0<len(raw)<=131072,'PRIVATE_ISSUANCE_EVIDENCE_UNBOUNDED')
+    try:fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    except FileExistsError:raise PreexecDenied(exists_reason) from None
+    try:
+        os.fchmod(fd,0o600)
+        with os.fdopen(fd,'wb',closefd=False) as stream:stream.write(raw);stream.flush();os.fsync(fd)
+    finally:os.close(fd)
+    fd=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+    require(private_bytes(path)==raw,'INSTALLER_ISSUANCE_PUBLICATION_UNPROVEN')
+
+
 class InstallerApproval:
     def __init__(self,cfg,configuration_raw,configuration_path,producer_binding,clock=time.time):
         fields={'schema','sourceRoot','sourceHashes','pythonBinding','authorities','intentBinding','attestationPath',
@@ -90,15 +109,7 @@ class InstallerApproval:
             'requestHash':hashlib.sha256(request_raw).hexdigest(),'state':'ISSUING',
             **{k:request[k] for k in ('role','issuerRef','installationRef','entityRef','containerId','transactionId')}}
         raw=encoded(value)
-        try:fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
-        except FileExistsError:raise PreexecDenied('DO_NOT_REPLAY_INSTALLER_ISSUANCE') from None
-        try:
-            os.fchmod(fd,0o600)
-            with os.fdopen(fd,'wb',closefd=False) as stream:stream.write(raw);stream.flush();os.fsync(fd)
-        finally:os.close(fd)
-        fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:os.fsync(fd)
-        finally:os.close(fd)
+        publish_once(path,raw,'DO_NOT_REPLAY_INSTALLER_ISSUANCE')
         require(private_bytes(path)==raw,'INSTALLER_ISSUANCE_CLAIM_UNPROVEN')
         return path,raw
 

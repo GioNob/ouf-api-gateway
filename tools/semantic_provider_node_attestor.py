@@ -1,7 +1,8 @@
 """Real node attestor: explicit signed acceptance, observed rootfs/OCI/live links.
 
 InstallerApproval's private IO/custody helpers are reused; its approval emission
-is never called. Acceptance authority is provisioned, never synthesized here.
+is never called. v1 verifies a preexisting mandate. Explicit v2 emits a live
+mandate only under signed exact-OCI/rootfs acceptance and issuance authority.
 """
 import base64
 import copy
@@ -9,7 +10,7 @@ import hashlib
 from pathlib import Path
 import time
 
-from tools.semantic_provider_installer_approval import InstallerApproval,require
+from tools.semantic_provider_installer_approval import InstallerApproval,require,publish_once
 from tools.semantic_provider_deployment_authentication import DetachedAuthenticator,VerificationBudget,private_bytes,decode
 from tools.semantic_provider_deployment_protocol import context,validate_intent,validate_creation,window,hashed
 from tools.semantic_provider_deployment_producer import LocalEvidenceProducer,encoded
@@ -24,7 +25,10 @@ class NodeAttestor(InstallerApproval):
             'policyBinding','signatureDirectory','opensslBinding','signingKeyBinding','keyRef','brokerEmissionJournal',
             'brokerStateJournal','issuanceClaimPath','budgetSeconds','runtimeBinding','runtimeRootParents','bundleParents',
             'commands','candidate','rootfsLimits'}
-        require(set(cfg)==fields and cfg['schema']=='ouf.semantic-node-attestor.v1','EXACT_NODE_ATTESTOR_CONFIGURATION_REQUIRED')
+        self.live=cfg.get('schema')=='ouf.semantic-node-attestor.v2'
+        if self.live:fields.add('liveAcceptanceAuthorizationBinding')
+        require(set(cfg)==fields and cfg['schema'] in {'ouf.semantic-node-attestor.v1','ouf.semantic-node-attestor.v2'},
+                'EXACT_NODE_ATTESTOR_CONFIGURATION_REQUIRED')
         require(type(cfg['budgetSeconds']) is int and 1<=cfg['budgetSeconds']<=12,'BOUNDED_NODE_ATTESTATION_REQUIRED')
         require(set(cfg['commands'])=={'ip','nsenter'} and set(cfg['candidate'])=={'networkBindings','transport','tableName'},
             'EXACT_NODE_OBSERVATION_CONFIGURATION_REQUIRED')
@@ -58,14 +62,55 @@ class NodeAttestor(InstallerApproval):
             'attestationAuthorized','completeCreationAccepted'}) and value['state']=='ACTIVE'
             and value['attestationAuthorized'] is True and value['completeCreationAccepted'] is True,
             'EXPLICIT_COMPLETE_NODE_ACCEPTANCE_REQUIRED')
-        seal=value['rootfsSeal'];require(type(seal) is dict and set(seal)=={'schema','sha256','entries','bytes'}
-            and seal['schema']=='ouf.semantic-rootfs-seal.v1' and hashed(seal['sha256'])
-            and type(seal['entries']) is int and 1<=seal['entries']<=self.cfg['rootfsLimits']['maxEntries']
-            and type(seal['bytes']) is int and 0<=seal['bytes']<=self.cfg['rootfsLimits']['maxBytes'],'EXACT_APPROVED_ROOTFS_SEAL_REQUIRED')
+        self.rootfs_acceptance(value['rootfsSeal'])
         window(value,self.clock());require(value['issuedAt']>=intent['issuedAt'] and value['expiresAt']<=intent['expiresAt'],
             'NODE_ACCEPTANCE_EXCEEDS_INTENT')
         self.authenticate(raw,'CREATION_ATTESTATION',self.ctx['attestorRef'],self.ctx['installationRef'],self.ctx['entityRef'])
         return value
+    def rootfs_acceptance(self,seal):
+        require(type(seal) is dict and set(seal)=={'schema','sha256','entries','bytes'}
+            and seal['schema']=='ouf.semantic-rootfs-seal.v1' and hashed(seal['sha256'])
+            and type(seal['entries']) is int and 1<=seal['entries']<=self.cfg['rootfsLimits']['maxEntries']
+            and type(seal['bytes']) is int and 0<=seal['bytes']<=self.cfg['rootfsLimits']['maxBytes'],'EXACT_APPROVED_ROOTFS_SEAL_REQUIRED')
+    def live_authorization(self,request,intent):
+        raw=self.read(self.cfg['liveAcceptanceAuthorizationBinding']);value=decode(raw,131072)
+        bound={'issuerRef','installationRef','entityRef','containerId','transactionId','intentHash','artifactHash',
+               'deploymentConstraintsHash','applicationHash','transportHash','runtimeExecutableHash'}
+        fields=bound|{'schema','rootfsSeal','generationBinding','issuedAt','expiresAt','state',
+                      'mandateIssuanceAuthorized','attestationAuthorized','completeCreationAccepted'}
+        require(set(value)==fields and value['schema']=='ouf.semantic-node-live-acceptance-authorization.v1',
+                'EXACT_SIGNED_LIVE_ACCEPTANCE_AUTHORIZATION_REQUIRED')
+        require(all(encoded(value[k])==encoded(request[k]) for k in bound)
+                and value['generationBinding']=='OBSERVED_CREATED' and value['state']=='ACTIVE'
+                and all(value[k] is True for k in ('mandateIssuanceAuthorized','attestationAuthorized','completeCreationAccepted')),
+                'EXPLICIT_LIVE_ACCEPTANCE_AUTHORITY_REQUIRED')
+        self.rootfs_acceptance(value['rootfsSeal']);window(value,self.clock())
+        require(value['issuedAt']>=intent['issuedAt'] and value['expiresAt']<=intent['expiresAt'],
+                'NODE_ACCEPTANCE_EXCEEDS_INTENT')
+        self.authenticate(raw,'CREATION_ATTESTATION',self.ctx['attestorRef'],self.ctx['installationRef'],self.ctx['entityRef'])
+        path=Path(self.cfg['acceptanceMandatePath'])
+        from tools.semantic_provider_deployment_authentication import ancestors
+        ancestors(path)
+        require(not path.exists() and not path.is_symlink(),'DO_NOT_REPLAY_LIVE_NODE_MANDATE')
+        return value
+    def issue_live_mandate(self,request,intent,authorization,observed,journal,signer):
+        # Exact OCI and rootfs acceptance are signed in advance. Only the live
+        # created generation is filled here, after independent observation.
+        now=int(self.clock());window(authorization,self.clock());window(intent,self.clock())
+        value={'schema':'ouf.semantic-node-creation-acceptance-mandate.v1',
+               **{k:request[k] for k in ('issuerRef','installationRef','entityRef','containerId','transactionId',
+                   'intentHash','artifactHash','deploymentConstraintsHash','applicationHash','transportHash',
+                   'runtimeExecutableHash','generation')},'rootfsSeal':copy.deepcopy(authorization['rootfsSeal']),
+               'issuedAt':now,'expiresAt':min(authorization['expiresAt'],intent['expiresAt']),
+               'state':'ACTIVE','attestationAuthorized':True,'completeCreationAccepted':True}
+        raw=encoded(value);signature=signer.sign(raw)
+        require(self.observer.observe(request,journal,self.bundle)==observed,'NODE_OBSERVATION_CHANGED_DURING_MANDATE')
+        self.stable();window(value,self.clock());window(authorization,self.clock())
+        path=Path(self.cfg['acceptanceMandatePath'])
+        sigpath=self.verifier.signature_directory/(hashlib.sha256(raw).hexdigest()+'.CREATION_ATTESTATION.json')
+        publish_once(sigpath,signature,'DO_NOT_REPLAY_LIVE_NODE_SIGNATURE')
+        publish_once(path,raw,'DO_NOT_REPLAY_LIVE_NODE_MANDATE')
+        return self.acceptance(request,intent)
     def emit(self,request_raw):
         started=self.clock();request=decode(request_raw,4096);role='CREATION_ATTESTATION'
         facts={k:v for k,v in request.items() if k not in {'schema','role','installationRef','entityRef','issuerRef'}}
@@ -74,9 +119,12 @@ class NodeAttestor(InstallerApproval):
         self.policy_raw=self.verifier.read_policy();self.producer.pinned()
         broker_path,broker_raw=self.broker_claim(request,request_raw)
         intent_raw=self.read(self.cfg['intentBinding']);intent=validate_intent(intent_raw,self.ctx,self.authenticate,self.clock)
-        mandate=self.acceptance(request,intent);journal=self.broker_state(request)
+        mandate=self.live_authorization(request,intent) if self.live else self.acceptance(request,intent)
+        journal=self.broker_state(request)
         require(self.cfg['runtimeBinding']['sha256']==request['runtimeExecutableHash'],'NODE_RUNTIME_INTENT_DRIFT')
         observed=self.observer.observe(request,journal,self.bundle)
+        require(observed['applicationHash']==request['applicationHash'] and observed['generation']==request['generation'],
+                'NODE_OBSERVED_REQUEST_DRIFT')
         require(observed['rootfsSeal']==mandate['rootfsSeal'],'NODE_APPROVED_ROOTFS_DRIFT')
         self.stable();require(private_bytes(broker_path)==broker_raw,'NODE_BROKER_CLAIM_CHANGED')
         claim_path,claim_raw=self.claim(request,request_raw)
@@ -90,6 +138,7 @@ class NodeAttestor(InstallerApproval):
         validate_creation(intent_raw,raw,self.ctx,lambda payload,*args:True if payload==raw else self.authenticate(payload,*args),self.clock)
         signer=ExistingEd25519Signer(self.cfg['signingKeyBinding'],self.cfg['keyRef'],self.verifier,
             {k:request[k] for k in ('role','issuerRef','installationRef','entityRef')})
+        if self.live:mandate=self.issue_live_mandate(request,intent,mandate,observed,journal,signer)
         signature=signer.sign(raw)
         binding_raw=encoded({'schema':'ouf.semantic-local-producer-binding.v1','requestHash':hashlib.sha256(request_raw).hexdigest(),
             'recordHash':hashlib.sha256(raw).hexdigest(),'recordSignatureHash':hashlib.sha256(signature).hexdigest()})
