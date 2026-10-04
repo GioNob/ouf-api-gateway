@@ -177,7 +177,7 @@ def main():
         value = inventory(args.package_root, args.operator_attestation, args.openssl_path)
         print('SEMANTIC_DEPLOYMENT_TRUST_BACKEND='+json.dumps(value, sort_keys=True))
         print('SEMANTIC_DEPLOYMENT_TRUST_BACKEND_INVENTORY=PASS READ_ONLY=true'
-              ' NO_KEYS_CREATED_OR_READ=true NO_SIGNATURE_ISSUED=true NO_IAM_OR_DNS_CALL=true'
+              ' NO_KEYS_GENERATED=true NO_PRIVATE_KEYS_READ=true NO_SIGNATURE_ISSUED=true NO_IAM_OR_DNS_CALL=true'
               ' NO_RULE_UNIT_CONTAINER_CHANGED=true START_AUTHORIZED=false NO_SECRETS_PRINTED=true')
         return 0
     except Exception as error:
