@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 from scripts import inventory_semantic_target_acceptance as h
 
+@unittest.skipUnless(os.geteuid()==0,'root-owned metadata/private evidence fixtures required')
 class TargetAcceptanceTest(unittest.TestCase):
     def setUp(self):
         t=tempfile.TemporaryDirectory(dir=os.environ.get('OUF_SHARED_COORDINATION_TEST_PARENT',str(Path.cwd())))
