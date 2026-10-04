@@ -72,7 +72,7 @@ must bound the authenticator's execution time and fail closed on its failures.
 
 ## Verification and remaining integration gates
 
-Seventeen contract tests cover authenticated positive evidence, role separation,
+Eighteen contract tests cover authenticated positive evidence, role separation,
 independent-installation rejection, altered evidence, creation-only authority,
 OCI drift, artifact/transport/runtime/constraint drift, invalid generation,
 premature final approval, expiry during authentication, duplicate JSON, bounded

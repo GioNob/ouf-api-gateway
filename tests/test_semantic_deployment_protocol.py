@@ -182,5 +182,12 @@ class DeploymentProtocolTest(unittest.TestCase):
         self.intent['applicationHash'] = '1'*64
         with self.assertRaises(PreexecDenied): self.final()
 
+    def test_creation_intent_expiry_during_authentication_is_denied(self):
+        for finished in (250, 149):
+            samples = iter((150, finished))
+            with self.subTest(finished=finished), self.assertRaises(PreexecDenied):
+                validate_intent(self.signed(self.intent, 'DEPLOYMENT_INTENT'),
+                                self.ctx, self.authenticate, lambda: next(samples))
+
 
 if __name__ == '__main__': unittest.main()

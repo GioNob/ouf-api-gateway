@@ -86,8 +86,12 @@ def validate_intent(raw, configured_authorities, authenticate, clock=time.time):
             'EXACT_INTENT_HASHES_REQUIRED')
     require(value['infrastructureAuthorized'] is True and value['creationAuthorized'] is True
             and value['applicationStartAuthorized'] is False, 'CREATION_ONLY_INTENT_REQUIRED')
-    window(value, clock())
+    now = clock()
+    window(value, now)
     authenticated(raw, 'DEPLOYMENT_INTENT', ctx['intentIssuerRef'], ctx, authenticate)
+    finished = clock()
+    require(finished >= now, 'PROTOCOL_CLOCK_REGRESSED')
+    window(value, finished)
     return copy.deepcopy(value)
 
 
