@@ -85,7 +85,10 @@ def executable(path, expected):
 
 
 def create(path,value):
-    raw = json.dumps(value,sort_keys=True,separators=(',',':')).encode()
+    return create_bytes(path, json.dumps(value,sort_keys=True,separators=(',',':')).encode())
+
+
+def create_bytes(path,raw):
     require(len(raw) <= 131072,'PRIVATE_RESULT_UNBOUNDED')
     fd = os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     try:
@@ -227,9 +230,8 @@ class Broker:
 
     def publish_result(self,name,role,result):
         from tools.semantic_provider_deployment_producer import encoded
-        raw=result['record'];path=self.root/(name+'.json');create(path,parse(raw))
-        # Preserve the signed bytes exactly, including noncanonical producers.
-        require(private(path)==raw,'CANONICAL_PRODUCER_RECORD_REQUIRED')
+        raw=result['record'];path=self.root/(name+'.json');create_bytes(path,raw)
+        require(private(path)==raw,'BROKER_RECORD_PUBLICATION_DRIFT')
         signature=Path(self.cfg['signatureDirectory'])/(hashlib.sha256(raw).hexdigest()+'.'+role+'.json')
         create(signature,parse(result['recordSignature']))
         require(private(signature)==result['recordSignature'],'BROKER_SIGNATURE_PUBLICATION_DRIFT')
@@ -319,7 +321,9 @@ class Broker:
             with self.lock():self.publish(old,state='CREATED')
         elif self.args.mode=='prepare':self.prepare(state)
         elif self.args.mode=='cleanup':
-            with self.lock():old=self.record();require(old['state']=='PROTECTED','OWNED_BROKER_CLEANUP_REQUIRED')
+            with self.lock():
+                old=self.record();require(old['state']=='PROTECTED' and hashlib.sha256(private(self.root/'driver.json')).hexdigest()==old['driverHash'],
+                    'OWNED_BROKER_CLEANUP_REQUIRED')
             self.invoke_preparer('cleanup')
             with self.lock():self.publish(old,state='CLEANED')
         else:require(False,'UNKNOWN_BROKER_PHASE')

@@ -231,7 +231,7 @@ class DockerAdapterTest(unittest.TestCase):
                             self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'STARTED')
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
                     if authenticated:
-                        self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'CLEANED' if signature_drift else 'PROTECTED')
+                        self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'PROTECTED' if drift else 'CLEANED')
                         for role in ('attestation','approval'):
                             self.assertEqual(json.loads((directory/(role+'-emission.json')).read_bytes())['state'],'ISSUED')
                             self.assertEqual(len(list((directory/(role+'-results')).glob('*.json'))),1)
