@@ -14,7 +14,7 @@ def configure(directory,cfg,repository,source,python,run):
     def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     def private(path,value):path.write_bytes(raw(value));path.chmod(0o600)
     intent=cfg['intent'];cid=intent['containerId'];crypto=cfg['crypto'];datum=cfg['approved'][cid]
-    private(directory/'ci-faults.json',{'python':python,'leaseDrift':datum['leaseDrift'],'signatureDrift':datum['signatureDrift']})
+    private(directory/'ci-faults.json',{'python':python,'leaseDrift':datum['leaseDrift'],'signatureDrift':datum['signatureDrift'],'rootfsDrift':datum.get('rootfsDrift',False),'repository':str(repository)})
     intent_path=directory/'intent.json';private(intent_path,intent)
     header={'schema':'ouf.semantic-deployment-detached-signature.v1','algorithm':'Ed25519','keyRef':'installer-key',
         'role':'DEPLOYMENT_INTENT','issuerRef':'ci-installer','installationRef':'ci-installation','entityRef':'ci-entity',
@@ -41,19 +41,9 @@ def configure(directory,cfg,repository,source,python,run):
         'coordinationBinding':coordination,'coordinationJournal':str(directory/'coordination.json'),'lockFile':cfg['lock'],
         'budgetSeconds':5,'hostNetworkNamespace':os.stat('/proc/self/ns/net').st_ino}
     template_path=directory/'preparer-template.json';private(template_path,template)
-    producer_script=directory/'ci-producer.py';producer_script.write_bytes((repository/'tests/fixtures/semantic_local_producer_fixture.py').read_bytes());producer_script.chmod(0o600)
     producers={}
-    for name,role,keyref in [('attestation','CREATION_ATTESTATION','verifier-key')]:
-        configuration=directory/(name+'-producer.json')
-        private(configuration,{'role':role,'containerId':cid,'bundle':str(directory/'bundle'),'command':datum['command'],
-            'proof':datum['proof'],'busyboxHash':cfg['busyboxHash'],'expiresAt':intent['expiresAt'],
-            'openssl':crypto['opensslBinding']['path'],'keyRef':keyref,'key':crypto['privateKeys'][keyref],
-            'frame':str(directory/(name+'-frame'))})
-        producers[name]={k:{'path':str(p),'sha256':sha(p)} for k,p in
-            [('python',Path(python)),('source',producer_script),('configuration',configuration)]}
-        (directory/(name+'-results')).mkdir(mode=0o700)
     # CI alone provisions a signed mandate and existing installer key.
-    # Production CLI emits final approval; node attestor remains a CI fixture.
+    # Production CLIs emit approval and attestation; acceptance mandates are CI-only.
     from scripts import semantic_provider_installer_approval as issuer
     authorities={'installationRef':'ci-installation','entityRef':'ci-entity','intentIssuerRef':'ci-installer',
         'attestorRef':'ci-node-verifier','approvalIssuerRef':'ci-installer'}
@@ -82,6 +72,27 @@ def configure(directory,cfg,repository,source,python,run):
     producers['approval']={k:{'path':str(p),'sha256':sha(p)} for k,p in
         [('python',Path(python)),('source',source/issuer.SELF),('configuration',configuration)]}
     (directory/'approval-results').mkdir(mode=0o700)
+    from scripts import semantic_provider_node_attestor as attestor
+    attestor_paths=[attestor.SELF,*('tools/'+m+'.py' for m in attestor.MODULES)]
+    configuration=directory/'attestation-producer.json';key=Path(crypto['privateKeys']['verifier-key'])
+    private(configuration,{'schema':'ouf.semantic-node-attestor.v1','sourceRoot':str(source),
+        'sourceHashes':{p:sha(source/p) for p in attestor_paths},'pythonBinding':{'path':python,'sha256':sha(python)},
+        'authorities':authorities,'intentBinding':{'path':str(intent_path),'sha256':sha(intent_path)},
+        'acceptanceMandatePath':str(directory/'ci-node-mandate.json'),
+        **{k:crypto[k] for k in ('policyBinding','signatureDirectory','opensslBinding')},
+        'signingKeyBinding':{'path':str(key),'sha256':sha(key)},'keyRef':'verifier-key',
+        'brokerEmissionJournal':str(directory/'attestation-emission.json'),'brokerStateJournal':str(directory/'broker-state.json'),
+        'issuanceClaimPath':str(directory/'node-signing-claim.json'),'budgetSeconds':12,
+        'runtimeBinding':{'path':cfg['runc'],'sha256':cfg['runcHash']},'runtimeRootParents':['/run'],
+        'bundleParents':[str(directory)],'commands':{k:{'path':cfg['commands'][k],'sha256':sha(cfg['commands'][k])} for k in ('ip','nsenter')},
+        'candidate':{k:template['candidate'][k] for k in ('networkBindings','transport','tableName')},
+        'rootfsLimits':{'maxEntries':10000,'maxBytes':268435456,'maxDepth':32}})
+    producers['attestation']={k:{'path':str(p),'sha256':sha(p)} for k,p in
+        [('python',Path(python)),('source',source/attestor.SELF),('configuration',configuration)]}
+    (directory/'attestation-results').mkdir(mode=0o700)
+    # Inputs to CI-only acceptance authority; never part of target producer.
+    private(directory/'ci-node-acceptance-input.json',{'key':str(key),'openssl':crypto['opensslBinding']['path'],
+        'command':datum['command'],'proof':datum['proof'],'busyboxHash':cfg['busyboxHash']})
     paths=[broker.SELF,broker.PREPARER,broker.DRIVER,*('tools/'+m+'.py' for m in broker.MODULES)]
     return {'schema':'ouf.semantic-deployment-broker.v1','sourceRoot':str(source),'sourceHashes':{p:sha(source/p) for p in paths},
         'authorities':{'installationRef':'ci-installation','entityRef':'ci-entity','intentIssuerRef':'ci-installer',

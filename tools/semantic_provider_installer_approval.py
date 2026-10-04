@@ -86,7 +86,7 @@ class InstallerApproval:
         ancestors(path);info=parent.lstat()
         require(stat.S_ISDIR(info.st_mode) and info.st_uid==info.st_gid==0 and stat.S_IMODE(info.st_mode)==0o700,
                 'PRIVATE_INSTALLER_ISSUANCE_DIRECTORY_REQUIRED')
-        value={'schema':'ouf.semantic-installer-issuance-claim.v1','configurationHash':hashlib.sha256(self.raw).hexdigest(),
+        value={'schema':getattr(self,'CLAIM_SCHEMA','ouf.semantic-installer-issuance-claim.v1'),'configurationHash':hashlib.sha256(self.raw).hexdigest(),
             'requestHash':hashlib.sha256(request_raw).hexdigest(),'state':'ISSUING',
             **{k:request[k] for k in ('role','issuerRef','installationRef','entityRef','containerId','transactionId')}}
         raw=encoded(value)

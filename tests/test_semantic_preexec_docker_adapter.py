@@ -82,7 +82,8 @@ class DockerAdapterTest(unittest.TestCase):
             if authenticated: names += ['tools/semantic_provider_deployment_authentication.py','tools/semantic_provider_deployment_reauthorization.py',
                 'tools/semantic_provider_deployment_producer.py','scripts/semantic_provider_deployment_broker.py',
                 'scripts/semantic_provider_installer_approval.py','tools/semantic_provider_deployment_signing.py',
-                'tools/semantic_provider_installer_approval.py']
+                'tools/semantic_provider_installer_approval.py','scripts/semantic_provider_node_attestor.py',
+                'tools/semantic_provider_node_observation.py','tools/semantic_provider_node_attestor.py']
             for relative in names:
                 target = source/relative; target.parent.mkdir(mode=0o700, exist_ok=True)
                 target.write_bytes((repository/relative).read_bytes()); target.chmod(0o600)
@@ -131,9 +132,10 @@ class DockerAdapterTest(unittest.TestCase):
                 parents = ['/run/containerd/io.containerd.runtime.v2.task/moby',
                            '/run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby']
                 cases=[(True,True),(True,False)] if two_phase else [(False,False),(True,True),(True,False)]
-                if authenticated: cases=[(True,True),(True,False),(True,False)]
+                if authenticated: cases=[(True,True),(True,False),(True,False),(True,False)]
                 for index, (authorized, drift) in enumerate(cases):
                     signature_drift=authenticated and index==1
+                    rootfs_drift=authenticated and index==3
                     proof = root/('proof'+str(index)); proof.mkdir(); marker = proof/'started'
                     command = ['/bin/sh','-c','echo APP > /proof/started; /bin/busybox sleep 2']
                     cid = dock('create','--runtime',name,'--network',network,'--ip','10.77.0.'+str(index+2),
@@ -144,7 +146,7 @@ class DockerAdapterTest(unittest.TestCase):
                     shared, lease = 'ds_'+suffix+str(index), 'dl_'+suffix+str(index); tables.extend([shared,lease])
                     admission['approved'][cid] = {'authority':True,'startAuthorized':authorized,'leaseDrift':drift,
                         'command':command,'proof':str(proof),'ipv4':'10.77.0.'+str(index+2),'bridge':bridge,
-                        'sharedTable':shared,'leaseTable':lease,'signatureDrift':signature_drift}
+                        'sharedTable':shared,'leaseTable':lease,'signatureDrift':signature_drift,'rootfsDrift':rootfs_drift}
                     private(admission_path, admission); cfg['admissionConfigurationHash'] = sha(admission_path)
                     cfg['candidates'][cid] = {'approvalRef':sha(admission_path),'bundleParents':parents}
                     if two_phase:
@@ -200,7 +202,15 @@ class DockerAdapterTest(unittest.TestCase):
                     private(directory/'adapter.json', {'schema':'ouf.semantic-docker-runtime-journal.v1','containerId':cid,
                         'configurationHash':adapter.binding(cfg,cid),'state':'STAGED','runtimeRoot':None,'bundleHash':None,'driverHash':None})
                     result = dock('start',cid,check=False)
-                    if not authorized or drift or signature_drift:
+                    if rootfs_drift:
+                        self.assertNotEqual(result.returncode,0);self.assertFalse(marker.exists())
+                        self.assertEqual(dock('inspect','--format','{{.State.Running}}',cid).stdout.strip(),b'false')
+                        self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'PREPARING')
+                        self.assertEqual(json.loads((directory/'attestation-emission.json').read_bytes())['state'],'ISSUING')
+                        self.assertFalse((directory/'node-signing-claim.json').exists())
+                        self.assertFalse((directory/'approval-emission.json').exists())
+                        self.assertFalse((directory/'driver.json').exists())
+                    elif not authorized or drift or signature_drift:
                         self.assertNotEqual(result.returncode, 0); self.assertFalse(marker.exists())
                         self.assertEqual(dock('inspect','--format','{{.State.Running}}',cid).stdout.strip(), b'false')
                         self.assertFalse((directory/'fixture-failure.json').exists(), 'negative case failed before its intended gate')
@@ -232,14 +242,15 @@ class DockerAdapterTest(unittest.TestCase):
                             self.assertEqual(json.loads((directory/'driver.json').read_bytes())['schema'],'ouf.semantic-preexec-driver.v5' if authenticated else 'ouf.semantic-preexec-driver.v4')
                             self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'STARTED')
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
-                    if authenticated:
+                    if authenticated and not rootfs_drift:
+                        self.assertEqual(json.loads((directory/'node-signing-claim.json').read_bytes())['state'],'ISSUING')
                         self.assertEqual(json.loads((directory/'installer-signing-claim.json').read_bytes())['state'],'ISSUING')
                         self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'PROTECTED' if drift else 'CLEANED')
                         for role in ('attestation','approval'):
                             self.assertEqual(json.loads((directory/(role+'-emission.json')).read_bytes())['state'],'ISSUED')
                             self.assertEqual(len(list((directory/(role+'-results')).glob('*.json'))),1)
                     dock('rm','--force',cid,check=False); cids.remove(cid)
-                    if authorized and not drift and not signature_drift:
+                    if authorized and not drift and not signature_drift and not rootfs_drift:
                         self.assertEqual(json.loads((directory/'adapter.json').read_bytes())['state'], 'DELETED')
                         self.assertEqual(json.loads((directory/'preexec.json').read_bytes())['state'], 'ROLLED_BACK')
                         self.assertFalse((directory/'netns').exists())
@@ -249,7 +260,7 @@ class DockerAdapterTest(unittest.TestCase):
                 print('DOCKER_PREEXEC_ADAPTER_NATIVE=PASS REAL_DOCKER_NAMED_RUNTIME=true REAL_RUNC_NFT_GATE=true'
                       ' AUTHORITY_AND_LEASE_DRIFT_NO_APPLICATION=true GUARDED_START=true DEFAULT_PRESERVED=true'
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
-                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true REAL_INSTALLER_ISSUER=true CI_NODE_ATTESTOR_ONLY=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
+                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true REAL_INSTALLER_ISSUER=true REAL_NODE_ATTESTOR=true CI_ACCEPTANCE_AUTHORITY_ONLY=true ROOTFS_DRIFT_NO_APPLICATION=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
                 if two_phase and not authenticated: print('DOCKER_TWO_PHASE_NATIVE=PASS ADAPTER_V3=true REAL_PREPARER_V2=true DRIVER_V4=true'
                     ' CREATED_BEFORE_FINAL_APPROVAL=true DURABLE_CLAIM_BEFORE_FIFO=true SYNTHETIC_CI_AUTHORITY=true')
             finally:
