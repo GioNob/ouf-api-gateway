@@ -85,7 +85,8 @@ class TargetAcceptanceTest(unittest.TestCase):
         for raw in (b'{"a":1,"a":2}',b'{"a":NaN}',b' '*131073):
             with self.assertRaises(h.Blocked):h.decode(raw)
         for code,seconds in [("print('X'*131073)",2),('import time;time.sleep(2)',0.1),('exit(1)',2)]:
-            with self.assertRaises(h.Blocked):h.bounded([sys.executable,'-c',code],time.monotonic()+seconds)
+            with self.assertRaises(h.Blocked) as error:h.bounded([sys.executable,'-c',code],time.monotonic()+seconds)
+            self.assertIn(str(error.exception),('LOCAL_COMMAND_DEADLINE','LOCAL_COMMAND_OUTPUT_LIMIT','LOCAL_COMMAND_EXIT_NONZERO'))
     def test_durable_publication_no_overwrite_or_receipt_after_fsync_failure(self):
         h.publish(self.root,'evidence.json',b'{"observed":true}')
         self.assertEqual((self.root/'evidence.json').stat().st_mode&0o777,0o600)
@@ -134,6 +135,20 @@ class TargetAcceptanceTest(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get('OUF_TARGET_ACCEPTANCE_NATIVE_TEST')=='1','real stopped Docker inventory opt-in')
 class DockerTargetAcceptanceTest(unittest.TestCase):
+    def test_go_template_handles_docker29_omitted_optional_keys(self):
+        import shutil, subprocess
+        go=os.environ.get('OUF_TEMPLATE_GO_PATH') or shutil.which('go');self.assertIsNotNone(go,'CI Go toolchain required for real text/template regression')
+        legacy=('{{json .Id}}{{json .RootFS}}{{json .Config.User}}{{json .Config.Entrypoint}}'
+            '{{json .Config.Cmd}}{{json .Config.WorkingDir}}{{json .Config.Volumes}}')
+        fixture=Path(__file__).parent/'fixtures/semantic_image_inspect_template.go'
+        with tempfile.TemporaryDirectory(dir='/root') as tmp:
+            env={**os.environ,'GO111MODULE':'off','GOTOOLCHAIN':'local','GOPROXY':'off','GOSUMDB':'off','GOCACHE':tmp}
+            result=subprocess.run([go,'run',str(fixture)],input=h.encoded({'Current':h.IMAGE,'Legacy':legacy}),
+                capture_output=True,timeout=60,env=env)
+        self.assertEqual(result.returncode,0,'Go strict image-inspect compatibility regression failed')
+        self.assertIn(b'GO_IMAGE_TEMPLATE_COMPATIBILITY=PASS',result.stdout)
+        self.assertNotIn(b'never-output',result.stdout+result.stderr)
+
     def test_cli_on_actual_images_mounts_and_two_never_started_candidates(self):
         import io, shutil, subprocess, tarfile, uuid
         from scripts import stage_semantic_local_producers_package as stage

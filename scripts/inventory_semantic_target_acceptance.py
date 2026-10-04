@@ -68,7 +68,7 @@ def private(path):
 
 
 def bounded(argv, deadline):
-    require(time.monotonic() < deadline)
+    require(time.monotonic() < deadline, 'LOCAL_COMMAND_DEADLINE')
     child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
     try:
@@ -77,12 +77,12 @@ def bounded(argv, deadline):
             chunks = []; size = 0
             while True:
                 remaining = deadline-time.monotonic()
-                require(remaining > 0 and selector.select(remaining))
+                require(remaining > 0 and selector.select(remaining), 'LOCAL_COMMAND_DEADLINE')
                 raw = os.read(child.stdout.fileno(), 16384)
                 if not raw:
                     break
-                size += len(raw); require(size <= 131072); chunks.append(raw)
-            require(child.wait(timeout=max(0.001, deadline-time.monotonic())) == 0)
+                size += len(raw); require(size <= 131072, 'LOCAL_COMMAND_OUTPUT_LIMIT'); chunks.append(raw)
+            require(child.wait(timeout=max(0.001, deadline-time.monotonic())) == 0, 'LOCAL_COMMAND_EXIT_NONZERO')
             return b''.join(chunks)
     finally:
         if child.poll() is None:
@@ -105,9 +105,12 @@ CONTAINER = ('{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},'
     '"deviceRequests":{{json .HostConfig.DeviceRequests}},"ports":{{json .HostConfig.PortBindings}},'
     '"dns":{{json .HostConfig.Dns}},"mode":{{json .HostConfig.NetworkMode}},'
     '"mounts":{{json .Mounts}},"networks":{{json .NetworkSettings.Networks}}}')
-IMAGE = ('{"id":{{json .Id}},"rootfs":{{json .RootFS}},"user":{{json .Config.User}},'
-    '"entrypoint":{{json .Config.Entrypoint}},"command":{{json .Config.Cmd}},'
-    '"workdir":{{json .Config.WorkingDir}},"volumes":{{json .Config.Volumes}}}')
+# Docker 29 omits empty optional image Config keys. index is safe on the
+# CLI's raw-map fallback; identity/RootFS/Config remain required, never defaulted.
+IMAGE = ('{"id":{{json .Id}},"rootfs":{{json .RootFS}},"user":{{json (or (index .Config "User") "")}},'
+    '"entrypoint":{{json (index .Config "Entrypoint")}},"command":{{json (index .Config "Cmd")}},'
+    '"workdir":{{json (or (index .Config "WorkingDir") "")}},"volumes":{{json (index .Config "Volumes")}}')
+
 NETWORK = '{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"ipv6":{{json .EnableIPv6}}}'
 
 
@@ -132,11 +135,11 @@ def collect(manifest, journal, query, metadata=mount_metadata):
     for spec in manifest['containers']:
         name = spec['name']; row = query('container', ids[name]); image = query('image', spec['image'])
         require(re.fullmatch('sha256:[0-9a-f]{64}', spec['image']) and image['id'] == spec['image']
-            and row['image'] == spec['image'] and row['id'] == ids[name] and row['name'] == '/'+name)
+            and row['image'] == spec['image'] and row['id'] == ids[name] and row['name'] == '/'+name, 'CANDIDATE_IMAGE_ID_DRIFT')
         require(row['status'] == 'created' and row['running'] is False and row['restarting'] is False
             and row['pid'] == 0 and row['started'].startswith('0001-01-01T') and row['restart'] == 'no'
             and row['transaction'] == journal['transaction'] and row['manifest'] == journal['manifestHash'], 'NEVER_STARTED_OWNERSHIP_REQUIRED')
-        require(re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', row['runtime']))
+        require(re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', row['runtime']), 'EXPLICIT_RUNTIME_NAME_REQUIRED')
         require(row['user'] == spec['user'] and row['entrypoint'] == image['entrypoint']
             and row['command'] == (spec['command'] or image['command']) and row['workdir'] == image['workdir']
             and not image['volumes'] and row['health'] == ['NONE'], 'SELECTED_STARTUP_DRIFT')

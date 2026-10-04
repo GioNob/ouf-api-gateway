@@ -60,6 +60,7 @@ on:
       - 'tests/test_semantic_package_directory_recovery.py'
       - 'scripts/inventory_semantic_target_acceptance.py'
       - 'tests/test_semantic_target_acceptance.py'
+      - 'tests/fixtures/semantic_image_inspect_template.go'
       - 'tests/fixtures/semantic_node_acceptance_setup.py'
       - 'tests/test_semantic_deployment_reauthorization.py'
       - 'tests/test_semantic_authenticated_driver.py'
@@ -155,6 +156,7 @@ on:
       - 'tests/test_semantic_package_directory_recovery.py'
       - 'scripts/inventory_semantic_target_acceptance.py'
       - 'tests/test_semantic_target_acceptance.py'
+      - 'tests/fixtures/semantic_image_inspect_template.go'
       - 'tests/fixtures/semantic_node_acceptance_setup.py'
       - 'tests/test_semantic_deployment_reauthorization.py'
       - 'tests/test_semantic_authenticated_driver.py'
@@ -383,4 +385,4 @@ jobs:
       - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_admission tests.test_semantic_deployment_protocol tests.test_semantic_deployment_consumption tests.test_semantic_deployment_package tests.test_semantic_deployment_trust_backend tests.test_semantic_deployment_authentication tests.test_semantic_authenticated_deployment_package tests.test_semantic_deployment_reauthorization tests.test_semantic_authenticated_driver tests.test_semantic_authenticated_runtime_package tests.test_semantic_deployment_producer tests.test_semantic_deployment_broker tests.test_semantic_local_broker_package tests.test_semantic_installer_approval tests.test_semantic_node_attestor tests.test_semantic_local_producers_package tests.test_semantic_package_directory_recovery tests.test_semantic_target_acceptance.TargetAcceptanceTest
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
       - run: sudo unshare --net --fork env OUF_ADMISSION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_admission_native
-      - run: sudo env OUF_TARGET_ACCEPTANCE_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_target_acceptance.DockerTargetAcceptanceTest
+      - run: sudo env OUF_TARGET_ACCEPTANCE_NATIVE_TEST=1 OUF_TEMPLATE_GO_PATH="$(command -v go)" "$(command -v python3)" -B -m unittest tests.test_semantic_target_acceptance.DockerTargetAcceptanceTest
