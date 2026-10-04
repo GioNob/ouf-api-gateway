@@ -109,7 +109,7 @@ CONTAINER = ('{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},'
 # CLI's raw-map fallback; identity/RootFS/Config remain required, never defaulted.
 IMAGE = ('{"id":{{json .Id}},"rootfs":{{json .RootFS}},"user":{{json (or (index .Config "User") "")}},'
     '"entrypoint":{{json (index .Config "Entrypoint")}},"command":{{json (index .Config "Cmd")}},'
-    '"workdir":{{json (or (index .Config "WorkingDir") "")}},"volumes":{{json (index .Config "Volumes")}}')
+    '"workdir":{{json (or (index .Config "WorkingDir") "")}},"volumes":{{json (index .Config "Volumes")}}}')
 
 NETWORK = '{"id":{{json .Id}},"name":{{json .Name}},"driver":{{json .Driver}},"ipv6":{{json .EnableIPv6}}}'
 
