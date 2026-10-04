@@ -216,7 +216,7 @@ class DetachedAuthenticator:
         self.check_budget()
         require(result.returncode == 0, 'DETACHED_SIGNATURE_INVALID')
 
-    def __call__(self, raw, role, issuer, installation, entity):
+    def verify_detached(self, raw, signature_raw, role, issuer, installation, entity):
         require(type(raw) is bytes and 0 < len(raw) <= 131072 and type(role) is str
                 and role in ROLES and all(identity(v) for v in (issuer,installation,entity)),
                 'EXACT_AUTHENTICATION_SCOPE_REQUIRED')
@@ -224,8 +224,7 @@ class DetachedAuthenticator:
         now = self.clock(); policy_raw = self.read_policy()
         configured = policy(policy_raw, installation, entity, now)
         payload_hash = hashlib.sha256(raw).hexdigest()
-        path = self.signature_directory/(payload_hash+'.'+role+'.json')
-        signature_raw = private_bytes(path,4096); record = decode(signature_raw,4096)
+        record = decode(signature_raw,4096)
         require(set(record) == {'schema','algorithm','keyRef','role','issuerRef','installationRef',
                 'entityRef','payloadHash','signature'}
                 and record['schema'] == 'ouf.semantic-deployment-detached-signature.v1'
@@ -243,7 +242,18 @@ class DetachedAuthenticator:
         finished = self.clock()
         require(finished >= now and keys[0]['notBefore'] <= finished < keys[0]['expiresAt'],
                 'LOCAL_MANDATE_EXPIRED_OR_CLOCK_REGRESSED')
-        require(self.read_policy() == policy_raw and private_bytes(path,4096) == signature_raw,
+        require(self.read_policy() == policy_raw,
                 'AUTHENTICATION_REVOKED_DURING_VERIFICATION')
+        self.check_budget()
+        return True
+
+    def __call__(self, raw, role, issuer, installation, entity):
+        require(type(raw) is bytes and 0 < len(raw) <= 131072 and type(role) is str
+                and role in ROLES and all(identity(v) for v in (issuer,installation,entity)),
+                'EXACT_AUTHENTICATION_SCOPE_REQUIRED')
+        path = self.signature_directory/(hashlib.sha256(raw).hexdigest()+'.'+role+'.json')
+        signature_raw = private_bytes(path,4096)
+        self.verify_detached(raw, signature_raw, role, issuer, installation, entity)
+        require(private_bytes(path,4096) == signature_raw, 'AUTHENTICATION_REVOKED_DURING_VERIFICATION')
         self.check_budget()
         return True
