@@ -197,7 +197,12 @@ class DockerAdapterTest(unittest.TestCase):
                         grant = json.loads((directory/'driver.json').read_bytes())
                         self.assertEqual(grant['profile']['applicationStartAuthorized'], authorized)
                         value = json.loads((directory/'preexec.json').read_bytes())
-                        self.assertEqual(value['state'], 'PROTECTED'); self.assertIsNone(value['containerGeneration'])
+                        self.assertEqual(value['state'], 'ROLLED_BACK' if signature_drift else 'PROTECTED'); self.assertIsNone(value['containerGeneration'])
+                        if signature_drift:
+                            self.assertIn(b'OCI_ADMISSION_GATE_DENIED',result.stderr)
+                            self.assertEqual(json.loads((directory/'adapter.json').read_bytes())['state'],'DELETED')
+                            self.assertEqual(json.loads((directory/'admission.json').read_bytes())['state'],'CLEANED')
+                            self.assertFalse((directory/'netns').exists())
                         coordination = json.loads((directory/'coordination.json').read_bytes())
                         self.assertEqual(coordination['state'], 'QUIESCING' if drift else 'QUIESCED')
                         if two_phase: self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'READY')
