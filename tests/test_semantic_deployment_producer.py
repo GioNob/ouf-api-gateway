@@ -3,6 +3,7 @@ import base64
 import copy
 import hashlib
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import unittest
@@ -10,7 +11,8 @@ from unittest.mock import patch
 from tests import test_semantic_deployment_authentication as crypto
 from tests import test_semantic_deployment_protocol as protocol
 from tools.semantic_provider_deployment_authentication import VerificationBudget
-from tools.semantic_provider_deployment_producer import LocalEvidenceProducer, encoded
+from tools.semantic_provider_deployment_producer import LocalEvidenceProducer, ProducerEmission, encoded
+from tools.semantic_provider_lease_coordination import PrivateJournal,hold_common_lock
 from tools.semantic_provider_deployment_protocol import validate_final
 from tools.semantic_provider_preexec import PreexecDenied, digest
 
@@ -115,5 +117,62 @@ class ProducerTest(unittest.TestCase):
     def test_different_verifier_budget_cannot_extend_operation(self):
         with self.assertRaisesRegex(PreexecDenied,'SHARED_PRODUCER_VERIFICATION_DEADLINE_REQUIRED'):
             LocalEvidenceProducer(self.producer.configured,self.fixture.ctx,self.fixture.verifier,VerificationBudget(5))
+
+
+    def emission(self):
+        root=self.fixture.root;path=root/'emission.json';directory=root/'results';directory.mkdir(mode=0o700)
+        lock=root/'guard.lock';lock.touch(mode=0o600)
+        gate=ProducerEmission(self.producer,self.role,self.facts,PrivateJournal(path),directory,lambda:hold_common_lock(lock))
+        path.write_bytes(encoded({'schema':'ouf.semantic-local-producer-emission.v1',**gate.binding,'state':'UNUSED','resultHash':None}));path.chmod(0o600)
+        return gate
+
+    def test_durable_claim_precedes_invocation_and_result_is_persisted_once(self):
+        gate=self.emission();original=self.producer.emit
+        def invoke(*args):
+            self.assertEqual(gate.record()['state'],'ISSUING');return original(*args)
+        with patch.object(self.producer,'emit',side_effect=invoke):value=gate.emit_once()
+        raw=Path(value['custody']['path']).read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),gate.record()['resultHash']);self.assertEqual(gate.record()['state'],'ISSUED')
+        self.assertEqual(json.loads(raw)['requestHash'],gate.binding['requestHash'])
+        with patch.object(self.producer,'emit',side_effect=AssertionError('must not reissue')):
+            with self.assertRaisesRegex(PreexecDenied,'DO_NOT_REPLAY_PRODUCER_EMISSION'):gate.emit_once()
+
+    def test_unknown_producer_outcome_preserves_issuing_without_retry(self):
+        gate=self.emission()
+        with patch.object(self.producer,'emit',side_effect=PreexecDenied('UNKNOWN')):
+            with self.assertRaises(PreexecDenied):gate.emit_once()
+        self.assertEqual(gate.record()['state'],'ISSUING')
+        with patch.object(self.producer,'emit',side_effect=AssertionError('must not retry')):
+            with self.assertRaises(PreexecDenied):gate.emit_once()
+
+    def test_claim_fsync_failure_does_not_invoke_producer(self):
+        gate=self.emission()
+        with patch.object(gate.journal,'write',side_effect=OSError('fixture fsync failure')):
+            with patch.object(self.producer,'emit',side_effect=AssertionError('must not invoke')):
+                with self.assertRaises(OSError):gate.emit_once()
+        self.assertEqual(gate.record()['state'],'UNUSED')
+
+    def test_foreign_result_blocks_before_issuance_and_is_preserved(self):
+        gate=self.emission();path=gate.directory/(gate.binding['requestHash']+'.json');path.write_bytes(b'FOREIGN');path.chmod(0o600)
+        with patch.object(self.producer,'emit',side_effect=AssertionError('must not issue')):
+            with self.assertRaisesRegex(PreexecDenied,'FOREIGN_PRODUCER_RESULT_PRESERVED'):gate.emit_once()
+        self.assertEqual(path.read_bytes(),b'FOREIGN');self.assertEqual(gate.record()['state'],'UNUSED')
+        with self.assertRaises(PreexecDenied):gate.emit_once()
+
+    def test_two_processes_cannot_issue_one_claim_twice(self):
+        gate=self.emission();ctx=multiprocessing.get_context('fork');begin=ctx.Event();out=ctx.Queue()
+        def worker():
+            begin.wait(5)
+            try:gate.emit_once();out.put('ISSUED')
+            except (PreexecDenied,BlockingIOError):out.put('DENIED')
+        children=[ctx.Process(target=worker) for _ in range(2)]
+        for child in children:child.start()
+        begin.set()
+        for child in children:
+            child.join(8)
+            if child.is_alive():child.terminate();child.join();self.fail('emission worker timeout')
+            self.assertEqual(child.exitcode,0)
+        self.assertCountEqual([out.get(timeout=1),out.get(timeout=1)],['ISSUED','DENIED'])
+        self.assertEqual(gate.record()['state'],'ISSUED')
 
 if __name__=='__main__':unittest.main()

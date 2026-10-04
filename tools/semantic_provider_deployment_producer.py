@@ -1,7 +1,7 @@
 """Bounded transport for explicitly mandated local evidence producers.
 
-No keys, mandate, signature issuance, publication, journal or runtime operation
-is implemented here. A configured producer may issue evidence under its own
+No keys, mandate, signature issuance or runtime operation is implemented here.
+The optional emission wrapper persists claim/result custody without retry. A configured producer may issue evidence under its own
 explicit mandate. Its reply and a separate request binding must both verify.
 """
 import base64
@@ -174,3 +174,66 @@ class LocalEvidenceProducer:
         # responsibilities. An authenticated reply is never a start instruction.
         return {'record':record_raw,'recordSignature':signature,
                 'binding':binding_raw,'bindingSignature':binding_signature}
+
+
+class ProducerEmission:
+    """One durable issuance attempt under the existing guard/lease lock.
+
+    Installer provisions UNUSED and the empty root-private result directory.
+    Unknown ISSUING outcomes require explicit recovery; no reset or replay API.
+    """
+    def __init__(self, producer, role, facts, journal, result_directory, hold_lock):
+        request, raw = producer.request(role,facts)
+        self.binding = {k:request[k] for k in ('role','installationRef','entityRef','issuerRef','containerId','transactionId')}
+        self.binding.update(requestHash=hashlib.sha256(raw).hexdigest(),
+                            producerHash=hashlib.sha256(encoded(producer.configured)).hexdigest())
+        self.producer, self.role, self.facts = producer, role, copy.deepcopy(facts)
+        self.journal, self.hold_lock = journal, hold_lock
+        self.directory = Path(result_directory); ancestors(self.directory/'placeholder')
+        info = self.directory.lstat()
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid == info.st_gid == 0 and stat.S_IMODE(info.st_mode) == 0o700,
+                'PRIVATE_PRODUCER_RESULT_DIRECTORY_REQUIRED')
+
+    def record(self):
+        value = self.journal.read()
+        require(type(value) is dict and set(value) == {'schema',*self.binding,'state','resultHash'}
+                and value['schema'] == 'ouf.semantic-local-producer-emission.v1'
+                and all(value[k] == v for k,v in self.binding.items())
+                and value['state'] in ('UNUSED','ISSUING','ISSUED')
+                and (hashed(value['resultHash']) if value['state']=='ISSUED' else value['resultHash'] is None),
+                'EXACT_PRODUCER_EMISSION_CUSTODY_REQUIRED')
+        return copy.deepcopy(value)
+
+    def publish(self, old, state, result_hash=None):
+        require(self.record() == old,'PRODUCER_EMISSION_CHANGED_UNDER_LOCK')
+        value={**old,'state':state,'resultHash':result_hash};self.journal.write(old,value)
+        require(self.record() == value,'PRODUCER_EMISSION_PUBLICATION_UNPROVEN')
+        return value
+
+    def emit_once(self):
+        with self.hold_lock(): return self.emit_locked()
+
+    def emit_locked(self):
+        """Internal composition point: caller already owns the common lock."""
+        old = self.record();require(old['state']=='UNUSED','DO_NOT_REPLAY_PRODUCER_EMISSION')
+        path=self.directory/(self.binding['requestHash']+'.json')
+        require(not path.exists() and not path.is_symlink(),'FOREIGN_PRODUCER_RESULT_PRESERVED')
+        self.producer.budget.check()
+        pending = self.publish(old,'ISSUING')
+        result = self.producer.emit(self.role,self.facts)
+        require(self.record() == pending,'PRODUCER_EMISSION_CHANGED_BEFORE_PUBLICATION')
+        value={'schema':'ouf.semantic-local-producer-result-custody.v1',**self.binding,
+               **{key:base64.b64encode(raw).decode('ascii') for key,raw in result.items()}}
+        raw=encoded(value);require(len(raw)<=262144,'PRODUCER_RESULT_CUSTODY_UNBOUNDED')
+        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        try:
+            os.fchmod(fd,0o600)
+            with os.fdopen(fd,'wb',closefd=False) as stream:stream.write(raw);stream.flush();os.fsync(fd)
+        finally:os.close(fd)
+        directory=os.open(self.directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:os.fsync(directory)
+        finally:os.close(directory)
+        require(private_bytes(path,262144) == raw,'PRODUCER_RESULT_CUSTODY_DRIFT')
+        self.producer.budget.check()
+        digest=hashlib.sha256(raw).hexdigest();self.publish(pending,'ISSUED',digest)
+        return {'result':result,'custody':{'path':str(path),'sha256':digest}}
