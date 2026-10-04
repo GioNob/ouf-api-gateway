@@ -19,6 +19,7 @@ from tools.semantic_provider_deployment_admission import application_hash,transp
 from tools.semantic_provider_deployment_authentication import VerificationBudget
 from tools.semantic_provider_deployment_producer import encoded
 from tools.semantic_provider_node_observation import rootfs_seal
+from tools.semantic_provider_preexec import PreexecDenied
 from tools.semantic_provider_preexec_native import NativeBackend
 
 
@@ -30,6 +31,15 @@ class NodeLiveNativeTest(unittest.TestCase):
     peer=network_fixture.NativeTest.peer
 
     def test_real_created_generation_rootfs_and_producer_cli_before_application_start(self):
+        self.exercise()
+
+    def test_real_rootfs_drift_denies_before_node_claim_or_mandate(self):
+        self.exercise('rootfs')
+
+    def test_real_full_oci_drift_denies_before_node_claim_or_mandate(self):
+        self.exercise('oci')
+
+    def exercise(self,drift=None):
         fixture=crypto_fixture.LiveMandateTest();fixture.setUp();self.addCleanup(fixture.doCleanups)
         node=fixture.f;f=node.f;root=node.root
         bridge='brnode';self.command('ip','link','add',bridge,'type','bridge');self.links.append(bridge)
@@ -80,6 +90,20 @@ class NodeLiveNativeTest(unittest.TestCase):
         fixture.authorization.update({k:v for k,v in node.facts.items() if k!='generation'})
         fixture.authorization['rootfsSeal']=node.seal;fixture.resign()
         self.assertFalse(Path(node.cfg['acceptanceMandatePath']).exists())
+        if drift:
+            if drift=='rootfs':
+                path=fs/'bin/busybox';path.write_bytes(path.read_bytes()+b'CI-ROOTFS-DRIFT')
+            else:
+                oci['process']['args']=['/bin/sh','-c','echo FOREIGN > /proof/started']
+                f.write(bundle/'config.json',oci)
+            with self.assertRaises(PreexecDenied):node.producer.emit('CREATION_ATTESTATION',node.facts)
+            self.assertFalse(Path(node.cfg['issuanceClaimPath']).exists())
+            self.assertFalse(Path(node.cfg['acceptanceMandatePath']).exists())
+            self.assertEqual(json.loads(self.command(*runc_args,'state',cid))['status'],'created')
+            self.assertFalse(marker.exists())
+            print('NODE_LIVE_NATIVE_DENIAL=PASS DRIFT='+drift.upper()+
+                  ' NODE_CLAIM_CREATED=false MANDATE_PUBLISHED=false APPLICATION_NOT_STARTED=true CI_ONLY=true')
+            return
         started=time.monotonic()
         reply=node.producer.emit('CREATION_ATTESTATION',node.facts)
         elapsed=time.monotonic()-started
