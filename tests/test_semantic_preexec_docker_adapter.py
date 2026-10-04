@@ -79,13 +79,15 @@ class DockerAdapterTest(unittest.TestCase):
             names=[SELF, 'scripts/semantic_provider_docker_runtime.py', *('tools/'+v+'.py' for v in MODULES)]
             if two_phase: names += [preparer.SELF,'tools/semantic_provider_deployment_admission.py',
                                    'tools/semantic_provider_deployment_protocol.py','tools/semantic_provider_deployment_consumption.py']
-            if authenticated: names += ['tools/semantic_provider_deployment_authentication.py','tools/semantic_provider_deployment_reauthorization.py']
+            if authenticated: names += ['tools/semantic_provider_deployment_authentication.py','tools/semantic_provider_deployment_reauthorization.py',
+                'tools/semantic_provider_deployment_producer.py','scripts/semantic_provider_deployment_broker.py']
             for relative in names:
                 target = source/relative; target.parent.mkdir(mode=0o700, exist_ok=True)
                 target.write_bytes((repository/relative).read_bytes()); target.chmod(0o600)
             def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
             broker = root/'admission.py'
             fixture='semantic_docker_two_phase_fixture.py' if two_phase else 'semantic_docker_admission_fixture.py'
+            if authenticated: fixture='semantic_operational_broker_fixture.py'
             broker.write_bytes((repository/'tests/fixtures'/fixture).read_bytes()); broker.chmod(0o600)
             registry = root/'registry'; registry.mkdir(mode=0o700)
             admission_path = root/'admission.json'; config_path = root/'adapter.json'
@@ -179,11 +181,17 @@ class DockerAdapterTest(unittest.TestCase):
                             broker_cfg['crypto']={'policyBinding':{'path':str(policy),'sha256':sha(policy)},
                                 'signatureDirectory':str(signatures),'opensslBinding':{'path':openssl,'sha256':sha(openssl),'version':version},
                                 'privateKeys':keys}
+                        if authenticated:
+                            from tests.fixtures.semantic_operational_broker_setup import configure
+                            broker_cfg=configure(directory,broker_cfg,repository,source,python,run)
                         private(entry_config,broker_cfg)
                         binding={k:intent[k] for k in ('installationRef','entityRef','containerId','transactionId')}
                         binding.update(intentHash=digest(intent),configurationHash=sha(entry_config))
                         private(directory/'deployment.json',{'schema':'ouf.semantic-deployment-consumption.v1',**binding,
                             'state':'STAGED','bundleHash':None,'generation':None,'evidenceHash':None,'approvalHash':None,'driverHash':None})
+                        if authenticated:
+                            private(directory/'broker-state.json',{'schema':'ouf.semantic-deployment-broker-journal.v1',**binding,
+                                'state':'STAGED','runtimeRoot':None,'bundleHash':None,'driverHash':None})
                         cfg['candidates'][cid]={'intentRef':digest(intent),'bundleParents':parents,
                             'admissionConfiguration':str(entry_config),'admissionConfigurationHash':sha(entry_config)}
                     private(config_path, cfg)
@@ -222,6 +230,11 @@ class DockerAdapterTest(unittest.TestCase):
                             self.assertEqual(json.loads((directory/'driver.json').read_bytes())['schema'],'ouf.semantic-preexec-driver.v5' if authenticated else 'ouf.semantic-preexec-driver.v4')
                             self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'STARTED')
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
+                    if authenticated:
+                        self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'CLEANED' if signature_drift else 'PROTECTED')
+                        for role in ('attestation','approval'):
+                            self.assertEqual(json.loads((directory/(role+'-emission.json')).read_bytes())['state'],'ISSUED')
+                            self.assertEqual(len(list((directory/(role+'-results')).glob('*.json'))),1)
                     dock('rm','--force',cid,check=False); cids.remove(cid)
                     if authorized and not drift and not signature_drift:
                         self.assertEqual(json.loads((directory/'adapter.json').read_bytes())['state'], 'DELETED')
@@ -233,7 +246,7 @@ class DockerAdapterTest(unittest.TestCase):
                 print('DOCKER_PREEXEC_ADAPTER_NATIVE=PASS REAL_DOCKER_NAMED_RUNTIME=true REAL_RUNC_NFT_GATE=true'
                       ' AUTHORITY_AND_LEASE_DRIFT_NO_APPLICATION=true GUARDED_START=true DEFAULT_PRESERVED=true'
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
-                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
+                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
                 if two_phase and not authenticated: print('DOCKER_TWO_PHASE_NATIVE=PASS ADAPTER_V3=true REAL_PREPARER_V2=true DRIVER_V4=true'
                     ' CREATED_BEFORE_FINAL_APPROVAL=true DURABLE_CLAIM_BEFORE_FIFO=true SYNTHETIC_CI_AUTHORITY=true')
             finally:

@@ -85,23 +85,31 @@ class Consumption:
 
     def ready(self, intent_raw, attestation_raw, approval_raw, authorities, authenticate, clock=time.time):
         with self.hold_lock():
-            old = self.record()
-            require(old['state'] == 'CREATED', 'DO_NOT_REPLAY_FINAL_EVIDENCE')
-            evidence = validate_final(intent_raw, attestation_raw, approval_raw, authorities, authenticate, clock)
-            require(evidence['intentHash'] == self.binding['intentHash']
-                    and all(evidence['scope'][k] == self.binding[k] for k in
-                            ('installationRef', 'entityRef', 'containerId', 'transactionId'))
-                    and evidence['scope']['applicationHash'] == old['bundleHash']
-                    and evidence['generation'] == old['generation'], 'CREATED_EVIDENCE_GENERATION_DRIFT')
-            self.publish(old, state='READY', evidenceHash=digest(evidence), approvalHash=evidence['approvalHash'])
-            return evidence
+            return self.ready_locked(intent_raw, attestation_raw, approval_raw, authorities, authenticate, clock)
+
+    def ready_locked(self, intent_raw, attestation_raw, approval_raw, authorities, authenticate, clock=time.time):
+        """Internal composition point: caller already owns the common lock."""
+        old = self.record()
+        require(old['state'] == 'CREATED', 'DO_NOT_REPLAY_FINAL_EVIDENCE')
+        evidence = validate_final(intent_raw, attestation_raw, approval_raw, authorities, authenticate, clock)
+        require(evidence['intentHash'] == self.binding['intentHash']
+                and all(evidence['scope'][k] == self.binding[k] for k in
+                        ('installationRef', 'entityRef', 'containerId', 'transactionId'))
+                and evidence['scope']['applicationHash'] == old['bundleHash']
+                and evidence['generation'] == old['generation'], 'CREATED_EVIDENCE_GENERATION_DRIFT')
+        self.publish(old, state='READY', evidenceHash=digest(evidence), approvalHash=evidence['approvalHash'])
+        return evidence
 
     def seal_driver(self, driver_hash):
         with self.hold_lock():
-            old = self.record()
-            require(old['state'] == 'READY' and old['driverHash'] is None and hashed(driver_hash),
-                    'DO_NOT_REBIND_CONSUMPTION_DRIVER')
-            return self.publish(old, driverHash=driver_hash)
+            return self.seal_driver_locked(driver_hash)
+
+    def seal_driver_locked(self, driver_hash):
+        """Internal composition point: caller already owns the common lock."""
+        old = self.record()
+        require(old['state'] == 'READY' and old['driverHash'] is None and hashed(driver_hash),
+                'DO_NOT_REBIND_CONSUMPTION_DRIVER')
+        return self.publish(old, driverHash=driver_hash)
 
     def consume_locked(self, evidence_hash, driver_hash, live_generation, reauthorize, starter):
         """Caller already holds the common lock; persist before FIFO release.

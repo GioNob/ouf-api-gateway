@@ -95,17 +95,7 @@ def validate_intent(raw, configured_authorities, authenticate, clock=time.time):
     return copy.deepcopy(value)
 
 
-def validate_final(intent_raw, attestation_raw, approval_raw, configured_authorities,
-                   authenticate, clock=time.time):
-    """Bind externally authenticated creation evidence and final approval.
-
-    The attestor owns actual image/OCI/runtime inspection. This validator binds
-    its claims and retains the created process generation for a subsequent live
-    comparison; it performs neither inspection nor journal consumption itself.
-    """
-    ctx = context(configured_authorities)
-    now = clock()
-    intent = validate_intent(intent_raw, ctx, authenticate, lambda: now)
+def _validate_creation(intent_raw, attestation_raw, ctx, authenticate, now, intent):
     attested = decode(attestation_raw)
     fields = {'schema', 'attestorRef', 'installationRef', 'entityRef', 'intentHash',
               'containerId', 'transactionId', 'artifactHash', 'deploymentConstraintsHash',
@@ -137,6 +127,34 @@ def validate_final(intent_raw, attestation_raw, approval_raw, configured_authori
             and all(creation[k] == attested[k] for k in ('containerId', 'applicationHash', 'transportHash')),
             'COMPLETE_CREATION_ACCEPTANCE_REQUIRED')
     authenticated(attestation_raw, 'CREATION_ATTESTATION', ctx['attestorRef'], ctx, authenticate)
+    return copy.deepcopy(attested)
+
+
+def validate_creation(intent_raw, attestation_raw, configured_authorities, authenticate, clock=time.time):
+    """Validate complete creation claims before asking an issuer for approval."""
+    ctx = context(configured_authorities)
+    now = clock()
+    intent = validate_intent(intent_raw, ctx, authenticate, lambda: now)
+    attested = _validate_creation(intent_raw, attestation_raw, ctx, authenticate, now, intent)
+    finished = clock()
+    require(finished >= now, "PROTOCOL_CLOCK_REGRESSED")
+    window(intent, finished)
+    return attested
+
+
+def validate_final(intent_raw, attestation_raw, approval_raw, configured_authorities,
+                   authenticate, clock=time.time):
+    """Bind externally authenticated creation evidence and final approval.
+
+    The attestor owns actual image/OCI/runtime inspection. This validator binds
+    its claims and retains the created process generation for a subsequent live
+    comparison; it performs neither inspection nor journal consumption itself.
+    """
+    ctx = context(configured_authorities)
+    now = clock()
+    intent = validate_intent(intent_raw, ctx, authenticate, lambda: now)
+    attested = _validate_creation(intent_raw, attestation_raw, ctx, authenticate, now, intent)
+    creation, generation = attested["creationAcceptance"], attested["generation"]
     approval = decode(approval_raw)
     # Canonical acceptance bytes must be used when publishing the legacy receipt.
     scope = {'issuerRef': ctx['approvalIssuerRef'], 'installationRef': ctx['installationRef'],
