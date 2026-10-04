@@ -40,7 +40,8 @@ class AuthenticationTest(unittest.TestCase):
                  'publicKey':public[12:].hex(),'notBefore':50,'expiresAt':300,'state':'ACTIVE'}]}
         self.write_policy()
         self.policy_binding = {'path':str(self.policy_path),'sha256':hashlib.sha256(self.policy_path.read_bytes()).hexdigest()}
-        self.openssl_binding = {'path':str(self.openssl),'sha256':hashlib.sha256(self.openssl.read_bytes()).hexdigest()}
+        version=subprocess.run([str(self.openssl),'version'],check=True,capture_output=True,text=True,timeout=3).stdout.split()[1]
+        self.openssl_binding = {'path':str(self.openssl),'sha256':hashlib.sha256(self.openssl.read_bytes()).hexdigest(),'version':version}
         self.verifier = auth.DetachedAuthenticator(self.policy_binding,self.signature_directory,self.openssl_binding,lambda:150)
         self.raw = b'{"payload":"exact synthetic CI evidence"}'
         self.sign(self.raw,'DEPLOYMENT_INTENT','installer-a','installer-key')
@@ -163,6 +164,15 @@ class AuthenticationTest(unittest.TestCase):
         self.signature_directory.chmod(0o755)
         with self.assertRaisesRegex(PreexecDenied,'PRIVATE_SIGNATURE_DIRECTORY_REQUIRED'):
             auth.DetachedAuthenticator(self.policy_binding,self.signature_directory,self.openssl_binding)
+
+    def test_root_owned_noop_or_different_openssl_version_is_not_a_verifier(self):
+        noop=Path('/usr/bin/true')
+        binding={'path':str(noop),'sha256':hashlib.sha256(noop.read_bytes()).hexdigest(),'version':self.openssl_binding['version']}
+        self.verifier=auth.DetachedAuthenticator(self.policy_binding,self.signature_directory,binding,lambda:150)
+        with self.assertRaisesRegex(PreexecDenied,'DETACHED_OPENSSL_VERSION_UNPROVEN'):self.verify()
+        self.verifier=auth.DetachedAuthenticator(self.policy_binding,self.signature_directory,
+            {**self.openssl_binding,'version':'99.99.99'},lambda:150)
+        with self.assertRaisesRegex(PreexecDenied,'DETACHED_OPENSSL_VERSION_UNPROVEN'):self.verify()
 
 
 if __name__=='__main__':unittest.main()

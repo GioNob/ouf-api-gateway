@@ -120,7 +120,12 @@ def signing_bytes(raw, header):
 class DetachedAuthenticator:
     def __init__(self, policy_binding, signature_directory, openssl_binding, clock=time.time):
         self.policy_binding = binding(policy_binding)
-        self.openssl_binding = binding(openssl_binding)
+        require(type(openssl_binding) is dict and set(openssl_binding) == {'path','sha256','version'}
+                and type(openssl_binding['version']) is str
+                and re.fullmatch('[0-9]+[.][0-9]+[.][0-9]+[a-z]?',openssl_binding['version']),
+                'EXACT_OPENSSL_VERSION_BINDING_REQUIRED')
+        self.openssl_binding = {**binding({k:openssl_binding[k] for k in ('path','sha256')}),
+                                'version':openssl_binding['version']}
         self.signature_directory = Path(signature_directory)
         ancestors(self.signature_directory/'placeholder')
         info = self.signature_directory.lstat()
@@ -154,6 +159,19 @@ class DetachedAuthenticator:
 
     def verify(self, payload, public_key, signature):
         executable = self.executable()
+        # A root-owned executable that merely exits zero is not a verifier.
+        with tempfile.TemporaryFile() as output:
+            try:
+                result = subprocess.run([executable,'version'],stdin=subprocess.DEVNULL,
+                    stdout=output,stderr=subprocess.DEVNULL,timeout=2,
+                    env={'PATH':'/usr/bin:/bin','LC_ALL':'C','OPENSSL_CONF':'/dev/null'})
+            except (OSError, subprocess.TimeoutExpired):
+                raise PreexecDenied('DETACHED_VERIFICATION_UNPROVEN') from None
+            output.seek(0); raw = output.read(257)
+        version = re.match(rb'OpenSSL ([0-9]+[.][0-9]+[.][0-9]+[a-z]?)\b',raw)
+        require(result.returncode == 0 and len(raw) <= 256 and version is not None
+                and version.group(1).decode('ascii') == self.openssl_binding['version'],
+                'DETACHED_OPENSSL_VERSION_UNPROVEN')
         with tempfile.TemporaryDirectory(prefix='ouf-detached-verification-') as directory:
             paths = []
             for name, raw in zip(('public.der','signature.bin','frame.bin'),
