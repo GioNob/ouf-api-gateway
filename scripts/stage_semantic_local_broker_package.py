@@ -55,15 +55,6 @@ def manifest(raw):
     return values
 
 
-def parse(raw):
-    def unique(pairs):
-        result={}
-        for k,v in pairs:
-            require(k not in result,'DUPLICATE_RECEIPT_KEY');result[k]=v
-        return result
-    return json.loads(raw,object_pairs_hook=unique)
-
-
 def tools_available():
     result={}
     for name,path in {'python':'/usr/bin/python3','runc':'/usr/bin/runc','nft':'/usr/sbin/nft','ip':'/usr/sbin/ip',
@@ -107,7 +98,8 @@ def operate(mode,root,commit,expected_manifest_hash):
         'trustPolicyProvisioned':False,'keysGenerated':0,'privateKeysRead':0,'signaturesIssued':0,'providerCalls':0,
         'notReleaseAcceptance':True,'noSecretsPrinted':True}
     path=root/'source-package-receipt.json'
-    if mode=='verify':require(parse(private(path))==receipt,'PRIVATE_PACKAGE_DRIFT')
+    receipt_raw=json.dumps(receipt,sort_keys=True,separators=(',',':')).encode()
+    if mode=='verify':require(private(path)==receipt_raw,'PRIVATE_PACKAGE_DRIFT')
     elif mode in ('plan','apply'):
         require(not path.exists() and not path.is_symlink(),'DO_NOT_REPLAY_PACKAGE_APPLY')
         if mode=='apply':
@@ -115,12 +107,12 @@ def operate(mode,root,commit,expected_manifest_hash):
             try:
                 os.fchmod(fd,0o600)
                 with os.fdopen(fd,'wb',closefd=False) as stream:
-                    stream.write(json.dumps(receipt,sort_keys=True,separators=(',',':')).encode());stream.flush();os.fsync(fd)
+                    stream.write(receipt_raw);stream.flush();os.fsync(fd)
             finally:os.close(fd)
             directory=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
             try:os.fsync(directory)
             finally:os.close(directory)
-            require(parse(private(path))==receipt,'PRIVATE_RECEIPT_PUBLICATION_UNPROVEN')
+            require(private(path)==receipt_raw,'PRIVATE_RECEIPT_PUBLICATION_UNPROVEN')
     else:require(False,'EXPLICIT_PACKAGE_MODE_REQUIRED')
     return receipt
 

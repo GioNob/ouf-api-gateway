@@ -70,6 +70,12 @@ class LocalBrokerPackageTest(unittest.TestCase):
                 else:path.write_bytes(original);path.chmod(0o644)
                 self.assertNotEqual(self.call('apply').returncode,0)
                 self.assertFalse((self.root/'source-package-receipt.json').exists())
+    def test_receipt_boolean_and_integer_alias_cannot_pass_verify(self):
+        self.assertEqual(self.call('apply').returncode,0)
+        path=self.root/'source-package-receipt.json';value=json.loads(path.read_bytes());value['brokerInstalled']=0
+        path.write_text(json.dumps(value,sort_keys=True,separators=(',',':')))
+        self.assertNotEqual(self.call('verify').returncode,0)
+
     def test_verified_receipt_drift_is_denied_without_repair(self):
         self.assertEqual(self.call('apply').returncode,0)
         path=self.root/'source-package-receipt.json';value=json.loads(path.read_bytes());value['brokerInstalled']=True
