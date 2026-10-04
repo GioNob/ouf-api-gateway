@@ -58,6 +58,8 @@ on:
       - 'tests/test_semantic_local_producers_package.py'
       - 'scripts/repair_semantic_local_producers_package_directory.py'
       - 'tests/test_semantic_package_directory_recovery.py'
+      - 'scripts/prepare_semantic_authority_keys.py'
+      - 'tests/test_semantic_authority_keys.py'
       - 'scripts/inventory_semantic_target_acceptance.py'
       - 'tests/test_semantic_target_acceptance.py'
       - 'tests/fixtures/semantic_image_inspect_template.go'
@@ -154,6 +156,8 @@ on:
       - 'tests/test_semantic_local_producers_package.py'
       - 'scripts/repair_semantic_local_producers_package_directory.py'
       - 'tests/test_semantic_package_directory_recovery.py'
+      - 'scripts/prepare_semantic_authority_keys.py'
+      - 'tests/test_semantic_authority_keys.py'
       - 'scripts/inventory_semantic_target_acceptance.py'
       - 'tests/test_semantic_target_acceptance.py'
       - 'tests/fixtures/semantic_image_inspect_template.go'
@@ -382,7 +386,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_admission tests.test_semantic_deployment_protocol tests.test_semantic_deployment_consumption tests.test_semantic_deployment_package tests.test_semantic_deployment_trust_backend tests.test_semantic_deployment_authentication tests.test_semantic_authenticated_deployment_package tests.test_semantic_deployment_reauthorization tests.test_semantic_authenticated_driver tests.test_semantic_authenticated_runtime_package tests.test_semantic_deployment_producer tests.test_semantic_deployment_broker tests.test_semantic_local_broker_package tests.test_semantic_installer_approval tests.test_semantic_node_attestor tests.test_semantic_local_producers_package tests.test_semantic_package_directory_recovery tests.test_semantic_target_acceptance.TargetAcceptanceTest
+      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_admission tests.test_semantic_deployment_protocol tests.test_semantic_deployment_consumption tests.test_semantic_deployment_package tests.test_semantic_deployment_trust_backend tests.test_semantic_deployment_authentication tests.test_semantic_authenticated_deployment_package tests.test_semantic_deployment_reauthorization tests.test_semantic_authenticated_driver tests.test_semantic_authenticated_runtime_package tests.test_semantic_deployment_producer tests.test_semantic_deployment_broker tests.test_semantic_local_broker_package tests.test_semantic_installer_approval tests.test_semantic_node_attestor tests.test_semantic_local_producers_package tests.test_semantic_package_directory_recovery tests.test_semantic_target_acceptance.TargetAcceptanceTest tests.test_semantic_authority_keys
       - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
       - run: sudo unshare --net --fork env OUF_ADMISSION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_admission_native
       - run: sudo env OUF_TARGET_ACCEPTANCE_NATIVE_TEST=1 OUF_TEMPLATE_GO_PATH="$(command -v go)" "$(command -v python3)" -B -m unittest tests.test_semantic_target_acceptance.DockerTargetAcceptanceTest
