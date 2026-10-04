@@ -142,9 +142,9 @@ def operate(config_path, argv):
     fields = {'schema','sourceHash','runtimePath','runtimeSha256','pythonPath','pythonSha256',
         'driverPath','driverSha256','admissionPath','admissionSha256','admissionConfiguration',
         'admissionConfigurationHash','registryRoot','runtimeStateRoot','candidates'}
-    if config.get('schema') == 'ouf.semantic-docker-runtime-adapter.v2':
+    if config.get('schema') in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'):
         fields -= {'admissionConfiguration','admissionConfigurationHash'}
-    require(set(config) == fields and config['schema'] in ('ouf.semantic-docker-runtime-adapter.v1','ouf.semantic-docker-runtime-adapter.v2'))
+    require(set(config) == fields and config['schema'] in ('ouf.semantic-docker-runtime-adapter.v1','ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'))
     require(hashlib.sha256(read(Path(__file__))).hexdigest() == config['sourceHash'], 'ADAPTER_SOURCE_DRIFT')
     executable(config['runtimePath'], config['runtimeSha256']); executable(config['pythonPath'], config['pythonSha256'])
     require(hashlib.sha256(read(Path(config['driverPath']))).hexdigest() == config['driverSha256'])
@@ -155,10 +155,11 @@ def operate(config_path, argv):
                               env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, timeout=5).returncode
     require(cid in config['candidates'], 'UNSTAGED_DOCKER_CANDIDATE')
     entry = config['candidates'][cid]
-    entry_fields = {'approvalRef','bundleParents'}
-    if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v2':
+    two_phase = config['schema'] == 'ouf.semantic-docker-runtime-adapter.v3'
+    entry_fields = {'intentRef' if two_phase else 'approvalRef','bundleParents'}
+    if config['schema'] in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'):
         entry_fields |= {'admissionConfiguration','admissionConfigurationHash'}
-    require(set(entry) == entry_fields and re.fullmatch('[0-9a-f]{64}', entry['approvalRef'])
+    require(set(entry) == entry_fields and re.fullmatch('[0-9a-f]{64}', entry['intentRef' if two_phase else 'approvalRef'])
             and isinstance(entry['bundleParents'], list) and 1 <= len(entry['bundleParents']) <= 4)
     admission_config = config if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v1' else entry
     require(hashlib.sha256(read(Path(admission_config['admissionConfiguration']))).hexdigest()
@@ -182,6 +183,12 @@ def operate(config_path, argv):
         python = [config['pythonPath'], '-I', '-B']
         admission = [*python, config['admissionPath'], '--configuration', admission_config['admissionConfiguration'],
                      '--container-id', cid, '--bundle', str(shadow), '--runtime-root', str(root)]
+        def broker_phase(mode, state):
+            with tempfile.TemporaryFile() as output:
+                result = subprocess.run([*admission, '--mode', mode], input=json.dumps(state).encode(),
+                    stdout=output, stderr=subprocess.DEVNULL, timeout=20,
+                    env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'})
+                require(result.returncode == 0, 'TWO_PHASE_BROKER_DENIED')
         def publish(state, **extra):
             nonlocal record
             value = {**record, 'state': state, **extra}; save(record_path, record, value); record = value
@@ -204,7 +211,23 @@ def operate(config_path, argv):
             if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v2':
                 require(grant['schema'] == 'ouf.semantic-preexec-driver.v3'
                         and grant['authorityBinding']['sha256'] == entry['approvalRef'], 'SCOPED_V3_AUTHORITY_REQUIRED')
-            require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3') and grant['profile']['containerId'] == cid
+            if two_phase:
+                require(grant['schema'] == 'ouf.semantic-preexec-driver.v4', 'DURABLE_V4_DRIVER_REQUIRED')
+                sealed = grant['consumptionBinding']; receipt = parse(read(Path(sealed['journalPath'])))
+                require(sealed['binding']['intentHash'] == entry['intentRef']
+                        and receipt['configurationHash'] == sealed['binding']['configurationHash']
+                            == entry['admissionConfigurationHash']
+                        and receipt['state'] == 'READY' and receipt['intentHash'] == entry['intentRef']
+                        and receipt['evidenceHash'] == sealed['evidenceHash']
+                        and receipt['driverHash'] == hashlib.sha256(grant_raw).hexdigest()
+                        and receipt['bundleHash'] == digest(oci)
+                        and receipt['approvalHash'] == grant['authorityBinding']['sha256']
+                        and receipt['generation']['pid'] == hook_state['pid']
+                        and receipt['generation']['namespaceInode'] == grant['profile']['namespaceInode']
+                        and all(receipt[k] == sealed['binding'][k] == grant['authorityScope'][k]
+                            for k in ('installationRef','entityRef','containerId','transactionId')),
+                        'DURABLE_ADMISSION_CUSTODY_DRIFT')
+            require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4') and grant['profile']['containerId'] == cid
                     and grant['profile']['bundlePath'] == str(shadow) and grant['profile']['bundleHash'] == digest(oci)
                     and grant['profile']['applicationStartAuthorized'] is True
                     and grant['profile']['infrastructureAuthorityComplete'] is True
@@ -234,6 +257,8 @@ def operate(config_path, argv):
             # Docker commonly spells the root-owned /run alias /var/run. The
             # admission broker still verifies the actual inode and live links.
             if networks[0].get('path'): networks[0]['path'] = str(Path(networks[0]['path']).resolve(strict=True))
+            if two_phase:
+                broker_phase('authorize-create', {'id':cid,'bundleHash':digest(oci)})
             publish('PREPARING', runtimeRoot=str(root), bundleHash=digest(oci))
             shadow.mkdir(mode=0o700)
             target = shadow/'config.json'
@@ -252,6 +277,11 @@ def operate(config_path, argv):
             result = subprocess.run([config['runtimePath'], *rewritten],
                 env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LC_ALL':'C'}, timeout=40)
             require(result.returncode == 0, 'RUNTIME_CREATE_DENIED')
+            if two_phase:
+                state = parse(capture([config['runtimePath'], '--root', str(root), 'state', cid]))
+                require(state['id'] == cid and state['bundle'] == str(shadow) and state['status'] == 'created',
+                        'TWO_PHASE_CREATED_STATE_REQUIRED')
+                broker_phase('record-created', state)
             publish('CREATED'); return 0
         require(record['state'] in {'PREPARING','CREATING','ADMITTED','CREATED','STARTING','STARTED','DELETING','DELETED'})
         if operation == 'start':

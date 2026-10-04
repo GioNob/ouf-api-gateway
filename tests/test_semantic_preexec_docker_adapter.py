@@ -13,6 +13,10 @@ import unittest
 import uuid
 from scripts import semantic_provider_docker_runtime as adapter
 from scripts.semantic_provider_preexec_hook import SELF, MODULES
+from scripts import semantic_provider_admission_preparer as preparer
+from tools.semantic_provider_deployment_admission import transport_hash
+from tools.semantic_provider_preexec import digest
+from tests import test_semantic_shared_coordination_native as native_fixture
 
 
 class AdapterContractTest(unittest.TestCase):
@@ -47,6 +51,12 @@ class AdapterContractTest(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('OUF_DOCKER_ADAPTER_NATIVE_TEST') == '1', 'real named Docker adapter opt-in')
 class DockerAdapterTest(unittest.TestCase):
     def test_named_docker_runtime_gate_and_default_preserved(self):
+        self.exercise()
+
+    def test_two_phase_adapter_v3_real_preparer_v2_and_consumed_v4_start(self):
+        self.exercise(two_phase=True)
+
+    def exercise(self,two_phase=False):
         self.assertEqual(os.geteuid(), 0)
         docker = shutil.which('docker'); runc = str(Path(shutil.which('runc')).resolve())
         # setup-python's cache can be owned by the runner user. The deployed
@@ -63,15 +73,22 @@ class DockerAdapterTest(unittest.TestCase):
         image = None; network = None; cids = []; tables = []; modified = False
         with tempfile.TemporaryDirectory(dir='/root', prefix='ouf-docker-adapter-') as tmp:
             root = Path(tmp); root.chmod(0o700); source = root/'source'; source.mkdir(mode=0o700)
-            for relative in [SELF, 'scripts/semantic_provider_docker_runtime.py', *('tools/'+v+'.py' for v in MODULES)]:
+            names=[SELF, 'scripts/semantic_provider_docker_runtime.py', *('tools/'+v+'.py' for v in MODULES)]
+            if two_phase: names += [preparer.SELF,'tools/semantic_provider_deployment_admission.py',
+                                   'tools/semantic_provider_deployment_protocol.py','tools/semantic_provider_deployment_consumption.py']
+            for relative in names:
                 target = source/relative; target.parent.mkdir(mode=0o700, exist_ok=True)
                 target.write_bytes((repository/relative).read_bytes()); target.chmod(0o600)
             def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-            broker = root/'admission.py'; broker.write_bytes((repository/'tests/fixtures/semantic_docker_admission_fixture.py').read_bytes()); broker.chmod(0o600)
+            broker = root/'admission.py'
+            fixture='semantic_docker_two_phase_fixture.py' if two_phase else 'semantic_docker_admission_fixture.py'
+            broker.write_bytes((repository/'tests/fixtures'/fixture).read_bytes()); broker.chmod(0o600)
             registry = root/'registry'; registry.mkdir(mode=0o700)
             admission_path = root/'admission.json'; config_path = root/'adapter.json'
             def private(path, value): path.write_text(json.dumps(value)); path.chmod(0o600)
             commands = {k:str(Path(shutil.which(k)).resolve()) for k in ('nft','ip','nsenter')}
+            if two_phase: commands['unshare']=str(Path(shutil.which('unshare')).resolve())
+            common_lock=root/'guard.lock'; common_lock.touch(mode=0o600)
             admission = {'repository':str(repository),'source':str(source),'python':python,'commands':commands,
                          'runc':runc,'runcHash':sha(runc),'approved':{},
                          'mountCommands':{k:str(Path(shutil.which(k)).resolve()) for k in ('mount','umount')}}
@@ -83,6 +100,9 @@ class DockerAdapterTest(unittest.TestCase):
                 'admissionConfigurationHash':sha(admission_path),'registryRoot':str(registry),
                 'runtimeStateRoot':'/run','candidates':{}}
             private(config_path, cfg)
+            if two_phase:
+                cfg['schema']='ouf.semantic-docker-runtime-adapter.v3'
+                cfg.pop('admissionConfiguration'); cfg.pop('admissionConfigurationHash'); private(config_path,cfg)
             try:
                 daemon = json.loads(old) if old else {}; daemon.setdefault('runtimes', {})
                 self.assertNotIn(name, daemon['runtimes'])
@@ -102,10 +122,12 @@ class DockerAdapterTest(unittest.TestCase):
                                '--opt','com.docker.network.bridge.name='+bridge, name).stdout.decode().strip()
                 parents = ['/run/containerd/io.containerd.runtime.v2.task/moby',
                            '/run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby']
-                for index, (authorized, drift) in enumerate([(False, False),(True, True),(True, False)]):
+                cases=[(True,True),(True,False)] if two_phase else [(False,False),(True,True),(True,False)]
+                for index, (authorized, drift) in enumerate(cases):
                     proof = root/('proof'+str(index)); proof.mkdir(); marker = proof/'started'
                     command = ['/bin/sh','-c','echo APP > /proof/started; /bin/busybox sleep 2']
                     cid = dock('create','--runtime',name,'--network',network,'--ip','10.77.0.'+str(index+2),
+                        *(['--mac-address','02:00:00:00:00:'+format(index+2,'02x')] if two_phase else []),
                         '--cap-drop','ALL','--security-opt','no-new-privileges','--mount','type=bind,source='+str(proof)+',target=/proof',
                         image, *command).stdout.decode().strip(); cids.append(cid)
                     directory = registry/cid; directory.mkdir(mode=0o700); (directory/'operation.lock').touch(mode=0o600)
@@ -115,6 +137,33 @@ class DockerAdapterTest(unittest.TestCase):
                         'sharedTable':shared,'leaseTable':lease}
                     private(admission_path, admission); cfg['admissionConfigurationHash'] = sha(admission_path)
                     cfg['candidates'][cid] = {'approvalRef':sha(admission_path),'bundleParents':parents}
+                    if two_phase:
+                        cfg.pop('admissionConfigurationHash')
+                        entry_config=directory/'broker.json'; datum=admission['approved'][cid]
+                        networks=[{'interface':'eth0','bridge':bridge,'mac':'02:00:00:00:00:'+format(index+2,'02x'),
+                            'ipv4':datum['ipv4'],'workloadRef':'ci-workload','bindingRef':'ci-binding'}]
+                        transport=[{'purpose':'WORKLOAD_GATEWAY','authorityRef':'ci-infrastructure',
+                            'source':'10.77.0.1','destination':datum['ipv4'],'protocol':'tcp','port':9443,
+                            'peerIngress':{'kind':'HOST','ifindex':0}}]
+                        now=int(time.time())
+                        intent={'schema':'ouf.semantic-deployment-intent.v1','issuerRef':'ci-installer',
+                            'installationRef':'ci-installation','entityRef':'ci-entity','containerId':cid,
+                            'transactionId':hashlib.sha256(cid.encode()).hexdigest(),'artifactHash':image.split(':')[-1],
+                            'deploymentConstraintsHash':digest(datum),'transportHash':transport_hash({
+                                'networkBindings':networks,'transport':transport,'tableName':shared}),
+                            'runtimeExecutableHash':sha(runc),'issuedAt':now,'expiresAt':now+240,
+                            'infrastructureAuthorized':True,'creationAuthorized':True,'applicationStartAuthorized':False}
+                        kernel=native_fixture.NativeTest.kernel(None); kernel['tableName']=lease
+                        kernel['guardedInterfaces']=[bridge]; kernel['providerFlows'][0]['source']=datum['ipv4']
+                        broker_cfg={**admission,'approved':{cid:datum},'intent':intent,'lock':str(common_lock),
+                            'kernel':kernel,'networkBindings':networks,'transport':transport,'busyboxHash':sha(shutil.which('busybox'))}
+                        private(entry_config,broker_cfg)
+                        binding={k:intent[k] for k in ('installationRef','entityRef','containerId','transactionId')}
+                        binding.update(intentHash=digest(intent),configurationHash=sha(entry_config))
+                        private(directory/'deployment.json',{'schema':'ouf.semantic-deployment-consumption.v1',**binding,
+                            'state':'STAGED','bundleHash':None,'generation':None,'evidenceHash':None,'approvalHash':None,'driverHash':None})
+                        cfg['candidates'][cid]={'intentRef':digest(intent),'bundleParents':parents,
+                            'admissionConfiguration':str(entry_config),'admissionConfigurationHash':sha(entry_config)}
                     private(config_path, cfg)
                     private(directory/'adapter.json', {'schema':'ouf.semantic-docker-runtime-journal.v1','containerId':cid,
                         'configurationHash':adapter.binding(cfg,cid),'state':'STAGED','runtimeRoot':None,'bundleHash':None,'driverHash':None})
@@ -129,6 +178,7 @@ class DockerAdapterTest(unittest.TestCase):
                         self.assertEqual(value['state'], 'PROTECTED'); self.assertIsNone(value['containerGeneration'])
                         coordination = json.loads((directory/'coordination.json').read_bytes())
                         self.assertEqual(coordination['state'], 'QUIESCING' if drift else 'QUIESCED')
+                        if two_phase: self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'READY')
                     else:
                         diagnostic = {}
                         for filename in ('adapter.json','preexec.json','coordination.json','fixture-failure.json'):
@@ -141,6 +191,9 @@ class DockerAdapterTest(unittest.TestCase):
                         while not marker.exists() and time.monotonic() < until: time.sleep(.02)
                         self.assertEqual(marker.read_text().strip(), 'APP')
                         value = json.loads((directory/'preexec.json').read_bytes()); self.assertIsNotNone(value['containerGeneration'])
+                        if two_phase:
+                            self.assertEqual(json.loads((directory/'driver.json').read_bytes())['schema'],'ouf.semantic-preexec-driver.v4')
+                            self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'STARTED')
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
                     dock('rm','--force',cid,check=False); cids.remove(cid)
                     if authorized and not drift:
@@ -153,6 +206,8 @@ class DockerAdapterTest(unittest.TestCase):
                 print('DOCKER_PREEXEC_ADAPTER_NATIVE=PASS REAL_DOCKER_NAMED_RUNTIME=true REAL_RUNC_NFT_GATE=true'
                       ' AUTHORITY_AND_LEASE_DRIFT_NO_APPLICATION=true GUARDED_START=true DEFAULT_PRESERVED=true'
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
+                if two_phase: print('DOCKER_TWO_PHASE_NATIVE=PASS ADAPTER_V3=true REAL_PREPARER_V2=true DRIVER_V4=true'
+                    ' CREATED_BEFORE_FINAL_APPROVAL=true DURABLE_CLAIM_BEFORE_FIFO=true SYNTHETIC_CI_AUTHORITY=true')
             finally:
                 for cid in cids: dock('rm','--force',cid,check=False)
                 for namespace in registry.glob('*/netns'):

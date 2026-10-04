@@ -174,7 +174,7 @@ class Preexec:
                 self.verified(value)
             return {'state': value['state'], 'hostRulesChanged': mode != 'verify', 'startAuthorized': False}
 
-    def before_process(self, state, starter=None, authorizer=None):
+    def before_process(self, state, starter=None, authorizer=None, consume=None):
         # Runtime failure must prevent OCI create/start. This is a synchronous
         # createRuntime hook, not a post-start event callback.
         if not isinstance(state, dict) or state.get('id') != self.profile['containerId'] \
@@ -206,5 +206,10 @@ class Preexec:
                     raise PreexecDenied('CREATED_PROCESS_REQUIRED_FOR_START')
                 # The trusted v2 driver supplies the runtime starter. Keep the
                 # common lock through the FIFO release, not only the readback.
-                starter()
+                if consume is None:
+                    starter()
+                else:
+                    # Sealed v4 integration persists an at-most-once start claim
+                    # inside this same guard/lease lock before releasing the FIFO.
+                    consume(generation, starter)
             return {'protectedBeforeProcess': True, 'leaseActivated': False, 'notReleaseAcceptance': True}
