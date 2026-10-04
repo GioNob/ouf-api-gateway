@@ -9,7 +9,7 @@ from tools.materialize_southbound_kernel import materialize
 from tools.semantic_provider_lease_nft import structure_hash
 from tools.semantic_provider_preexec import digest
 
-def configure(directory,cfg,repository,source,python,run):
+def configure(directory,cfg,repository,source,python,run,live_authority=False):
     def raw(value):return json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode('ascii')
     def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     def private(path,value):path.write_bytes(raw(value));path.chmod(0o600)
@@ -75,7 +75,7 @@ def configure(directory,cfg,repository,source,python,run):
     from scripts import semantic_provider_node_attestor as attestor
     attestor_paths=[attestor.SELF,*('tools/'+m+'.py' for m in attestor.MODULES)]
     configuration=directory/'attestation-producer.json';key=Path(crypto['privateKeys']['verifier-key'])
-    private(configuration,{'schema':'ouf.semantic-node-attestor.v1','sourceRoot':str(source),
+    node_configuration={'schema':'ouf.semantic-node-attestor.v1','sourceRoot':str(source),
         'sourceHashes':{p:sha(source/p) for p in attestor_paths},'pythonBinding':{'path':python,'sha256':sha(python)},
         'authorities':authorities,'intentBinding':{'path':str(intent_path),'sha256':sha(intent_path)},
         'acceptanceMandatePath':str(directory/'ci-node-mandate.json'),
@@ -86,7 +86,11 @@ def configure(directory,cfg,repository,source,python,run):
         'runtimeBinding':{'path':cfg['runc'],'sha256':cfg['runcHash']},'runtimeRootParents':['/run'],
         'bundleParents':[str(directory)],'commands':{k:{'path':cfg['commands'][k],'sha256':sha(cfg['commands'][k])} for k in ('ip','nsenter')},
         'candidate':{k:template['candidate'][k] for k in ('networkBindings','transport','tableName')},
-        'rootfsLimits':{'maxEntries':10000,'maxBytes':268435456,'maxDepth':32}})
+        'rootfsLimits':{'maxEntries':10000,'maxBytes':268435456,'maxDepth':32}}
+    if live_authority:
+        node_configuration.update(schema='ouf.semantic-node-attestor.v3',
+            liveAcceptanceAuthorizationPath=str(directory/'ci-live-authorization.json'))
+    private(configuration,node_configuration)
     producers['attestation']={k:{'path':str(p),'sha256':sha(p)} for k,p in
         [('python',Path(python)),('source',source/attestor.SELF),('configuration',configuration)]}
     (directory/'attestation-results').mkdir(mode=0o700)

@@ -29,7 +29,14 @@ def provision(root,cfg,state):
             'deploymentConstraintsHash','transportHash','runtimeExecutableHash')},'intentHash':cfg['intentBinding']['sha256'],
         'applicationHash':digest(oci),'generation':NativeBackend.generation(None,state['pid']),'rootfsSeal':seal,'issuedAt':int(time.time()),'expiresAt':intent['expiresAt'],
         'state':'ACTIVE','attestationAuthorized':True,'completeCreationAccepted':True}
-    payload=encoded(value);path=root/'ci-node-mandate.json';path.write_bytes(payload);path.chmod(0o600)
+    if node['schema']=='ouf.semantic-node-attestor.v3':
+        value.pop('generation')
+        value.update(schema='ouf.semantic-node-live-acceptance-authorization.v1',
+            generationBinding='OBSERVED_CREATED',mandateIssuanceAuthorized=True)
+        path=Path(node['liveAcceptanceAuthorizationPath'])
+        assert not path.exists()
+    else:path=root/'ci-node-mandate.json'
+    payload=encoded(value);path.write_bytes(payload);path.chmod(0o600)
     header={'schema':'ouf.semantic-deployment-detached-signature.v1','algorithm':'Ed25519','keyRef':'verifier-key',
         'role':'CREATION_ATTESTATION','issuerRef':'ci-node-verifier',
         **{k:intent[k] for k in ('installationRef','entityRef')},'payloadHash':hashlib.sha256(payload).hexdigest()}

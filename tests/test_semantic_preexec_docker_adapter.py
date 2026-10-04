@@ -59,7 +59,10 @@ class DockerAdapterTest(unittest.TestCase):
     def test_authenticated_adapter_v4_preparer_v3_and_driver_v5(self):
         self.exercise(two_phase=True, authenticated=True)
 
-    def exercise(self,two_phase=False,authenticated=False):
+    def test_authenticated_adapter_v4_live_mandate_v3_with_immutable_precreate_bindings(self):
+        self.exercise(two_phase=True,authenticated=True,live_authority=True)
+
+    def exercise(self,two_phase=False,authenticated=False,live_authority=False):
         self.assertEqual(os.geteuid(), 0)
         docker = shutil.which('docker'); runc = str(Path(shutil.which('runc')).resolve())
         # setup-python's cache can be owned by the runner user. The deployed
@@ -187,7 +190,7 @@ class DockerAdapterTest(unittest.TestCase):
                                 'privateKeys':keys}
                         if authenticated:
                             from tests.fixtures.semantic_operational_broker_setup import configure
-                            broker_cfg=configure(directory,broker_cfg,repository,source,python,run)
+                            broker_cfg=configure(directory,broker_cfg,repository,source,python,run,live_authority=live_authority)
                         private(entry_config,broker_cfg)
                         binding={k:intent[k] for k in ('installationRef','entityRef','containerId','transactionId')}
                         binding.update(intentHash=digest(intent),configurationHash=sha(entry_config))
@@ -201,7 +204,25 @@ class DockerAdapterTest(unittest.TestCase):
                     private(config_path, cfg)
                     private(directory/'adapter.json', {'schema':'ouf.semantic-docker-runtime-journal.v1','containerId':cid,
                         'configurationHash':adapter.binding(cfg,cid),'state':'STAGED','runtimeRoot':None,'bundleHash':None,'driverHash':None})
+                    if live_authority:
+                        node_path=directory/'attestation-producer.json';node_before=node_path.read_bytes()
+                        broker_before=entry_config.read_bytes()
+                        self.assertEqual(json.loads(node_before)['schema'],'ouf.semantic-node-attestor.v3')
+                        self.assertFalse((directory/'ci-live-authorization.json').exists())
+                        self.assertFalse((directory/'ci-node-mandate.json').exists())
                     result = dock('start',cid,check=False)
+                    if live_authority:
+                        self.assertEqual(node_path.read_bytes(),node_before)
+                        self.assertEqual(entry_config.read_bytes(),broker_before)
+                        authorization=json.loads((directory/'ci-live-authorization.json').read_bytes())
+                        self.assertEqual(authorization['generationBinding'],'OBSERVED_CREATED')
+                        self.assertNotIn('generation',authorization)
+                        if rootfs_drift:self.assertFalse((directory/'ci-node-mandate.json').exists())
+                        else:
+                            mandate=json.loads((directory/'ci-node-mandate.json').read_bytes())
+                            self.assertEqual(mandate['applicationHash'],authorization['applicationHash'])
+                            self.assertEqual(mandate['rootfsSeal'],authorization['rootfsSeal'])
+                            self.assertEqual(mandate['generation'],json.loads((directory/'attestation.json').read_bytes())['generation'])
                     if rootfs_drift:
                         self.assertNotEqual(result.returncode,0);self.assertFalse(marker.exists())
                         self.assertEqual(dock('inspect','--format','{{.State.Running}}',cid).stdout.strip(),b'false')
@@ -261,6 +282,7 @@ class DockerAdapterTest(unittest.TestCase):
                       ' AUTHORITY_AND_LEASE_DRIFT_NO_APPLICATION=true GUARDED_START=true DEFAULT_PRESERVED=true'
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
                 if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true REAL_INSTALLER_ISSUER=true REAL_NODE_ATTESTOR=true CI_ACCEPTANCE_AUTHORITY_ONLY=true ROOTFS_DRIFT_NO_APPLICATION=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
+                if live_authority: print('DOCKER_LIVE_MANDATE_NATIVE=PASS NODE_V3=true IMMUTABLE_PRECREATE_PRODUCER_BROKER_BINDINGS=true EXACT_SIGNED_LATE_AUTHORITY=true REAL_CREATED_GENERATION=true ROOTFS_DRIFT_NO_MANDATE=true CI_ACCEPTANCE_AUTHORITY_ONLY=true TARGET_START_AUTHORIZED=false')
                 if two_phase and not authenticated: print('DOCKER_TWO_PHASE_NATIVE=PASS ADAPTER_V3=true REAL_PREPARER_V2=true DRIVER_V4=true'
                     ' CREATED_BEFORE_FINAL_APPROVAL=true DURABLE_CLAIM_BEFORE_FIFO=true SYNTHETIC_CI_AUTHORITY=true')
             finally:

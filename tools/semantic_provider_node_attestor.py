@@ -1,8 +1,9 @@
 """Real node attestor: explicit signed acceptance, observed rootfs/OCI/live links.
 
 InstallerApproval's private IO/custody helpers are reused; its approval emission
-is never called. v1 verifies a preexisting mandate. Explicit v2 emits a live
-mandate only under signed exact-OCI/rootfs acceptance and issuance authority.
+is never called. v1 verifies a preexisting mandate. Explicit v2 pins authority
+bytes; v3 pins the private signed-authority path before its exact OCI is known.
+Both live modes require signed exact-OCI/rootfs acceptance and issuance authority.
 """
 import base64
 import copy
@@ -25,10 +26,15 @@ class NodeAttestor(InstallerApproval):
             'policyBinding','signatureDirectory','opensslBinding','signingKeyBinding','keyRef','brokerEmissionJournal',
             'brokerStateJournal','issuanceClaimPath','budgetSeconds','runtimeBinding','runtimeRootParents','bundleParents',
             'commands','candidate','rootfsLimits'}
-        self.live=cfg.get('schema')=='ouf.semantic-node-attestor.v2'
-        if self.live:fields.add('liveAcceptanceAuthorizationBinding')
-        require(set(cfg)==fields and cfg['schema'] in {'ouf.semantic-node-attestor.v1','ouf.semantic-node-attestor.v2'},
+        self.live=cfg.get('schema') in {'ouf.semantic-node-attestor.v2','ouf.semantic-node-attestor.v3'}
+        self.live_path=cfg.get('schema')=='ouf.semantic-node-attestor.v3'
+        if self.live:fields.add('liveAcceptanceAuthorizationPath' if self.live_path else 'liveAcceptanceAuthorizationBinding')
+        require(set(cfg)==fields and cfg['schema'] in {'ouf.semantic-node-attestor.v1','ouf.semantic-node-attestor.v2','ouf.semantic-node-attestor.v3'},
                 'EXACT_NODE_ATTESTOR_CONFIGURATION_REQUIRED')
+        if self.live_path:
+            path=cfg['liveAcceptanceAuthorizationPath']
+            require(type(path) is str and Path(path).is_absolute() and '..' not in Path(path).parts,
+                    'EXACT_PRIVATE_LIVE_AUTHORIZATION_PATH_REQUIRED')
         require(type(cfg['budgetSeconds']) is int and 1<=cfg['budgetSeconds']<=12,'BOUNDED_NODE_ATTESTATION_REQUIRED')
         require(set(cfg['commands'])=={'ip','nsenter'} and set(cfg['candidate'])=={'networkBindings','transport','tableName'},
             'EXACT_NODE_OBSERVATION_CONFIGURATION_REQUIRED')
@@ -73,7 +79,11 @@ class NodeAttestor(InstallerApproval):
             and type(seal['entries']) is int and 1<=seal['entries']<=self.cfg['rootfsLimits']['maxEntries']
             and type(seal['bytes']) is int and 0<=seal['bytes']<=self.cfg['rootfsLimits']['maxBytes'],'EXACT_APPROVED_ROOTFS_SEAL_REQUIRED')
     def live_authorization(self,request,intent):
-        raw=self.read(self.cfg['liveAcceptanceAuthorizationBinding']);value=decode(raw,131072)
+        if self.live_path:
+            path=Path(self.cfg['liveAcceptanceAuthorizationPath'])
+            raw=private_bytes(path);self.inputs[path]=raw
+        else:raw=self.read(self.cfg['liveAcceptanceAuthorizationBinding'])
+        value=decode(raw,131072)
         bound={'issuerRef','installationRef','entityRef','containerId','transactionId','intentHash','artifactHash',
                'deploymentConstraintsHash','applicationHash','transportHash','runtimeExecutableHash'}
         fields=bound|{'schema','rootfsSeal','generationBinding','issuedAt','expiresAt','state',
