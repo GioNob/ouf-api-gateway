@@ -43,7 +43,7 @@ def configure(directory,cfg,repository,source,python,run):
     template_path=directory/'preparer-template.json';private(template_path,template)
     producer_script=directory/'ci-producer.py';producer_script.write_bytes((repository/'tests/fixtures/semantic_local_producer_fixture.py').read_bytes());producer_script.chmod(0o600)
     producers={}
-    for name,role,keyref in [('attestation','CREATION_ATTESTATION','verifier-key'),('approval','FINAL_DEPLOYMENT_APPROVAL','installer-key')]:
+    for name,role,keyref in [('attestation','CREATION_ATTESTATION','verifier-key')]:
         configuration=directory/(name+'-producer.json')
         private(configuration,{'role':role,'containerId':cid,'bundle':str(directory/'bundle'),'command':datum['command'],
             'proof':datum['proof'],'busyboxHash':cfg['busyboxHash'],'expiresAt':intent['expiresAt'],
@@ -52,6 +52,36 @@ def configure(directory,cfg,repository,source,python,run):
         producers[name]={k:{'path':str(p),'sha256':sha(p)} for k,p in
             [('python',Path(python)),('source',producer_script),('configuration',configuration)]}
         (directory/(name+'-results')).mkdir(mode=0o700)
+    # CI alone provisions a signed mandate and existing installer key.
+    # Production CLI emits final approval; node attestor remains a CI fixture.
+    from scripts import semantic_provider_installer_approval as issuer
+    authorities={'installationRef':'ci-installation','entityRef':'ci-entity','intentIssuerRef':'ci-installer',
+        'attestorRef':'ci-node-verifier','approvalIssuerRef':'ci-installer'}
+    mandate={'schema':'ouf.semantic-final-approval-mandate.v1','issuerRef':'ci-installer',
+        'installationRef':'ci-installation','entityRef':'ci-entity','intentHash':sha(intent_path),
+        **{k:intent[k] for k in ('containerId','transactionId','artifactHash','deploymentConstraintsHash','transportHash','runtimeExecutableHash')},
+        'approvalRef':'ci-final-'+cid,'issuedAt':intent['issuedAt'],'expiresAt':intent['expiresAt'],
+        'state':'ACTIVE','issuanceAuthorized':True,'applicationStartAuthorized':True}
+    mandate_path=directory/'ci-final-mandate.json';private(mandate_path,mandate)
+    header={**header,'role':'FINAL_DEPLOYMENT_APPROVAL','payloadHash':sha(mandate_path)}
+    canonical=raw(header);payload=raw(mandate)
+    frame=b'OUF-DEPLOYMENT-EVIDENCE\x00V1\x00'+len(canonical).to_bytes(4,'big')+canonical+len(payload).to_bytes(4,'big')+payload
+    frame_path.write_bytes(frame)
+    signed=run(crypto['opensslBinding']['path'],'pkeyutl','-sign','-rawin','-inkey',crypto['privateKeys']['installer-key'],'-in',str(frame_path)).stdout
+    private(Path(crypto['signatureDirectory'])/(sha(mandate_path)+'.FINAL_DEPLOYMENT_APPROVAL.json'),{**header,'signature':signed.hex()})
+    issuer_paths=[issuer.SELF,*('tools/'+m+'.py' for m in issuer.MODULES)]
+    configuration=directory/'approval-producer.json';key=Path(crypto['privateKeys']['installer-key'])
+    private(configuration,{'schema':'ouf.semantic-installer-approval-producer.v1','sourceRoot':str(source),
+        'sourceHashes':{p:sha(source/p) for p in issuer_paths},'pythonBinding':{'path':python,'sha256':sha(python)},
+        'authorities':authorities,'intentBinding':{'path':str(intent_path),'sha256':sha(intent_path)},
+        'attestationPath':str(directory/'attestation.json'),'approvalMandateBinding':{'path':str(mandate_path),'sha256':sha(mandate_path)},
+        **{k:crypto[k] for k in ('policyBinding','signatureDirectory','opensslBinding')},
+        'signingKeyBinding':{'path':str(key),'sha256':sha(key)},'keyRef':'installer-key',
+        'brokerEmissionJournal':str(directory/'approval-emission.json'),
+        'issuanceClaimPath':str(directory/'installer-signing-claim.json'),'budgetSeconds':12})
+    producers['approval']={k:{'path':str(p),'sha256':sha(p)} for k,p in
+        [('python',Path(python)),('source',source/issuer.SELF),('configuration',configuration)]}
+    (directory/'approval-results').mkdir(mode=0o700)
     paths=[broker.SELF,broker.PREPARER,broker.DRIVER,*('tools/'+m+'.py' for m in broker.MODULES)]
     return {'schema':'ouf.semantic-deployment-broker.v1','sourceRoot':str(source),'sourceHashes':{p:sha(source/p) for p in paths},
         'authorities':{'installationRef':'ci-installation','entityRef':'ci-entity','intentIssuerRef':'ci-installer',

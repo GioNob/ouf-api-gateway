@@ -80,7 +80,9 @@ class DockerAdapterTest(unittest.TestCase):
             if two_phase: names += [preparer.SELF,'tools/semantic_provider_deployment_admission.py',
                                    'tools/semantic_provider_deployment_protocol.py','tools/semantic_provider_deployment_consumption.py']
             if authenticated: names += ['tools/semantic_provider_deployment_authentication.py','tools/semantic_provider_deployment_reauthorization.py',
-                'tools/semantic_provider_deployment_producer.py','scripts/semantic_provider_deployment_broker.py']
+                'tools/semantic_provider_deployment_producer.py','scripts/semantic_provider_deployment_broker.py',
+                'scripts/semantic_provider_installer_approval.py','tools/semantic_provider_deployment_signing.py',
+                'tools/semantic_provider_installer_approval.py']
             for relative in names:
                 target = source/relative; target.parent.mkdir(mode=0o700, exist_ok=True)
                 target.write_bytes((repository/relative).read_bytes()); target.chmod(0o600)
@@ -231,6 +233,7 @@ class DockerAdapterTest(unittest.TestCase):
                             self.assertEqual(json.loads((directory/'deployment.json').read_bytes())['state'],'STARTED')
                         dock('wait',cid); self.assertEqual(dock('info','--format','{{.DefaultRuntime}}').stdout, default)
                     if authenticated:
+                        self.assertEqual(json.loads((directory/'installer-signing-claim.json').read_bytes())['state'],'ISSUING')
                         self.assertEqual(json.loads((directory/'broker-state.json').read_bytes())['state'],'PROTECTED' if drift else 'CLEANED')
                         for role in ('attestation','approval'):
                             self.assertEqual(json.loads((directory/(role+'-emission.json')).read_bytes())['state'],'ISSUED')
@@ -246,7 +249,7 @@ class DockerAdapterTest(unittest.TestCase):
                 print('DOCKER_PREEXEC_ADAPTER_NATIVE=PASS REAL_DOCKER_NAMED_RUNTIME=true REAL_RUNC_NFT_GATE=true'
                       ' AUTHORITY_AND_LEASE_DRIFT_NO_APPLICATION=true GUARDED_START=true DEFAULT_PRESERVED=true'
                       ' TARGET_RUNTIME_REGISTERED=false TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true')
-                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
+                if authenticated: print('DOCKER_AUTHENTICATED_NATIVE=PASS ADAPTER_V4=true PREPARER_V3=true DRIVER_V5=true REAL_ED25519=true OPERATIONAL_BROKER=true REAL_INSTALLER_ISSUER=true CI_NODE_ATTESTOR_ONLY=true DURABLE_PRODUCER_CLAIMS=true SIGNATURE_DRIFT_NO_APPLICATION=true CI_KEYS_ONLY=true')
                 if two_phase and not authenticated: print('DOCKER_TWO_PHASE_NATIVE=PASS ADAPTER_V3=true REAL_PREPARER_V2=true DRIVER_V4=true'
                     ' CREATED_BEFORE_FINAL_APPROVAL=true DURABLE_CLAIM_BEFORE_FIFO=true SYNTHETIC_CI_AUTHORITY=true')
             finally:
