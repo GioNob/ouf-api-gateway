@@ -97,6 +97,20 @@ class TargetAcceptanceTest(unittest.TestCase):
 
 
 
+    def test_diagnostic_errors_are_constant_and_do_not_publish(self):
+        import contextlib, io
+        argv=['inventory','--diagnose','--manifest-root',str(self.root),'--creation-root',str(self.root),
+            '--package-root',str(self.root),'--snapshot-root',str(self.root),'--docker-path','/usr/bin/docker',
+            '--expected-manifest-hash','a'*64,'--expected-creation-journal-hash','b'*64,
+            '--creation-source-commit','1'*40,'--package-source-commit','2'*40,'--source-manifest-sha256','c'*64]
+        for error in (ValueError('SECRET_PRIVATE_VALUE'),KeyError('SECRET_PRIVATE_VALUE'),h.Blocked('bad secret path')):
+            output=io.StringIO()
+            with patch.object(sys,'argv',argv),patch.object(h,'private',side_effect=error),contextlib.redirect_stdout(output):
+                self.assertEqual(h.main(),1)
+            text=output.getvalue();self.assertIn('DIAGNOSTIC=BLOCKED CHECK=PINNED_CANDIDATE_INPUTS',text)
+            self.assertNotIn('SECRET_PRIVATE_VALUE',text);self.assertNotIn('bad secret path',text);self.assertNotIn(str(self.root),text)
+            self.assertFalse((self.root/'inventory-receipt.json').exists())
+
     def test_source_custody_pins_every_file_and_receipt(self):
         root=self.root/'package';root.mkdir(mode=0o700)
         for d in ('source','source/scripts','source/tools'):(root/d).mkdir(mode=0o700)
@@ -170,6 +184,10 @@ class DockerTargetAcceptanceTest(unittest.TestCase):
                     '--package-root',str(pkg),'--snapshot-root',str(out),'--docker-path',docker,'--expected-manifest-hash',mh,
                     '--expected-creation-journal-hash',h.digest(jr),'--creation-source-commit','1'*40,'--package-source-commit','2'*40,
                     '--source-manifest-sha256',h.digest(source_raw)]
+                diagnostic=subprocess.run(argv+['--diagnose'],capture_output=True,text=True,timeout=40)
+                self.assertEqual(diagnostic.returncode,0,diagnostic.stdout)
+                self.assertIn('DIAGNOSTIC=PASS',diagnostic.stdout)
+                self.assertFalse(any((out/name).exists() for name in ('target-dossier.json','authority-plan.json','inventory-receipt.json')))
                 r=subprocess.run(argv,capture_output=True,text=True,timeout=40)
                 self.assertEqual(r.returncode,0,r.stdout);self.assertEqual(r.stderr,'')
                 v=json.loads(r.stdout.splitlines()[0].split('=',1)[1]);self.assertFalse(v['deploymentAuthorityProven'])
