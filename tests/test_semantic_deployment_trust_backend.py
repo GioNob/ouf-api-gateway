@@ -40,6 +40,10 @@ class TrustBackendTest(unittest.TestCase):
     def test_duplicate_json_key_denied(self):
         self.expected.write_bytes(b'{"schema":1,"schema":2}')
         with self.assertRaisesRegex(RuntimeError,'DUPLICATE_TRUST_INPUT_KEY'):self.inventory()
+    def test_numeric_false_cannot_replace_receipt_authorization_boolean(self):
+        v=json.loads(self.receipt.read_bytes());v['startAuthorized']=0;self.receipt.write_text(json.dumps(v))
+        with patch.object(probe,'backend_snapshot',side_effect=AssertionError('must not execute')):
+            with self.assertRaisesRegex(RuntimeError,'SOURCE_ONLY_OPERATOR_RECEIPT_DRIFT'):self.inventory()
     def test_missing_backend_does_not_grant_authority(self):
         with patch.object(probe,'run',side_effect=AssertionError('must not execute')):
             v=probe.inventory(self.root,self.expected,self.root/'absent-openssl')

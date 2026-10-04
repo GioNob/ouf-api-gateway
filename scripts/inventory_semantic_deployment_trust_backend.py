@@ -68,7 +68,9 @@ def parse(raw):
 def package_snapshot(root, expected):
     require(expected['packageRoot'] == str(root), 'OPERATOR_PACKAGE_ROOT_DRIFT')
     receipt = expected['receipt']; actual_raw = read_private(root/'source-package-receipt.json')
-    require(parse(actual_raw) == receipt
+    # Preserve JSON types: Python equality alone conflates false/0 and true/1.
+    require(json.dumps(parse(actual_raw), sort_keys=True, allow_nan=False)
+            == json.dumps(receipt, sort_keys=True, allow_nan=False)
             and receipt['schema'] == 'ouf.semantic-deployment-source-package.v4'
             and re.fullmatch('[0-9a-f]{40}', receipt['sourceCommit'])
             and all(receipt[k] is False for k in FLAGS) and receipt['providerCalls'] == 0
