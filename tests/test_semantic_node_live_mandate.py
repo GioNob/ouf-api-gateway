@@ -3,6 +3,7 @@ import base64
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import unittest
@@ -16,6 +17,7 @@ from tools.semantic_provider_deployment_signing import ExistingEd25519Signer
 from tools.semantic_provider_preexec import PreexecDenied
 
 
+@unittest.skipUnless(os.geteuid()==0,'root-private live mandate fixture; covered by mandatory root CI job')
 class LiveMandateTest(unittest.TestCase):
     def setUp(self):
         fixture=node_fixture.NodeAttestorTest();fixture.setUp();self.addCleanup(fixture.doCleanups);self.f=fixture
