@@ -53,16 +53,19 @@ def load(path):
     config_raw = private_bytes(path); value = parse(config_raw)
     fields = {'schema', 'sourceRoot', 'sourceHashes', 'profile', 'kernel', 'dns',
             'coordinationBinding', 'coordinationJournal', 'preexecJournal', 'lockFile', 'commands', 'budgetSeconds'}
-    if value.get('schema') in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4'): fields.add('runtimeBinding')
-    if value.get('schema') in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4'): fields.update(('authorityBinding','authorityScope'))
-    if value.get('schema') == 'ouf.semantic-preexec-driver.v4': fields.add('consumptionBinding')
-    if set(value) != fields or value['schema'] not in ('ouf.semantic-preexec-driver.v1', 'ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4'):
+    if value.get('schema') in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'): fields.add('runtimeBinding')
+    if value.get('schema') in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'): fields.update(('authorityBinding','authorityScope'))
+    if value.get('schema') in ('ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'): fields.add('consumptionBinding')
+    if value.get('schema') == 'ouf.semantic-preexec-driver.v5': fields.add('authenticationBinding')
+    if set(value) != fields or value['schema'] not in ('ouf.semantic-preexec-driver.v1', 'ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'):
         raise RuntimeError('EXACT_DRIVER_CONFIGURATION_REQUIRED')
     root = Path(value['sourceRoot'])
     if root.lstat().st_mode & 0o077 or not root.is_dir(): raise RuntimeError('PRIVATE_SOURCE_ROOT_REQUIRED')
-    modules = (*MODULES, 'semantic_provider_deployment_admission') if value['schema'] in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4') else MODULES
-    if value['schema'] == 'ouf.semantic-preexec-driver.v4':
+    modules = (*MODULES, 'semantic_provider_deployment_admission') if value['schema'] in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5') else MODULES
+    if value['schema'] in ('ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'):
         modules = (*modules, 'semantic_provider_deployment_protocol', 'semantic_provider_deployment_consumption')
+    if value['schema'] == 'ouf.semantic-preexec-driver.v5':
+        modules = (*modules, 'semantic_provider_deployment_authentication', 'semantic_provider_deployment_reauthorization')
     paths = [SELF, *('tools/'+name+'.py' for name in modules)]
     if set(value['sourceHashes']) != set(paths) or Path(__file__).absolute() != root/SELF:
         raise RuntimeError('EXACT_SOURCE_PACKAGE_REQUIRED')
@@ -109,15 +112,24 @@ def main():
         backend = NativeBackend(value['profile'], value['commands'], value['budgetSeconds'])
         gate = Preexec(value['profile'], backend, coordination, PrivateJournal(Path(value['preexecJournal'])))
         authorizer = None
-        if value['schema'] in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4'):
+        if value['schema'] in ('ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'):
             from tools.semantic_provider_deployment_admission import authority
             authorizer = lambda: authority(value['authorityBinding'], value['authorityScope'], lambda p: private_bytes(Path(p)))
+        if value['schema'] == 'ouf.semantic-preexec-driver.v5' and args.mode != 'rollback':
+            from tools.semantic_provider_deployment_authentication import VerificationBudget
+            from tools.semantic_provider_deployment_reauthorization import sealed_authorizer
+            sealed = value['consumptionBinding']
+            if set(sealed) != {'journalPath','binding','evidenceHash'}:
+                raise RuntimeError('EXACT_CONSUMPTION_DRIVER_BINDING_REQUIRED')
+            budget = VerificationBudget(value['budgetSeconds'], deadline=backend.deadline)
+            authorizer = sealed_authorizer(value['authenticationBinding'], value['authorityBinding'],
+                value['authorityScope'], sealed['evidenceHash'], budget)
         if args.mode == 'start':
-            if value['schema'] not in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4'):
+            if value['schema'] not in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'):
                 raise RuntimeError('SEALED_RUNTIME_BINDING_REQUIRED')
             state = backend.runtime(value['runtimeBinding'], 'state')
             consume = None
-            if value['schema'] == 'ouf.semantic-preexec-driver.v4':
+            if value['schema'] in ('ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5'):
                 from tools.semantic_provider_deployment_consumption import Consumption
                 sealed = value['consumptionBinding']
                 if set(sealed) != {'journalPath','binding','evidenceHash'}:

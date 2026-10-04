@@ -142,9 +142,9 @@ def operate(config_path, argv):
     fields = {'schema','sourceHash','runtimePath','runtimeSha256','pythonPath','pythonSha256',
         'driverPath','driverSha256','admissionPath','admissionSha256','admissionConfiguration',
         'admissionConfigurationHash','registryRoot','runtimeStateRoot','candidates'}
-    if config.get('schema') in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'):
+    if config.get('schema') in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3','ouf.semantic-docker-runtime-adapter.v4'):
         fields -= {'admissionConfiguration','admissionConfigurationHash'}
-    require(set(config) == fields and config['schema'] in ('ouf.semantic-docker-runtime-adapter.v1','ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'))
+    require(set(config) == fields and config['schema'] in ('ouf.semantic-docker-runtime-adapter.v1','ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3','ouf.semantic-docker-runtime-adapter.v4'))
     require(hashlib.sha256(read(Path(__file__))).hexdigest() == config['sourceHash'], 'ADAPTER_SOURCE_DRIFT')
     executable(config['runtimePath'], config['runtimeSha256']); executable(config['pythonPath'], config['pythonSha256'])
     require(hashlib.sha256(read(Path(config['driverPath']))).hexdigest() == config['driverSha256'])
@@ -155,9 +155,9 @@ def operate(config_path, argv):
                               env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'}, timeout=5).returncode
     require(cid in config['candidates'], 'UNSTAGED_DOCKER_CANDIDATE')
     entry = config['candidates'][cid]
-    two_phase = config['schema'] == 'ouf.semantic-docker-runtime-adapter.v3'
+    two_phase = config['schema'] in ('ouf.semantic-docker-runtime-adapter.v3','ouf.semantic-docker-runtime-adapter.v4')
     entry_fields = {'intentRef' if two_phase else 'approvalRef','bundleParents'}
-    if config['schema'] in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3'):
+    if config['schema'] in ('ouf.semantic-docker-runtime-adapter.v2','ouf.semantic-docker-runtime-adapter.v3','ouf.semantic-docker-runtime-adapter.v4'):
         entry_fields |= {'admissionConfiguration','admissionConfigurationHash'}
     require(set(entry) == entry_fields and re.fullmatch('[0-9a-f]{64}', entry['intentRef' if two_phase else 'approvalRef'])
             and isinstance(entry['bundleParents'], list) and 1 <= len(entry['bundleParents']) <= 4)
@@ -212,7 +212,8 @@ def operate(config_path, argv):
                 require(grant['schema'] == 'ouf.semantic-preexec-driver.v3'
                         and grant['authorityBinding']['sha256'] == entry['approvalRef'], 'SCOPED_V3_AUTHORITY_REQUIRED')
             if two_phase:
-                require(grant['schema'] == 'ouf.semantic-preexec-driver.v4', 'DURABLE_V4_DRIVER_REQUIRED')
+                expected_driver = 'ouf.semantic-preexec-driver.v5' if config['schema'] == 'ouf.semantic-docker-runtime-adapter.v4' else 'ouf.semantic-preexec-driver.v4'
+                require(grant['schema'] == expected_driver, 'EXACT_DURABLE_DRIVER_VERSION_REQUIRED')
                 sealed = grant['consumptionBinding']; receipt = parse(read(Path(sealed['journalPath'])))
                 require(sealed['binding']['intentHash'] == entry['intentRef']
                         and receipt['configurationHash'] == sealed['binding']['configurationHash']
@@ -227,7 +228,7 @@ def operate(config_path, argv):
                         and all(receipt[k] == sealed['binding'][k] == grant['authorityScope'][k]
                             for k in ('installationRef','entityRef','containerId','transactionId')),
                         'DURABLE_ADMISSION_CUSTODY_DRIFT')
-            require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4') and grant['profile']['containerId'] == cid
+            require(grant['schema'] in ('ouf.semantic-preexec-driver.v2','ouf.semantic-preexec-driver.v3','ouf.semantic-preexec-driver.v4','ouf.semantic-preexec-driver.v5') and grant['profile']['containerId'] == cid
                     and grant['profile']['bundlePath'] == str(shadow) and grant['profile']['bundleHash'] == digest(oci)
                     and grant['profile']['applicationStartAuthorized'] is True
                     and grant['profile']['infrastructureAuthorityComplete'] is True

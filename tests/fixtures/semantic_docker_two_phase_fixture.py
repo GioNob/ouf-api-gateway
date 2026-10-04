@@ -51,7 +51,24 @@ def trust(payload,role,issuer,installation,entity):
     # authenticated. Real deployments must bind a cryptographic/trusted issuer.
     return authenticated.get((role,payload))==(issuer,installation,entity)
 def issue(value,role,issuer):
-    payload=raw(value); authenticated[(role,payload)]=(issuer,'ci-installation','ci-entity'); return payload
+    payload=raw(value); authenticated[(role,payload)]=(issuer,'ci-installation','ci-entity')
+    if cfg.get('crypto'):
+        crypto=cfg['crypto'];keyref='verifier-key' if role=='CREATION_ATTESTATION' else 'installer-key'
+        header={'schema':'ouf.semantic-deployment-detached-signature.v1','algorithm':'Ed25519','keyRef':keyref,
+            'role':role,'issuerRef':issuer,'installationRef':'ci-installation','entityRef':'ci-entity',
+            'payloadHash':hashlib.sha256(payload).hexdigest()}
+        canonical=json.dumps(header,sort_keys=True,separators=(',',':'),ensure_ascii=True).encode('ascii')
+        frame=b'OUF-DEPLOYMENT-EVIDENCE\x00V1\x00'+len(canonical).to_bytes(4,'big')+canonical+len(payload).to_bytes(4,'big')+payload
+        path=root/'ci-frame.bin';path.write_bytes(frame);path.chmod(0o600)
+        sig=subprocess.run([crypto['opensslBinding']['path'],'pkeyutl','-sign','-rawin','-inkey',crypto['privateKeys'][keyref],
+            '-in',str(path)],check=True,capture_output=True,timeout=3).stdout
+        private(Path(crypto['signatureDirectory'])/(header['payloadHash']+'.'+role+'.json'),{**header,'signature':sig.hex()})
+        name={'DEPLOYMENT_INTENT':'intent','CREATION_ATTESTATION':'attestation','FINAL_DEPLOYMENT_APPROVAL':'approval'}[role]
+        (root/(name+'.json')).write_bytes(payload);(root/(name+'.json')).chmod(0o600)
+    return payload
+if cfg.get('crypto'):
+    from tools.semantic_provider_deployment_authentication import DetachedAuthenticator
+    crypto=cfg['crypto'];trust=DetachedAuthenticator(crypto['policyBinding'],crypto['signatureDirectory'],crypto['opensslBinding'])
 issue(intent,'DEPLOYMENT_INTENT','ci-installer')
 config=root/'preparer.json'; argv=[cfg['python'],'-I','-B',str(Path(cfg['source'])/preparer.SELF),
     '--configuration',str(config),'--container-id',cid,'--bundle',args.bundle,'--runtime-root',args.runtime_root]
@@ -102,6 +119,7 @@ candidate['authorityBinding']={'path':str(root/'approval.json'),'sha256':sha(roo
                                'issuedAt':now,'expiresAt':intent['expiresAt']}
 candidate['authorityScope']=scope
 modules=(*preparer.MODULES,'semantic_provider_deployment_protocol','semantic_provider_deployment_consumption')
+if cfg.get('crypto'): modules=(*modules,'semantic_provider_deployment_authentication','semantic_provider_deployment_reauthorization')
 hashes={p:sha(Path(cfg['source'])/p) for p in [preparer.SELF,preparer.DRIVER,*('tools/'+m+'.py' for m in modules)]}
 commands={**cfg['commands'],**cfg['mountCommands']}
 coord=json.loads((root/'coordination.json').read_bytes()); coordination={k:coord[k] for k in ('transactionId','configurationHash','leaseStructureHash')}
@@ -111,6 +129,11 @@ value={'schema':'ouf.semantic-admission-preparer.v2','sourceRoot':cfg['source'],
     'maxLeaseSeconds':30,'applyBudgetSeconds':1},'coordinationBinding':coordination,'coordinationJournal':str(root/'coordination.json'),
     'lockFile':str(lock),'budgetSeconds':5,'hostNetworkNamespace':os.stat('/proc/self/ns/net').st_ino,
     'consumptionBinding':{'journalPath':str(root/'deployment.json'),'binding':binding,'evidenceHash':digest(evidence)}}
+if cfg.get('crypto'):
+    value['schema']='ouf.semantic-admission-preparer.v3'
+    value['authenticationBinding']={'records':{name:{'path':str(root/(name+'.json')),'sha256':sha(root/(name+'.json'))}
+        for name in ('intent','attestation','approval')},'authorities':authorities,
+        **{k:cfg['crypto'][k] for k in ('policyBinding','signatureDirectory','opensslBinding')}}
 private(config,value)
 private(root/'admission.json',{'schema':'ouf.semantic-admission-journal.v1','transactionId':intent['transactionId'],
     'configurationHash':sha(config),'state':'STAGED','driverHash':None,'namespaceOwned':False,'namespaceInode':None,'containerGeneration':None})
@@ -118,3 +141,8 @@ run(*argv,'--mode','prepare',payload=json.dumps(state))
 gate.seal_driver(sha(root/'driver.json'))
 if approved['leaseDrift']:
     coord['state']='QUIESCING'; private(root/'coordination.json',coord)
+
+if approved.get('signatureDrift'):
+    path=Path(cfg['crypto']['signatureDirectory'])/(binding['intentHash']+'.DEPLOYMENT_INTENT.json')
+    record=json.loads(path.read_bytes());record['signature']=('00' if record['signature'][:2]!='00' else '01')+record['signature'][2:]
+    private(path,record)

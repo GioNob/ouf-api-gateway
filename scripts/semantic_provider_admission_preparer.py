@@ -88,10 +88,13 @@ def load(path):
     fields = {'schema','sourceRoot','sourceHashes','pythonPath','pythonHash','commands','commandHashes',
             'candidate','kernel','dns','coordinationBinding','coordinationJournal','lockFile','budgetSeconds','hostNetworkNamespace'}
     modules = MODULES
-    if cfg.get('schema') == 'ouf.semantic-admission-preparer.v2':
+    if cfg.get('schema') in ('ouf.semantic-admission-preparer.v2','ouf.semantic-admission-preparer.v3'):
         fields.add('consumptionBinding')
         modules = (*modules, 'semantic_provider_deployment_protocol', 'semantic_provider_deployment_consumption')
-    require(set(cfg) == fields and cfg['schema'] in ('ouf.semantic-admission-preparer.v1','ouf.semantic-admission-preparer.v2'),
+    if cfg.get('schema') == 'ouf.semantic-admission-preparer.v3':
+        fields.add('authenticationBinding')
+        modules = (*modules, 'semantic_provider_deployment_authentication', 'semantic_provider_deployment_reauthorization')
+    require(set(cfg) == fields and cfg['schema'] in ('ouf.semantic-admission-preparer.v1','ouf.semantic-admission-preparer.v2','ouf.semantic-admission-preparer.v3'),
             'EXACT_PREPARER_CONFIGURATION_REQUIRED')
     root = Path(cfg['sourceRoot']); require(stat.S_IMODE(root.lstat().st_mode) == 0o700,'PRIVATE_SOURCE_ROOT_REQUIRED')
     paths = [SELF,DRIVER,*('tools/'+m+'.py' for m in modules)]
@@ -144,6 +147,10 @@ def operate(args):
     require(candidate['tableName'] != cfg['kernel']['tableName'],'DISTINCT_OWNED_TABLES_REQUIRED')
     root = Path(args.bundle).parent; require(stat.S_IMODE(root.lstat().st_mode) == 0o700,'PRIVATE_CANDIDATE_ROOT_REQUIRED')
     deadline = time.monotonic()+18
+    verification_budget = None
+    if cfg['schema'] == 'ouf.semantic-admission-preparer.v3':
+        from tools.semantic_provider_deployment_authentication import VerificationBudget
+        verification_budget = VerificationBudget(18, deadline=deadline)
     def run(name,argv,raw=None):
         executable(cfg['commands'][name],cfg['commandHashes'][name])
         with tempfile.TemporaryFile() as out:
@@ -177,6 +184,7 @@ def operate(args):
     def publish(state,**extra):
         nonlocal record
         with hold_common_lock(Path(cfg['lockFile'])):
+            if verification_budget is not None: verification_budget.check()
             updated = {**record,'state':state,**extra}; journal.write(record,updated); record = updated
     if args.mode == 'cleanup':
         require(record['state'] == 'PROTECTED' and hashlib.sha256(private(root/'driver.json')).hexdigest() == record['driverHash'],
@@ -201,7 +209,12 @@ def operate(args):
     require(scope['containerId'] == candidate['containerId'] and scope['transactionId'] == candidate['transactionId']
         and scope['applicationHash'] == candidate['applicationHash'] and scope['transportHash'] == transport_hash(candidate),
         'APPROVAL_INTENT_SCOPE_DRIFT')
-    authority(candidate['authorityBinding'],scope,private)
+    authorize = lambda: authority(candidate['authorityBinding'],scope,private)
+    if cfg['schema'] == 'ouf.semantic-admission-preparer.v3':
+        from tools.semantic_provider_deployment_reauthorization import sealed_authorizer
+        authorize = sealed_authorizer(cfg['authenticationBinding'],candidate['authorityBinding'],scope,
+            cfg['consumptionBinding']['evidenceHash'],verification_budget)
+    with hold_common_lock(Path(cfg['lockFile'])): authorize()
     creation = candidate['creationAcceptance']
     require(set(creation) == {'path','sha256'},'EXTERNAL_CREATION_ACCEPTANCE_REQUIRED')
     raw = private(creation['path']); accepted = parse(raw)
@@ -210,7 +223,7 @@ def operate(args):
         and accepted['schema'] == 'ouf.semantic-container-creation-acceptance.v1' and accepted['accepted'] is True
         and all(accepted[k] == scope[k] for k in ('containerId','applicationHash','transportHash')),
         'CREATION_ACCEPTANCE_BINDING_UNPROVEN')
-    if cfg['schema'] == 'ouf.semantic-admission-preparer.v2':
+    if cfg['schema'] in ('ouf.semantic-admission-preparer.v2','ouf.semantic-admission-preparer.v3'):
         from tools.semantic_provider_deployment_consumption import Consumption
         sealed = cfg['consumptionBinding']
         require(set(sealed) == {'journalPath','binding','evidenceHash'},'EXACT_CONSUMPTION_BINDING_REQUIRED')
@@ -236,7 +249,7 @@ def operate(args):
     with coord.hold_lock():
         value = coord.journal()
         require(value['state'] == 'QUIESCED' and not value['leaseAuthorized'] and not any(coord.sets()),'EXISTING_LEASE_QUIESCENCE_REQUIRED')
-        authority(candidate['authorityBinding'],scope,private)
+        authorize()
     require(not (root/'driver.json').exists() and not (root/'preexec.json').exists(),'FOREIGN_ADMISSION_ARTIFACT_PRESERVED')
     publish('PREPARING')
     networks = [v for v in bundle['linux']['namespaces'] if v.get('type') == 'network']
@@ -272,7 +285,7 @@ def operate(args):
     result = parse(invoke(argv,json.dumps(packet)))
     require(result['isolated'] is True and result['profileHash'] == digest(profile),'INDEPENDENT_TEMPLATE_BINDING_DRIFT')
     profile['expectedFootprint'] = result['footprint']
-    authority(candidate['authorityBinding'],scope,private)
+    with hold_common_lock(Path(cfg['lockFile'])): authorize()
     require(private(args.configuration) == config_raw,'PREPARER_CONFIGURATION_DRIFT')
     driver = {'schema':'ouf.semantic-preexec-driver.v3','sourceRoot':cfg['sourceRoot'],
         'sourceHashes':{p:h for p,h in cfg['sourceHashes'].items() if p != SELF},'profile':profile,
@@ -281,7 +294,7 @@ def operate(args):
         'lockFile':cfg['lockFile'],'commands':{k:cfg['commands'][k] for k in ('nft','ip','nsenter')},
         'budgetSeconds':cfg['budgetSeconds'],'runtimeBinding':candidate['runtimeBinding'],
         'authorityBinding':candidate['authorityBinding'],'authorityScope':scope}
-    if cfg['schema'] == 'ouf.semantic-admission-preparer.v2':
+    if cfg['schema'] in ('ouf.semantic-admission-preparer.v2','ouf.semantic-admission-preparer.v3'):
         sealed = cfg['consumptionBinding']
         require(set(sealed) == {'journalPath','binding','evidenceHash'},'EXACT_CONSUMPTION_BINDING_REQUIRED')
         from tools.semantic_provider_deployment_consumption import Consumption
@@ -297,6 +310,9 @@ def operate(args):
                     'CONSUMPTION_PREPARATION_CUSTODY_DRIFT')
         driver['schema'] = 'ouf.semantic-preexec-driver.v4'
         driver['consumptionBinding'] = sealed
+    if cfg['schema'] == 'ouf.semantic-admission-preparer.v3':
+        driver['schema'] = 'ouf.semantic-preexec-driver.v5'
+        driver['authenticationBinding'] = cfg['authenticationBinding']
     create(root/'preexec.json',{'schema':'ouf.semantic-preexec-journal.v1','transactionId':candidate['transactionId'],
         'configurationHash':digest(profile),'state':'STAGED','sharedStructureHash':None,'containerGeneration':None})
     create(root/'driver.json',driver)

@@ -117,8 +117,27 @@ def signing_bytes(raw, header):
     return DOMAIN+len(encoded).to_bytes(4,'big')+encoded+len(raw).to_bytes(4,'big')+raw
 
 
+class VerificationBudget:
+    """One monotonic deadline shared with the operation's native backend."""
+    def __init__(self, seconds, deadline=None, monotonic=time.monotonic):
+        require(type(seconds) is int and 1 <= seconds <= 18, 'BOUNDED_AUTHENTICATION_BUDGET_REQUIRED')
+        self.monotonic = monotonic
+        now = monotonic()
+        require(deadline is None or type(deadline) in (int, float) and now < deadline <= now+seconds,
+                'EXACT_AUTHENTICATION_DEADLINE_REQUIRED')
+        self.deadline = now+seconds if deadline is None else deadline
+
+    def remaining(self, maximum=2):
+        left = self.deadline-self.monotonic()
+        require(left > 0, 'AUTHENTICATION_DEADLINE_MISSED')
+        return min(maximum, left)
+
+    def check(self):
+        self.remaining()
+
+
 class DetachedAuthenticator:
-    def __init__(self, policy_binding, signature_directory, openssl_binding, clock=time.time):
+    def __init__(self, policy_binding, signature_directory, openssl_binding, clock=time.time, budget=None):
         self.policy_binding = binding(policy_binding)
         require(type(openssl_binding) is dict and set(openssl_binding) == {'path','sha256','version'}
                 and type(openssl_binding['version']) is str
@@ -132,6 +151,13 @@ class DetachedAuthenticator:
         require(stat.S_ISDIR(info.st_mode) and info.st_uid == info.st_gid == 0
                 and stat.S_IMODE(info.st_mode) == 0o700, 'PRIVATE_SIGNATURE_DIRECTORY_REQUIRED')
         self.clock = clock
+        self.budget = budget
+
+    def check_budget(self):
+        if self.budget is not None: self.budget.check()
+
+    def timeout(self):
+        return 2 if self.budget is None else self.budget.remaining()
 
     def read_policy(self):
         raw = private_bytes(Path(self.policy_binding['path']), 65536)
@@ -140,6 +166,7 @@ class DetachedAuthenticator:
         return raw
 
     def executable(self):
+        self.check_budget()
         path = Path(self.openssl_binding['path']); ancestors(path)
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
@@ -149,6 +176,7 @@ class DetachedAuthenticator:
                     and before.st_size <= 64000000, 'TRUSTED_AUTHENTICATION_EXECUTABLE_REQUIRED')
             h = hashlib.sha256(); total = 0
             while True:
+                self.check_budget()
                 raw = os.read(fd, 65536)
                 if not raw: break
                 total += len(raw); require(total <= 64000000, 'AUTHENTICATION_EXECUTABLE_UNBOUNDED'); h.update(raw)
@@ -163,7 +191,7 @@ class DetachedAuthenticator:
         with tempfile.TemporaryFile() as output:
             try:
                 result = subprocess.run([executable,'version'],stdin=subprocess.DEVNULL,
-                    stdout=output,stderr=subprocess.DEVNULL,timeout=2,
+                    stdout=output,stderr=subprocess.DEVNULL,timeout=self.timeout(),
                     env={'PATH':'/usr/bin:/bin','LC_ALL':'C','OPENSSL_CONF':'/dev/null'})
             except (OSError, subprocess.TimeoutExpired):
                 raise PreexecDenied('DETACHED_VERIFICATION_UNPROVEN') from None
@@ -181,16 +209,18 @@ class DetachedAuthenticator:
                 result = subprocess.run([executable,'pkeyutl','-verify','-pubin','-rawin',
                     '-keyform','DER','-inkey',paths[0],'-sigfile',paths[1],'-in',paths[2]],
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    timeout=2, env={'PATH':'/usr/bin:/bin','LC_ALL':'C','OPENSSL_CONF':'/dev/null'})
+                    timeout=self.timeout(), env={'PATH':'/usr/bin:/bin','LC_ALL':'C','OPENSSL_CONF':'/dev/null'})
             except (OSError, subprocess.TimeoutExpired):
                 raise PreexecDenied('DETACHED_VERIFICATION_UNPROVEN') from None
         self.executable()
+        self.check_budget()
         require(result.returncode == 0, 'DETACHED_SIGNATURE_INVALID')
 
     def __call__(self, raw, role, issuer, installation, entity):
         require(type(raw) is bytes and 0 < len(raw) <= 131072 and type(role) is str
                 and role in ROLES and all(identity(v) for v in (issuer,installation,entity)),
                 'EXACT_AUTHENTICATION_SCOPE_REQUIRED')
+        self.check_budget()
         now = self.clock(); policy_raw = self.read_policy()
         configured = policy(policy_raw, installation, entity, now)
         payload_hash = hashlib.sha256(raw).hexdigest()
@@ -215,4 +245,5 @@ class DetachedAuthenticator:
                 'LOCAL_MANDATE_EXPIRED_OR_CLOCK_REGRESSED')
         require(self.read_policy() == policy_raw and private_bytes(path,4096) == signature_raw,
                 'AUTHENTICATION_REVOKED_DURING_VERIFICATION')
+        self.check_budget()
         return True

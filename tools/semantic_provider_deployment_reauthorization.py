@@ -21,7 +21,7 @@ def require(value, reason):
 
 class LateAuthenticatedEvidence:
     def __init__(self, records, authorities, policy_binding, signature_directory,
-                 openssl_binding, evidence_hash, expected_scope, clock=time.time):
+                 openssl_binding, evidence_hash, expected_scope, clock=time.time, budget=None):
         require(type(records) is dict and set(records) == {'intent', 'attestation', 'approval'},
                 'EXACT_LATE_EVIDENCE_RECORDS_REQUIRED')
         require(hashed(evidence_hash) and type(expected_scope) is dict,
@@ -31,9 +31,10 @@ class LateAuthenticatedEvidence:
         self.expected_scope = copy.deepcopy(expected_scope)
         self.evidence_hash = evidence_hash
         self.clock = clock
-        self.verifier = DetachedAuthenticator(policy_binding, signature_directory, openssl_binding, clock)
+        self.verifier = DetachedAuthenticator(policy_binding, signature_directory, openssl_binding, clock, budget)
 
     def __call__(self):
+        self.verifier.check_budget()
         started = self.clock()
         raws = []
         for key in ('intent', 'attestation', 'approval'):
@@ -68,4 +69,23 @@ class LateAuthenticatedEvidence:
         # Recheck protocol freshness after the final rereads, without rerunning
         # native cryptography. Authentication above has already returned True.
         validate_final(*raws, self.authorities, lambda *_: True, lambda: finished)
+        self.verifier.check_budget()
         return True
+
+
+def sealed_authorizer(value, approval_binding, scope, evidence_hash, budget, clock=time.time):
+    """Exact opt-in binding; never falls back to hash-only authority."""
+    require(type(value) is dict and set(value) == {'records', 'authorities', 'policyBinding',
+            'signatureDirectory', 'opensslBinding'}, 'EXACT_AUTHENTICATED_DRIVER_BINDING_REQUIRED')
+    require(type(approval_binding) is dict and set(approval_binding) == {'path','sha256','issuedAt','expiresAt'}
+            and type(value['records']) is dict
+            and value['records'].get('approval') == {k: approval_binding[k] for k in ('path','sha256')},
+            'AUTHENTICATED_APPROVAL_DRIVER_DRIFT')
+    late = LateAuthenticatedEvidence(value['records'], value['authorities'], value['policyBinding'],
+        value['signatureDirectory'], value['opensslBinding'], evidence_hash, scope, clock=clock, budget=budget)
+    from tools.semantic_provider_deployment_admission import authority
+    def authorize():
+        budget.check()
+        authority(approval_binding, scope, lambda p: private_bytes(Path(p)), clock)
+        return late()
+    return authorize
