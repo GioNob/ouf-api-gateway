@@ -76,6 +76,38 @@ class BrokerTest(unittest.TestCase):
             self.assertEqual(len(list((self.root/(name+'-results')).glob('*.json'))),1)
         with self.assertRaisesRegex(RuntimeError,'DO_NOT_REPLAY_BROKER_PREPARATION'):self.prepare()
 
+    def framed(self,foreign=False):
+        # Real producer transport/signatures; the native Node and preparer
+        # remain separate mandatory fixtures. This test covers broker custody.
+        f=self.fixture;p=f.protocol;p.framed()
+        self.observer_binding={'python':{'path':'/usr/bin/python3','sha256':'f'*64},
+            'source':{'path':str(self.root/'observer.py'),'sha256':'e'*64},
+            'configuration':{'path':str(self.root/'frame-policy.json'),'sha256':'9'*64 if foreign else p.intent['artifactHash']}}
+        response=f.response('CREATION_ATTESTATION',f.facts_for('CREATION_ATTESTATION'))
+        source="import sys,json\nfrom pathlib import Path\nsys.stdin.buffer.read(4097)\nprint(json.dumps(json.loads(Path(sys.argv[2]).read_bytes())['reply']))\n"
+        att=f.configured('CREATION_ATTESTATION',f.facts_for('CREATION_ATTESTATION'),source=source,
+            response={'schema':'ouf.semantic-node-attestor.v4','creationFrameObserverBinding':self.observer_binding,'reply':response})
+        approval=f.configured('FINAL_DEPLOYMENT_APPROVAL',f.facts_for('FINAL_DEPLOYMENT_APPROVAL'))
+        self.cfg['producers']={'attestation':att.configured,'approval':approval.configured}
+        for path in f.fixture.signature_directory.glob('*.json'):
+            if not path.name.endswith('.DEPLOYMENT_INTENT.json'):path.unlink()
+        self.write('broker.json',self.cfg);self.value=self.new()
+        for name in ('deployment.json','broker-state.json'):
+            value=json.loads((self.root/name).read_bytes());value['configurationHash']=self.value.binding['configurationHash'];self.write(name,value)
+
+    def test_framed_producer_binding_reaches_sealed_driver_exactly(self):
+        self.framed();self.prepare()
+        driver=json.loads((self.root/'driver.json').read_bytes())
+        self.assertEqual(driver['authenticationBinding']['creationFrameBinding'],
+            {'observerBinding':self.observer_binding,'bundlePath':str(Path(self.args.bundle)/'config.json')})
+        self.assertEqual(self.value.record()['state'],'PROTECTED')
+
+    def test_foreign_framed_policy_denies_before_approval_producer(self):
+        self.framed(foreign=True)
+        with self.assertRaisesRegex(RuntimeError,'BROKER_AUTHENTICATED_CREATED_FRAME_REQUIRED'):self.prepare()
+        self.assertFalse((self.root/'approval-emission.json').exists())
+        self.assertEqual(self.value.gate.record()['state'],'CREATED')
+
     def test_incomplete_authenticated_creation_never_invokes_approval(self):
         f=self.fixture;changed=copy.deepcopy(f.protocol.attestation);changed['creationAcceptance']['accepted']=False
         configured=f.configured('CREATION_ATTESTATION',f.facts_for('CREATION_ATTESTATION'),response=f.response('CREATION_ATTESTATION',f.facts_for('CREATION_ATTESTATION'),changed))
