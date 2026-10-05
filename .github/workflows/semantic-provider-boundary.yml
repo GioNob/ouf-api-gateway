@@ -398,7 +398,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: GioNob/ouf-semantic-registry
-          ref: 8128dce496588054e97fe19cf0a3df7bf76f5948
+          ref: 3505a2f6bfde9c3905b76a5e670ebc30b40d3d6d
           path: .pairwise/semantic-frame
       - uses: actions/setup-python@v5
         with:
