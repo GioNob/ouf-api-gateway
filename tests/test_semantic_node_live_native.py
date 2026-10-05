@@ -4,6 +4,7 @@ Authority/keys are ephemeral CI-only fixtures; no observation or command mock.
 The exact OCI is accepted after fixture create and before pinning producer
 configuration. This does not prove Docker's immutable pre-create binding path.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -39,7 +40,16 @@ class NodeLiveNativeTest(unittest.TestCase):
     def test_real_full_oci_drift_denies_before_node_claim_or_mandate(self):
         self.exercise('oci')
 
-    def exercise(self,drift=None):
+    def test_v4_real_source_bytes_mounts_and_signed_authorization_without_application_start(self):
+        self.exercise(fresh=True)
+
+    def test_v4_real_bind_byte_drift_denies_before_node_claim_or_mandate(self):
+        self.exercise('bind',fresh=True)
+
+    def test_v4_same_byte_source_inode_replacement_denies_before_node_claim_or_mandate(self):
+        self.exercise('inode',fresh=True)
+
+    def exercise(self,drift=None,fresh=False):
         fixture=crypto_fixture.LiveMandateTest();fixture.setUp();self.addCleanup(fixture.doCleanups)
         node=fixture.f;f=node.f;root=node.root
         bridge='brnode';self.command('ip','link','add',bridge,'type','bridge');self.links.append(bridge)
@@ -62,6 +72,33 @@ class NodeLiveNativeTest(unittest.TestCase):
             'linux':{'cgroupsPath':'/ouf-node-'+self.suffix,'namespaces':[
                 {'type':'mount'},{'type':'pid'},{'type':'ipc'},{'type':'uts'},
                 {'type':'network','path':'/run/netns/'+ns}]}}
+        if fresh:
+            fs.chmod(0o755);os.chown(fs/'proof',10006,10006)
+            oci['process']['user']={'uid':10006,'gid':10006}
+            source=root/'bind-source';source.write_bytes(b'CI_PRIVATE_BIND');source.chmod(0o600);os.chown(source,10006,10006)
+            bind={'source':str(source),'target':'/approved-bind','readOnly':True}
+            oci['mounts'].append({'source':str(source),'destination':bind['target'],'type':'bind','options':['rbind','rprivate','ro']})
+            oci['linux']['namespaces'].append({'type':'cgroup'})
+            oci['linux'].update(maskedPaths=['/proc/kcore'],readonlyPaths=['/proc/sys'],
+                resources={'memory':{'limit':201326592,'swap':201326592},'pids':{'limit':32}},
+                seccomp={'defaultAction':'SCMP_ACT_ERRNO','defaultErrnoRet':1,'architectures':['SCMP_ARCH_X86_64'],
+                        'syscalls':[{'names':["read","write","close","exit","exit_group","rt_sigreturn","rt_sigprocmask","prctl","futex","open","openat","readlink","readlinkat","fstat","newfstatat","statx","fcntl","close_range","getpid","gettid","getppid","getuid","geteuid","getgid","getegid","setgroups","setgid","setuid","getcwd","chdir","fchdir","rt_sigaction","sigaltstack","sched_yield","sched_getaffinity","clock_gettime","nanosleep","mmap","mprotect","munmap","brk","arch_prctl","set_tid_address","set_robust_list","rseq","dup","dup2","dup3","pipe","pipe2","poll","ppoll","readv","writev","pread64","pwrite64","lseek"],
+                        'action':'SCMP_ACT_ALLOW'}]})
+            frame_policy={'schema':'ouf.semantic-configured-creation-frame-policy.v1','expectedOci':oci,
+                'manifest':{'user':'10006:10006','readOnlyRoot':False,'memoryBytes':201326592,'pidsLimit':32,'mounts':[bind]},
+                'startup':{'uid':10006,'gid':10006,'umask':None,'cwd':'/','args':oci['process']['args'],'env':['PATH=/bin']},
+                'approvedHooks':{},'sources':[{**bind,'uid':10006,'gid':10006,'mode':0o600,'maxBytes':131072,
+                    'sha256':hashlib.sha256(source.read_bytes()).hexdigest()}]}
+            policy_path=root/'frame-policy.json';f.write(policy_path,frame_policy)
+            helper_source=Path(os.environ['OUF_CREATION_FRAME_OBSERVER_SOURCE'])
+            helper=root/'frame-observer.py';shutil.copyfile(helper_source,helper);helper.chmod(0o600)
+            self.assertEqual(f.sha(helper),os.environ['OUF_CREATION_FRAME_OBSERVER_SHA256'])
+            node.cfg['schema']='ouf.semantic-node-attestor.v4'
+            node.cfg.pop('liveAcceptanceAuthorizationBinding')
+            node.cfg['liveAcceptanceAuthorizationPath']=str(fixture.authpath)
+            node.cfg['creationFrameObserverBinding']={'python':node.cfg['pythonBinding'],
+                'source':f.bind(helper),'configuration':f.bind(policy_path)}
+            node.facts['artifactHash']=f.sha(policy_path);f.p.intent['artifactHash']=node.facts['artifactHash']
         f.write(bundle/'config.json',oci)
         self.addCleanup(lambda:subprocess.run([*runc_args,'delete','--force',cid],capture_output=True,timeout=10))
         with tempfile.TemporaryFile() as output:
@@ -89,13 +126,19 @@ class NodeLiveNativeTest(unittest.TestCase):
         node.cfg['intentBinding']=f.bind(root/'intent.json');node.facts['intentHash']=node.cfg['intentBinding']['sha256']
         fixture.authorization.update({k:v for k,v in node.facts.items() if k!='generation'})
         fixture.authorization['rootfsSeal']=node.seal;fixture.resign()
+        if fresh:
+            node.cfg.pop('liveAcceptanceAuthorizationBinding');node.refresh()
         self.assertFalse(Path(node.cfg['acceptanceMandatePath']).exists())
         if drift:
             if drift=='rootfs':
                 path=fs/'bin/busybox';path.write_bytes(path.read_bytes()+b'CI-ROOTFS-DRIFT')
-            else:
+            elif drift=='oci':
                 oci['process']['args']=['/bin/sh','-c','echo FOREIGN > /proof/started']
                 f.write(bundle/'config.json',oci)
+            elif drift=='bind':source.write_bytes(b'CI_PRIVATE_CHANGED_BIND')
+            else:
+                replacement=root/'replacement-bind';replacement.write_bytes(source.read_bytes());replacement.chmod(0o600)
+                os.chown(replacement,10006,10006);os.replace(replacement,source)
             with self.assertRaises(PreexecDenied):node.producer.emit('CREATION_ATTESTATION',node.facts)
             self.assertFalse(Path(node.cfg['issuanceClaimPath']).exists())
             self.assertFalse(Path(node.cfg['acceptanceMandatePath']).exists())
@@ -120,6 +163,7 @@ class NodeLiveNativeTest(unittest.TestCase):
               ' EXACT_OCI_ACCEPTED_BEFORE_PRODUCER_PIN=true DOCKER_PRECREATE_PIN_PATH_PROVEN=false'
               ' CI_KEYS_ONLY=true TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true'
               ' INVOCATION_SECONDS='+format(elapsed,'.3f'))
+        if fresh:print('NODE_V4_CREATION_FRAME=PASS REAL_SOURCE_BYTES_AND_KERNEL_BIND=true SIGNED_POLICY_ARTIFACT_BOUND=true APPLICATION_NOT_STARTED=true CI_ONLY=true')
 
 
 if __name__=='__main__':unittest.main()
