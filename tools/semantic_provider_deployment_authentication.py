@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
+import signal
 import stat
 import subprocess
 import tempfile
@@ -53,6 +55,97 @@ def private_bytes(path, limit=131072):
                 'AUTHENTICATION_INPUT_DRIFT')
         return raw
     finally: os.close(fd)
+
+
+class CreatedFrameObserver:
+    """Pinned, bounded, read-only observer transport shared by issuer/consumer.
+
+    Caller authenticates the artifact and expected generation first. This
+    observer cannot turn an unsigned report into an authority grant.
+    """
+    def __init__(self,configured,budget):
+        require(type(configured) is dict and set(configured)=={'python','source','configuration'},
+            'EXACT_CREATED_FRAME_OBSERVER_BINDING_REQUIRED')
+        require(budget is not None and callable(getattr(budget,'check',None)) and
+            callable(getattr(budget,'remaining',None)),'EXPLICIT_FRAME_DEADLINE_REQUIRED')
+        self.configured={k:binding(v) for k,v in configured.items()};self.budget=budget
+
+    def pinned(self):
+        item=self.configured['python'];path=Path(item['path']);ancestors(path);self.budget.check()
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        try:
+            before=os.fstat(fd)
+            require(stat.S_ISREG(before.st_mode) and before.st_uid==before.st_gid==0 and before.st_mode&0o111
+                and not before.st_mode&0o022 and before.st_size<=64000000,'TRUSTED_FRAME_INTERPRETER_REQUIRED')
+            digest=hashlib.sha256();size=0
+            while True:
+                self.budget.check();raw=os.read(fd,65536)
+                if not raw:break
+                size+=len(raw);require(size<=64000000,'FRAME_INTERPRETER_UNBOUNDED');digest.update(raw)
+            require(digest.hexdigest()==item['sha256'] and attributes(before)==attributes(os.fstat(fd))
+                ==attributes(path.lstat()),'FRAME_INTERPRETER_DRIFT')
+        finally:os.close(fd)
+        private={}
+        for key in ('source','configuration'):
+            item=self.configured[key];raw=private_bytes(Path(item['path']))
+            require(hashlib.sha256(raw).hexdigest()==item['sha256'],'LOCAL_PRODUCER_SOURCE_OR_CONFIGURATION_DRIFT')
+            private[key]=raw
+        self.budget.check();return str(path),private
+
+    def invoke(self,executable,request):
+        require(type(request) is bytes and 0<len(request)<=4096,'FRAME_REQUEST_UNBOUNDED')
+        self.budget.check();child=None;waited=False
+        try:
+            child=subprocess.Popen([executable,'-I','-B',self.configured['source']['path'],
+                '--configuration',self.configured['configuration']['path']],stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,cwd='/',start_new_session=True,
+                env={'PATH':'/usr/bin:/bin','LC_ALL':'C'})
+            child.stdin.write(request);child.stdin.close();parts=[];size=0
+            with selectors.DefaultSelector() as selector:
+                os.set_blocking(child.stdout.fileno(),False);selector.register(child.stdout,selectors.EVENT_READ)
+                while True:
+                    events=selector.select(self.budget.remaining(5));require(events,'CREATED_FRAME_DEADLINE_MISSED')
+                    part=os.read(child.stdout.fileno(),min(65536,131073-size))
+                    if not part:break
+                    size+=len(part);require(size<=131072,'CREATED_FRAME_OUTPUT_UNBOUNDED');parts.append(part)
+            code=child.wait(timeout=self.budget.remaining(5));waited=True
+            require(code==0,'CREATED_FRAME_OBSERVER_DENIED');self.budget.check();return b''.join(parts)
+        except (OSError,subprocess.TimeoutExpired):raise PreexecDenied('CREATED_FRAME_EXECUTION_UNPROVEN') from None
+        finally:
+            if child is not None:
+                if not waited:
+                    try:os.killpg(child.pid,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                    child.wait(timeout=1)
+                for stream in (child.stdin,child.stdout):
+                    if stream is not None:
+                        try:stream.close()
+                        except OSError:pass
+
+    def observe(self,generation,bundle_path,application_hash,artifact_hash):
+        require(hashed(application_hash) and hashed(artifact_hash)
+            and self.configured['configuration']['sha256']==artifact_hash,'CREATED_FRAME_ARTIFACT_DRIFT')
+        executable,private=self.pinned()
+        request=json.dumps({'pid':generation['pid'],'generation':generation,'bundlePath':str(bundle_path),
+            'applicationHash':application_hash,'policyHash':artifact_hash},sort_keys=True,separators=(',',':')).encode()
+        frame=decode(self.invoke(executable,request),131072)
+        fields={'schema','configuredPolicy','sourceMountFrame','policyAuthenticationProven','rootfsSealProven',
+            'imagePublisherProvenanceVerified','completeCreationAccepted','acceptanceGranted','signaturesIssued','startAuthorized'}
+        require(set(frame)==fields and frame['schema']=='ouf.semantic-configured-created-frame.v1'
+            and all(frame[k] is False for k in ('policyAuthenticationProven','rootfsSealProven',
+                'imagePublisherProvenanceVerified','completeCreationAccepted','acceptanceGranted','startAuthorized'))
+            and type(frame['signaturesIssued']) is int and frame['signaturesIssued']==0
+            and frame['configuredPolicy']['configuredPolicyConforms'] is True
+            and frame['configuredPolicy']['applicationHash']==application_hash
+            and frame['sourceMountFrame']['sourceByteHashesMatchExpected'] is True
+            and frame['sourceMountFrame']['stableAcrossReads'] is True
+            and frame['sourceMountFrame']['privateMaterialSpooled'] is False
+            and frame['sourceMountFrame']['mountObservation']['effectiveReadOnlyFileBindingsObserved'] is True,
+            'NODE_CONFIGURED_SOURCE_MOUNT_FRAME_REQUIRED')
+        after_executable,after_private=self.pinned()
+        require(after_executable==executable and after_private==private,'CREATED_FRAME_OBSERVER_CHANGED')
+        raw=json.dumps(frame,sort_keys=True,separators=(',',':')).encode()
+        return hashlib.sha256(raw).hexdigest(),{Path(self.configured[k]['path']):v for k,v in private.items()}
 
 
 def decode(raw, limit):

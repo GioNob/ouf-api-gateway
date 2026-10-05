@@ -91,6 +91,32 @@ class DeploymentProtocolTest(unittest.TestCase):
                 with self.assertRaises(PreexecDenied):
                     validate_intent(self.signed(changed, 'DEPLOYMENT_INTENT'), self.ctx, self.authenticate, lambda: 150)
 
+    def framed(self):
+        self.creation.update(schema='ouf.semantic-container-creation-acceptance.v2',
+                             artifactHash=self.intent['artifactHash'],creationFrameHash='2'*64)
+        self.attestation.update(schema='ouf.semantic-created-candidate-attestation.v2',
+                                creationAcceptance=copy.deepcopy(self.creation))
+        self.approval['creationAcceptanceHash']=digest(self.creation)
+
+    def test_signed_frame_is_retained_in_final_evidence(self):
+        self.framed()
+        self.assertEqual(self.final()['creationAcceptance'],self.creation)
+
+    def test_framed_evidence_cannot_mix_or_downgrade_schemas(self):
+        for outer,inner in [('v1','v2'),('v2','v1')]:
+            self.framed()
+            self.attestation['schema']='ouf.semantic-created-candidate-attestation.'+outer
+            self.attestation['creationAcceptance']['schema']='ouf.semantic-container-creation-acceptance.'+inner
+            self.approval['creationAcceptanceHash']=digest(self.attestation['creationAcceptance'])
+            with self.subTest(outer=outer,inner=inner),self.assertRaises(PreexecDenied):self.final()
+
+    def test_framed_evidence_requires_exact_signed_artifact_and_frame_hash(self):
+        for field,value in [('artifactHash','9'*64),('creationFrameHash',None),('creationFrameHash','invalid')]:
+            self.framed()
+            self.attestation['creationAcceptance'][field]=value
+            self.approval['creationAcceptanceHash']=digest(self.attestation['creationAcceptance'])
+            with self.subTest(field=field,value=value),self.assertRaises(PreexecDenied):self.final()
+
     def test_another_independent_installation_cannot_consume_evidence(self):
         for field in self.ctx:
             with self.subTest(field=field), self.assertRaises(PreexecDenied):

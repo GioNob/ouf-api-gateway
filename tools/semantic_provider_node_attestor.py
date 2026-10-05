@@ -12,7 +12,7 @@ from pathlib import Path
 import time
 
 from tools.semantic_provider_installer_approval import InstallerApproval,require,publish_once
-from tools.semantic_provider_deployment_authentication import DetachedAuthenticator,VerificationBudget,private_bytes,decode
+from tools.semantic_provider_deployment_authentication import DetachedAuthenticator,VerificationBudget,private_bytes,decode,CreatedFrameObserver
 from tools.semantic_provider_deployment_protocol import context,validate_intent,validate_creation,window,hashed
 from tools.semantic_provider_deployment_producer import LocalEvidenceProducer,encoded
 from tools.semantic_provider_deployment_signing import ExistingEd25519Signer
@@ -49,40 +49,21 @@ class NodeAttestor(InstallerApproval):
         self.inputs={};self.signatures={};self.policy_raw=None
         self.observer=NodeObservation(self.cfg,self.budget)
         if self.fresh_frame:
-            self.frame_producer=LocalEvidenceProducer(self.cfg['creationFrameObserverBinding'],self.ctx,self.verifier,self.budget)
+            self.frame_observer=CreatedFrameObserver(self.cfg['creationFrameObserverBinding'],self.budget)
     def observe(self,request,journal):
         observed=self.observer.observe(request,journal,self.bundle)
         if not self.fresh_frame:return observed
         # The existing signed complete authorization binds artifactHash. v4
         # requires that exact artifact to be the independently reviewed frame
         # policy; unsigned observations cannot replace that authorization.
-        require(self.frame_producer.configured['configuration']['sha256']==request['artifactHash'],
+        require(self.frame_observer.configured['configuration']['sha256']==request['artifactHash'],
             'NODE_CREATION_POLICY_ARTIFACT_DRIFT')
-        executable,private=self.frame_producer.pinned()
-        for key,raw in private.items():self.inputs[Path(self.frame_producer.configured[key]['path'])]=raw
         require(type(observed['state'].get('pid')) is int and observed['state']['pid']>1
             and observed['state']['pid']==request['generation']['pid'],'NODE_CREATED_FRAME_PID_REQUIRED')
-        frame_request=encoded({'pid':observed['state']['pid'],'generation':request['generation'],
-            'bundlePath':str(Path(observed['bundle'])/'config.json'),'applicationHash':request['applicationHash'],
-            'policyHash':request['artifactHash']})
-        require(len(frame_request)<=4096,'NODE_FRAME_REQUEST_UNBOUNDED')
-        reply=self.frame_producer.invoke(executable,frame_request);frame=decode(reply,131072)
-        fields={'schema','configuredPolicy','sourceMountFrame','policyAuthenticationProven','rootfsSealProven',
-            'imagePublisherProvenanceVerified','completeCreationAccepted','acceptanceGranted','signaturesIssued','startAuthorized'}
-        require(set(frame)==fields and frame['schema']=='ouf.semantic-configured-created-frame.v1'
-            and all(frame[k] is False for k in ('policyAuthenticationProven','rootfsSealProven',
-                'imagePublisherProvenanceVerified','completeCreationAccepted','acceptanceGranted','startAuthorized'))
-            and type(frame['signaturesIssued']) is int and frame['signaturesIssued']==0
-            and frame['configuredPolicy']['configuredPolicyConforms'] is True
-            and frame['configuredPolicy']['applicationHash']==request['applicationHash']
-            and frame['sourceMountFrame']['sourceByteHashesMatchExpected'] is True
-            and frame['sourceMountFrame']['stableAcrossReads'] is True
-            and frame['sourceMountFrame']['privateMaterialSpooled'] is False
-            and frame['sourceMountFrame']['mountObservation']['effectiveReadOnlyFileBindingsObserved'] is True,
-            'NODE_CONFIGURED_SOURCE_MOUNT_FRAME_REQUIRED')
-        after_executable,after_private=self.frame_producer.pinned()
-        require(after_executable==executable and after_private==private,'NODE_FRAME_OBSERVER_CHANGED')
-        return {**observed,'creationFrameHash':digest(frame)}
+        frame_hash,inputs=self.frame_observer.observe(request['generation'],Path(observed['bundle'])/'config.json',
+            request['applicationHash'],request['artifactHash'])
+        self.inputs.update(inputs)
+        return {**observed,'creationFrameHash':frame_hash}
     def broker_state(self,request):
         path=Path(self.cfg['brokerStateJournal']);raw=private_bytes(path);value=decode(raw,131072);self.inputs[path]=raw
         fields={'schema','installationRef','entityRef','containerId','transactionId','intentHash','configurationHash',
@@ -175,9 +156,10 @@ class NodeAttestor(InstallerApproval):
         require(observed['rootfsSeal']==mandate['rootfsSeal'],'NODE_APPROVED_ROOTFS_DRIFT')
         self.stable();require(private_bytes(broker_path)==broker_raw,'NODE_BROKER_CLAIM_CHANGED')
         claim_path,claim_raw=self.claim(request,request_raw)
-        creation={'schema':'ouf.semantic-container-creation-acceptance.v1',**{k:request[k] for k in
+        creation={'schema':'ouf.semantic-container-creation-acceptance.v2' if self.fresh_frame else 'ouf.semantic-container-creation-acceptance.v1',**{k:request[k] for k in
             ('containerId','applicationHash','transportHash')},'accepted':True}
-        record={'schema':'ouf.semantic-created-candidate-attestation.v1','attestorRef':self.ctx['attestorRef'],
+        if self.fresh_frame:creation.update(artifactHash=request['artifactHash'],creationFrameHash=observed['creationFrameHash'])
+        record={'schema':'ouf.semantic-created-candidate-attestation.v2' if self.fresh_frame else 'ouf.semantic-created-candidate-attestation.v1','attestorRef':self.ctx['attestorRef'],
             **{k:request[k] for k in ('installationRef','entityRef','intentHash','containerId','transactionId','artifactHash',
                 'deploymentConstraintsHash','applicationHash','transportHash','runtimeExecutableHash','generation')},
             'observedAt':int(self.clock()),'creationAcceptance':creation}

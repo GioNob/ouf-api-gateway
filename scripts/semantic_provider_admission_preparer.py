@@ -218,9 +218,15 @@ def operate(args):
     creation = candidate['creationAcceptance']
     require(set(creation) == {'path','sha256'},'EXTERNAL_CREATION_ACCEPTANCE_REQUIRED')
     raw = private(creation['path']); accepted = parse(raw)
+    acceptance_fields={'schema','containerId','applicationHash','transportHash','accepted'}
+    if accepted.get('schema')=='ouf.semantic-container-creation-acceptance.v2':
+        acceptance_fields|={'artifactHash','creationFrameHash'}
+        require(cfg['schema']=='ouf.semantic-admission-preparer.v3'
+            and 'creationFrameBinding' in cfg['authenticationBinding'],'AUTHENTICATED_CREATED_FRAME_PREPARER_REQUIRED')
     require(hashlib.sha256(raw).hexdigest() == creation['sha256'] == scope['creationAcceptanceHash']
-        and set(accepted) == {'schema','containerId','applicationHash','transportHash','accepted'}
-        and accepted['schema'] == 'ouf.semantic-container-creation-acceptance.v1' and accepted['accepted'] is True
+        and set(accepted)==acceptance_fields
+        and accepted['schema'] in {'ouf.semantic-container-creation-acceptance.v1','ouf.semantic-container-creation-acceptance.v2'}
+        and accepted['accepted'] is True
         and all(accepted[k] == scope[k] for k in ('containerId','applicationHash','transportHash')),
         'CREATION_ACCEPTANCE_BINDING_UNPROVEN')
     if cfg['schema'] in ('ouf.semantic-admission-preparer.v2','ouf.semantic-admission-preparer.v3'):

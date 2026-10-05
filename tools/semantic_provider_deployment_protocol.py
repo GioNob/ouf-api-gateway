@@ -102,7 +102,7 @@ def _validate_creation(intent_raw, attestation_raw, ctx, authenticate, now, inte
               'transportHash', 'runtimeExecutableHash', 'applicationHash', 'generation',
               'observedAt', 'creationAcceptance'}
     require(set(attested) == fields
-            and attested['schema'] == 'ouf.semantic-created-candidate-attestation.v1',
+            and attested['schema'] in {'ouf.semantic-created-candidate-attestation.v1','ouf.semantic-created-candidate-attestation.v2'},
             'EXACT_CREATED_ATTESTATION_REQUIRED')
     require(attested['attestorRef'] == ctx['attestorRef']
             and all(attested[k] == ctx[k] for k in ('installationRef', 'entityRef')),
@@ -120,12 +120,17 @@ def _validate_creation(intent_raw, attestation_raw, ctx, authenticate, now, inte
             and intent['issuedAt'] <= attested['observedAt'] <= now,
             'CREATION_OBSERVATION_TIME_DRIFT')
     creation = attested['creationAcceptance']
+    framed=attested['schema']=='ouf.semantic-created-candidate-attestation.v2'
+    creation_fields={'schema','containerId','applicationHash','transportHash','accepted'}
+    if framed:creation_fields|={'artifactHash','creationFrameHash'}
     require(type(creation) is dict
-            and set(creation) == {'schema', 'containerId', 'applicationHash', 'transportHash', 'accepted'}
-            and creation['schema'] == 'ouf.semantic-container-creation-acceptance.v1'
+            and set(creation) == creation_fields
+            and creation['schema'] == ('ouf.semantic-container-creation-acceptance.v2' if framed else 'ouf.semantic-container-creation-acceptance.v1')
             and creation['accepted'] is True
             and all(creation[k] == attested[k] for k in ('containerId', 'applicationHash', 'transportHash')),
             'COMPLETE_CREATION_ACCEPTANCE_REQUIRED')
+    if framed:require(creation['artifactHash']==attested['artifactHash'] and hashed(creation['creationFrameHash']),
+        'AUTHENTICATED_CREATION_FRAME_REQUIRED')
     authenticated(attestation_raw, 'CREATION_ATTESTATION', ctx['attestorRef'], ctx, authenticate)
     return copy.deepcopy(attested)
 

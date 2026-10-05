@@ -152,7 +152,9 @@ class LocalEvidenceProducer:
         expected_schema = 'ouf.semantic-created-candidate-attestation.v1' if role == 'CREATION_ATTESTATION' else 'ouf.semantic-deployment-admission-approval.v1'
         issuer_field = 'attestorRef' if role == 'CREATION_ATTESTATION' else 'issuerRef'
         common = ('installationRef','entityRef','containerId','transactionId','applicationHash','transportHash')
-        require(result.get('schema') == expected_schema and result.get(issuer_field) == request['issuerRef']
+        expected_schemas={expected_schema}
+        if role=='CREATION_ATTESTATION':expected_schemas.add('ouf.semantic-created-candidate-attestation.v2')
+        require(result.get('schema') in expected_schemas and result.get(issuer_field) == request['issuerRef']
                 and all(result.get(k) == request[k] for k in common), 'LOCAL_PRODUCER_RECORD_SCOPE_DRIFT')
         if role == 'CREATION_ATTESTATION':
             require(all(result.get(k) == facts[k] for k in ('intentHash','artifactHash','deploymentConstraintsHash','runtimeExecutableHash','generation')),

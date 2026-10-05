@@ -273,6 +273,17 @@ class Broker:
                 'consumptionBinding':{'journalPath':str(self.root/'deployment.json'),'binding':self.binding,'evidenceHash':digest(evidence)},
                 'authenticationBinding':{'records':{'intent':self.cfg['intentBinding'],'attestation':att_binding,'approval':approval_binding},
                     'authorities':self.ctx,**{k:self.cfg[k] for k in ('policyBinding','signatureDirectory','opensslBinding')}}}
+            if accepted['schema']=='ouf.semantic-container-creation-acceptance.v2':
+                from tools.semantic_provider_deployment_producer import LocalEvidenceProducer
+                node=LocalEvidenceProducer(self.cfg['producers']['attestation'],self.ctx,self.verifier,self.budget)
+                _,node_private=node.pinned();node_configuration=parse(node_private['configuration'])
+                require(node_configuration.get('schema')=='ouf.semantic-node-attestor.v4'
+                    and node_configuration['creationFrameObserverBinding']['configuration']['sha256']==accepted['artifactHash']
+                    ==self.intent['artifactHash'],'BROKER_AUTHENTICATED_CREATED_FRAME_REQUIRED')
+                value['authenticationBinding']['creationFrameBinding']={
+                    'observerBinding':copy.deepcopy(node_configuration['creationFrameObserverBinding']),
+                    'bundlePath':str(Path(self.args.bundle)/'config.json')}
+                self.custodies.extend((Path(node.configured[k]['path']),raw) for k,raw in node_private.items())
             create(self.root/'preparer.json',value)
             create(self.root/'admission.json',{'schema':'ouf.semantic-admission-journal.v1','transactionId':self.txn,
                 'configurationHash':digest(value),'state':'STAGED','driverHash':None,'namespaceOwned':False,

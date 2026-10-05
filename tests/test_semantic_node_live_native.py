@@ -20,7 +20,9 @@ from tools.semantic_provider_deployment_admission import application_hash,transp
 from tools.semantic_provider_deployment_authentication import VerificationBudget
 from tools.semantic_provider_deployment_producer import encoded
 from tools.semantic_provider_node_observation import rootfs_seal
-from tools.semantic_provider_preexec import PreexecDenied
+from tools.semantic_provider_preexec import PreexecDenied,digest
+from tools.semantic_provider_deployment_protocol import validate_final
+from tools.semantic_provider_deployment_reauthorization import LateAuthenticatedEvidence
 from tools.semantic_provider_preexec_native import NativeBackend
 
 
@@ -163,7 +165,28 @@ class NodeLiveNativeTest(unittest.TestCase):
               ' EXACT_OCI_ACCEPTED_BEFORE_PRODUCER_PIN=true DOCKER_PRECREATE_PIN_PATH_PROVEN=false'
               ' CI_KEYS_ONLY=true TARGET_START_AUTHORIZED=false NOT_RELEASE_ACCEPTANCE=true'
               ' INVOCATION_SECONDS='+format(elapsed,'.3f'))
-        if fresh:print('NODE_V4_CREATION_FRAME=PASS REAL_SOURCE_BYTES_AND_KERNEL_BIND=true SIGNED_POLICY_ARTIFACT_BOUND=true APPLICATION_NOT_STARTED=true CI_ONLY=true')
+        if fresh:
+            self.assertEqual(record['schema'],'ouf.semantic-created-candidate-attestation.v2')
+            attestation=root/'fresh-attestation.json';attestation.write_bytes(reply['record']);attestation.chmod(0o600)
+            sigpath=f.crypto.filename(reply['record'],'CREATION_ATTESTATION')
+            sigpath.write_bytes(reply['recordSignature']);sigpath.chmod(0o600)
+            approval=dict(f.p.approval)
+            approval.update({k:record[k] for k in ('containerId','transactionId','applicationHash','transportHash')})
+            approval.update(creationAcceptanceHash=digest(record['creationAcceptance']),issuedAt=int(time.time()),
+                expiresAt=f.p.intent['expiresAt'])
+            approval_path=root/'fresh-approval.json';f.write(approval_path,approval)
+            f.crypto.sign(encoded(approval),'FINAL_DEPLOYMENT_APPROVAL','installer-a','installer-key')
+            evidence=validate_final(encoded(f.p.intent),reply['record'],encoded(approval),f.p.ctx,f.crypto.verifier)
+            records={'intent':node.cfg['intentBinding'],'attestation':f.bind(attestation),'approval':f.bind(approval_path)}
+            late=LateAuthenticatedEvidence(records,f.p.ctx,f.crypto.policy_binding,str(f.crypto.signature_directory),
+                f.crypto.openssl_binding,digest(evidence),evidence['scope'],budget=VerificationBudget(5),
+                creation_frame={'observerBinding':node.cfg['creationFrameObserverBinding'],'bundlePath':str(bundle/'config.json')})
+            self.assertTrue(late())
+            source.write_bytes(b'CI_PRIVATE_LATE_BIND_DRIFT')
+            with self.assertRaises(PreexecDenied):late()
+            self.assertEqual(json.loads(self.command(*runc_args,'state',cid))['status'],'created')
+            self.assertFalse(marker.exists())
+            print('NODE_V4_CREATION_FRAME=PASS REAL_SOURCE_BYTES_AND_KERNEL_BIND=true SIGNED_POLICY_ARTIFACT_BOUND=true REAL_LATE_REAUTHENTICATION=true LATE_BIND_BYTE_DRIFT_DENIED=true APPLICATION_NOT_STARTED=true CI_ONLY=true')
 
 
 if __name__=='__main__':unittest.main()

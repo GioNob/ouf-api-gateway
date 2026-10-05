@@ -2,7 +2,7 @@
 
 Separate mandatory native CI covers the actual sealed helper and runc mounts.
 """
-import copy,hashlib,json,os
+import base64,copy,hashlib,json,os,time
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -11,7 +11,14 @@ from tools.semantic_provider_deployment_producer import encoded
 from tools.semantic_provider_node_observation import NodeObservation
 from tools.semantic_provider_deployment_signing import ExistingEd25519Signer
 from tools.semantic_provider_preexec import PreexecDenied
+from tools.semantic_provider_preexec import digest
+from tools.semantic_provider_deployment_protocol import validate_final
+from tools.semantic_provider_deployment_consumption import Consumption
+from tools.semantic_provider_deployment_reauthorization import LateAuthenticatedEvidence
+from tools.semantic_provider_deployment_authentication import VerificationBudget
+from tools.semantic_provider_lease_coordination import PrivateJournal,hold_common_lock
 
+@unittest.skipUnless(os.geteuid()==0,'root-private v4 fixture; all cases required by the mandatory root CI job')
 class CreationFrameTest(unittest.TestCase):
     def setUp(self):
         self.assertEqual(os.geteuid(),0)
@@ -88,5 +95,68 @@ class CreationFrameTest(unittest.TestCase):
             with self.assertRaisesRegex(PreexecDenied,'LOCAL_PRODUCER_SOURCE_OR_CONFIGURATION_DRIFT'):self.emit()
         self.assertTrue(Path(self.node.cfg['issuanceClaimPath']).exists())
         self.assertFalse(Path(self.node.cfg['acceptanceMandatePath']).exists())
+
+    def late_fixture(self):
+        # Stateful synthetic frame tests only the real signature/journal
+        # ordering. Actual PID/source-byte observation is mandatory native CI.
+        root=self.node.root;self.bind_state=root/'unit-only-bind';self.bind_state.write_bytes(b'CI_UNIT_BIND')
+        self.bind_state.chmod(0o600)
+        self.helper.write_text('import hashlib,json\nfrom pathlib import Path\n'
+            'reply='+repr(self.reply)+'\n'
+            "reply['sourceMountFrame']['mountObservation']['mountInfoHash']=hashlib.sha256(Path("
+            +repr(str(self.bind_state))+').read_bytes()).hexdigest()\nprint(json.dumps(reply))\n')
+        self.helper.chmod(0o600);self.node.cfg['creationFrameObserverBinding']['source']=self.issuer.bind(self.helper)
+        self.node.refresh();reply=json.loads(self.emit());raw=base64.b64decode(reply['recordBase64'])
+        record=json.loads(raw);attestation=root/'late-attestation.json';attestation.write_bytes(raw);attestation.chmod(0o600)
+        sig=self.issuer.crypto.filename(raw,'CREATION_ATTESTATION');sig.write_bytes(encoded(reply['recordSignature']));sig.chmod(0o600)
+        approval=dict(self.issuer.p.approval)
+        approval.update({k:record[k] for k in ('containerId','transactionId','applicationHash','transportHash')})
+        approval.update(creationAcceptanceHash=digest(record['creationAcceptance']),issuedAt=int(time.time()),
+            expiresAt=self.issuer.p.intent['expiresAt'])
+        approval_path=root/'late-approval.json';self.issuer.write(approval_path,approval)
+        self.issuer.crypto.sign(encoded(approval),'FINAL_DEPLOYMENT_APPROVAL','installer-a','installer-key')
+        raws=(encoded(self.issuer.p.intent),raw,encoded(approval))
+        evidence=validate_final(*raws,self.issuer.p.ctx,self.issuer.crypto.verifier)
+        records={'intent':self.node.cfg['intentBinding'],'attestation':self.issuer.bind(attestation),
+            'approval':self.issuer.bind(approval_path)}
+        self.late=LateAuthenticatedEvidence(records,self.issuer.p.ctx,self.issuer.crypto.policy_binding,
+            str(self.issuer.crypto.signature_directory),self.issuer.crypto.openssl_binding,digest(evidence),
+            evidence['scope'],budget=VerificationBudget(12),creation_frame={
+                'observerBinding':self.node.cfg['creationFrameObserverBinding'],'bundlePath':str(root/'bundle/config.json')})
+        binding={k:record[k] for k in ('installationRef','entityRef','containerId','transactionId','intentHash')}
+        binding['configurationHash']='c'*64
+        journal=root/'late-consumption.json';self.issuer.write(journal,{'schema':'ouf.semantic-deployment-consumption.v1',
+            **binding,'state':'STAGED',**dict.fromkeys(('bundleHash','generation','evidenceHash','approvalHash','driverHash'))})
+        lock=root/'late.lock';lock.touch(mode=0o600)
+        self.gate=Consumption(binding,PrivateJournal(journal),lambda:hold_common_lock(lock))
+        self.gate.authorize_create(raws[0],self.issuer.p.ctx,self.issuer.crypto.verifier)
+        self.gate.created(record['applicationHash'],record['generation'])
+        self.gate.ready(*raws,self.issuer.p.ctx,self.issuer.crypto.verifier);self.gate.seal_driver('d'*64)
+        self.evidence=evidence;self.started=[]
+
+    def consume(self):
+        with self.gate.hold_lock():
+            self.gate.consume_locked(digest(self.evidence),'d'*64,self.evidence['generation'],self.late,
+                lambda:self.started.append(1))
+
+    def test_v2_signed_frame_cannot_be_consumed_without_fresh_observer_binding(self):
+        self.late_fixture();self.late.creation_frame=None
+        with self.assertRaisesRegex(PreexecDenied,'LATE_AUTHENTICATED_CREATION_FRAME_REQUIRED'):self.consume()
+        self.assertEqual(self.gate.record()['state'],'READY');self.assertEqual(self.started,[])
+
+    def test_frame_drift_before_consumption_preserves_ready_and_never_calls_starter(self):
+        self.late_fixture();self.bind_state.write_bytes(b'CI_UNIT_CHANGED_BIND')
+        with self.assertRaisesRegex(PreexecDenied,'LATE_CREATED_FRAME_DRIFT'):self.consume()
+        self.assertEqual(self.gate.record()['state'],'READY');self.assertEqual(self.started,[])
+
+    def test_frame_drift_after_durable_starting_is_denied_and_not_replayed(self):
+        self.late_fixture();original=self.gate.journal.write
+        def change(old,new):
+            original(old,new)
+            if new['state']=='STARTING':self.bind_state.write_bytes(b'CI_UNIT_CHANGED_AFTER_FSYNC')
+        self.gate.journal.write=change
+        with self.assertRaisesRegex(PreexecDenied,'LATE_CREATED_FRAME_DRIFT'):self.consume()
+        self.assertEqual(self.gate.record()['state'],'STARTING');self.assertEqual(self.started,[])
+        with self.assertRaisesRegex(PreexecDenied,'DO_NOT_REPLAY_DEPLOYMENT_START'):self.consume()
 
 if __name__=='__main__':unittest.main()
