@@ -1,0 +1,49 @@
+{
+  "schema": "ouf.semantic-created-frame-issuer-consumer-ci.v1",
+  "gatewayCodeCommit": "f38e1533e91258874950577b947d84a4b9134f18",
+  "semanticObserverCommit": "3505a2f6bfde9c3905b76a5e670ebc30b40d3d6d",
+  "observerSha256": "d15d290e903e16f64b9d153658453f2b857c5241eb30ded961fd981a3ba436e4",
+  "gatewayWorkflows": [
+    {
+      "id": 37357971003,
+      "name": "Semantic provider request boundary",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 37357971063,
+      "name": "Gateway control-plane and MCP mediation",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "gatewayNativeJob": 111925113296,
+  "rootTests": 238,
+  "nativeAdmissionTests": 2,
+  "nativeNodeTests": 6,
+  "nativeTargetDockerGoTests": 2,
+  "mandatorySkipped": 0,
+  "semanticWorkflow": 37355294240,
+  "semanticRootTests": 106,
+  "semanticRunnerDockerTests": 2,
+  "semanticTargetDockerTests": 3,
+  "semanticNativeRuncTests": 4,
+  "semanticMandatoryTotal": 115,
+  "semanticMandatorySkipped": 0,
+  "logsRead": true,
+  "realLateFrameReauthenticationProvenInCi": true,
+  "realPostSignatureSourceDriftDeniedInCi": true,
+  "brokerFramedPolicyPropagationTestedWithRealSignatures": true,
+  "syntheticUnitObservers": true,
+  "targetExecuted": false,
+  "acceptanceGranted": false,
+  "fullOciAcceptanceProvenOnTarget": false,
+  "externalCompleteAcceptanceIssuerImplemented": false,
+  "atomicSnapshotProven": false,
+  "providerCallsOnTarget": 0,
+  "targetFilesWritten": 0,
+  "targetSignaturesIssued": 0,
+  "runtimeRegisteredOnTarget": false,
+  "startAuthorizedOnTarget": false,
+  "lastOperatorPassedSection": 47
+}

@@ -1,6 +1,6 @@
 # Node attestor v4: fresh configured OCI, source bytes and effective binds
 
-Status: ISSUER_NATIVE_CI_PASS_CONSUMER_EXTENSION_PENDING_TARGET_NOT_INSTALLED.
+Status: ISSUER_CONSUMER_NATIVE_CI_PASS_TARGET_NOT_INSTALLED.
 
 The explicit v4 schema retains v3 signed live-acceptance authorization and adds an immutable creationFrameObserverBinding (Python/source/configuration). Its policy configuration hash must equal the artifactHash already bound by the signed intent and live authorization. Missing, unsigned, expired or mismatched complete authorization still denies before issuance. A conforming unsigned observer cannot grant complete acceptance.
 
@@ -8,7 +8,7 @@ The observer is owned and deterministically generated in ouf-semantic-registry, 
 
 For each of the attestor's existing three observations, v4 joins actual runc-created state, whole OCI/rootfs/transport observations with configured whole-OCI semantics, contemporaneous host-source hashes and effective kernel read-only file-bind identity. The observer's frame hash must remain identical through mandate/attestation signing. Existing producer 5s, node 12s and broker 18s limits are unchanged; no human pause, delay extension or fake generation is introduced. Source/observer/policy drift denies. Durable issuance claims retain fail-closed no-replay semantics.
 
-Nine new unit tests use real Ed25519/custody/transport with explicitly synthetic observation replies. The three additional mandatory native tests use real runc, real namespaces/rootfs/mounts, the exact isolated observer and real signature verification: positive issuance with application never started; host bind byte drift; same-byte inode replacement. Issuer native CI passed at 4ddd7dab237e723ebe6b786ef065630bbd0c453e (run 37355300783); fresh consumer extension native CI is required before publishing its PASS receipt. No target or release acceptance is claimed.
+Nine new unit tests use real Ed25519/custody/transport with explicitly synthetic observation replies. The three additional mandatory native tests use real runc, real namespaces/rootfs/mounts, the exact isolated observer and real signature verification: positive issuance with application never started; host bind byte drift; same-byte inode replacement. Issuer/consumer native CI passed at f38e1533e91258874950577b947d84a4b9134f18 (runs 37357971003 / 37357971063): 19 returned jobs SUCCESS; actual logs show 238 root tests with zero skips, 2 native admission, 6 real-runc node tests and 2 native target Docker/Go tests. The real late observer accepts the unchanged created frame and denies actual host-source byte drift after signing. Applications in the node fixture remain CREATED. No target or release acceptance is claimed.
 
 The independently reviewed frame-policy artifact contains schema, expectedOci, manifest, startup, approvedHooks and sources. Its hash is an authenticated policy input, not self-authenticating acceptance. The separate signed complete authorization must still cover image, supply-chain/SBOM/publisher evidence, rootfs and runtime/deployment authority. PET requirements cannot be inferred from observer booleans. The v8 target source package remains unmodified/uninstalled; v4 installation, policy preparation/authority, signing, consumer/runtime registration and start require their distinct concrete gates.
 
