@@ -35,6 +35,10 @@ class ProviderContainerTest(unittest.TestCase):
         base_info = json.loads(subprocess.check_output(['docker', 'image', 'inspect', requested], text=True))[0]
         base = requested if '@sha256:' in requested else base_info['RepoDigests'][0]
         tag = 'ouf-provider-package-ci:'+revision[:12]; name = 'ouf-provider-package-ci-'+str(os.getpid())
+        final_image = os.environ.get('OUF_PROVIDER_TEST_FINAL_IMAGE')
+        if final_image is not None:
+            self.assertRegex(final_image, r'^sha256:[0-9a-f]{64}$')
+            tag = final_image
         uid = gid = 10006  # isolated fixture inputs, not installation defaults
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder); context = root/'context'; context.mkdir(mode=0o700)
@@ -45,7 +49,9 @@ class ProviderContainerTest(unittest.TestCase):
             build = ['docker', 'build', '--network=none', '--pull=false', '--file', str(context/'Dockerfile.semantic-provider'), '--tag', tag]
             for key, value in {'PYTHON_BASE_IMAGE': base, 'SOURCE_REVISION': revision, 'PAYLOAD_SHA256': stage.digest(stage.PAYLOAD_HASHES),
                                'RUNTIME_UID': uid, 'RUNTIME_GID': gid}.items(): build.extend(['--build-arg', key+'='+str(value)])
-            build.append(str(context)); subprocess.run(build, check=True, capture_output=True, timeout=180)
+            build.append(str(context))
+            if final_image is None:
+                subprocess.run(build, check=True, capture_output=True, timeout=180)
             image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', tag], text=True))[0]
             self.assertEqual(image['Config']['User'], '10006:10006'); self.assertEqual(image['Config']['Entrypoint'], stage.ENTRYPOINT)
             self.assertEqual(image['Config']['Labels']['org.opencontainers.image.revision'], revision)

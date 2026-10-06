@@ -35,8 +35,9 @@ class RealProviderGatewayTest(unittest.TestCase):
     def test_signed_jwt_admission_tls_transport_and_negative_boundaries(self):
         requested_image = os.environ.get('OUF_PROVIDER_TEST_APISIX_IMAGE', 'apache/apisix:3.18.0-debian')
         if 'OUF_PROVIDER_TEST_APISIX_IMAGE' in os.environ:
-            self.assertRegex(requested_image, r'^apache/apisix@sha256:[0-9a-f]{64}$')
-        subprocess.run(['docker', 'pull', '--platform=linux/amd64', requested_image], check=True, capture_output=True, timeout=180)
+            self.assertRegex(requested_image, r'^(apache/apisix@)?sha256:[0-9a-f]{64}$')
+        if not requested_image.startswith('sha256:'):
+            subprocess.run(['docker', 'pull', '--platform=linux/amd64', requested_image], check=True, capture_output=True, timeout=180)
         image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', requested_image], text=True))[0]
         self.assertEqual(image['Architecture'], 'amd64')
         import jwt
