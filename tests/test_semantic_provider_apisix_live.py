@@ -33,6 +33,12 @@ from tests.test_semantic_provider_materialization import config
 @unittest.skipUnless(os.environ.get('OUF_SEMANTIC_PROVIDER_APISIX_TEST') == '1', 'requires Docker APISIX gate')
 class RealProviderGatewayTest(unittest.TestCase):
     def test_signed_jwt_admission_tls_transport_and_negative_boundaries(self):
+        requested_image = os.environ.get('OUF_PROVIDER_TEST_APISIX_IMAGE', 'apache/apisix:3.18.0-debian')
+        if 'OUF_PROVIDER_TEST_APISIX_IMAGE' in os.environ:
+            self.assertRegex(requested_image, r'^apache/apisix@sha256:[0-9a-f]{64}$')
+        subprocess.run(['docker', 'pull', '--platform=linux/amd64', requested_image], check=True, capture_output=True, timeout=180)
+        image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', requested_image], text=True))[0]
+        self.assertEqual(image['Architecture'], 'amd64')
         import jwt
         import yaml
         from cryptography.hazmat.primitives.asymmetric import rsa
@@ -107,8 +113,12 @@ class RealProviderGatewayTest(unittest.TestCase):
                         '-v', str(certificate)+':/provider-fixture/cert.pem:ro',
                         '-v', str(root/'config.yaml')+':/usr/local/apisix/conf/config.yaml:ro',
                         '-v', str(root/'apisix.yaml')+':/usr/local/apisix/conf/apisix.yaml:ro',
-                        'apache/apisix:3.18.0-debian'], check=True, stdout=subprocess.DEVNULL, timeout=180)
+                        requested_image], check=True, stdout=subprocess.DEVNULL, timeout=180)
                     try:
+                        version = subprocess.check_output(['docker', 'exec', name, 'apisix', 'version'], text=True, timeout=15)
+                        self.assertEqual(re.findall(r'(?m)^\s*(\d+\.\d+\.\d+)\s*$', version), ['3.18.0'])
+                        running = json.loads(subprocess.check_output(['docker', 'inspect', name], text=True))[0]
+                        self.assertEqual(running['Image'], image['Id'])
                         def token(**changes):
                             now = int(time.time()); claims = {'iss': cfg['issuer'], 'aud': cfg['audience'],
                                 'azp': cfg['workload'], 'sub': 'service-subject', 'tenant_id': 'tenant-test',
@@ -195,6 +205,12 @@ class RealProviderGatewayTest(unittest.TestCase):
                     if process.is_alive(): process.kill(); process.join(timeout=5)
             finally:
                 issuer.shutdown(); issuer.server_close()
+        evidence = {'schema': 'ouf.semantic-southbound-package-ci.v1', 'imageId': image['Id'],
+            'requestedImage': requested_image, 'version': '3.18.0', 'tlsOidcNegativeBoundariesProven': True,
+            'externalProviderCalls': 0, 'notReleaseAcceptance': True}
+        proof = Path(__file__).resolve().parents[1]/'generated/semantic-southbound-package-proof.json'
+        proof.parent.mkdir(exist_ok=True); proof.write_text(json.dumps(evidence, sort_keys=True)+'\n')
+        print('SOUTHBOUND_APISIX_PACKAGE_PROOF='+json.dumps(evidence, sort_keys=True))
         print('SOUTHBOUND_APISIX_TLS=PASS REAL_APISIX_3_18=true TLS_ONLY_LISTENER=true '
             'EXACT_SNI=true CLIENT_HOSTNAME_VERIFY=true OIDC_RECEIPT_ADAPTER_TLS=true '
             'UPSTREAM_HOSTNAME_MISMATCH_DENIED=true FIXTURE_CLEANUP=true '

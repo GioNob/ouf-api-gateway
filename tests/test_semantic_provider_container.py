@@ -8,6 +8,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -27,8 +28,12 @@ class ProviderContainerTest(unittest.TestCase):
     def test_digest_pinned_minimal_image_nonroot_readonly_tls_and_admission(self):
         repository = Path(__file__).resolve().parents[1]
         revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repository, text=True).strip()
-        subprocess.run(['docker', 'pull', 'python:3.13-slim'], check=True, capture_output=True, timeout=180)
-        base = json.loads(subprocess.check_output(['docker', 'image', 'inspect', 'python:3.13-slim'], text=True))[0]['RepoDigests'][0]
+        requested = os.environ.get('OUF_PROVIDER_TEST_BASE_IMAGE', 'python:3.13-slim')
+        if 'OUF_PROVIDER_TEST_BASE_IMAGE' in os.environ:
+            self.assertRegex(requested, r'^python@sha256:[0-9a-f]{64}$')
+        subprocess.run(['docker', 'pull', '--platform=linux/amd64', requested], check=True, capture_output=True, timeout=180)
+        base_info = json.loads(subprocess.check_output(['docker', 'image', 'inspect', requested], text=True))[0]
+        base = requested if '@sha256:' in requested else base_info['RepoDigests'][0]
         tag = 'ouf-provider-package-ci:'+revision[:12]; name = 'ouf-provider-package-ci-'+str(os.getpid())
         uid = gid = 10006  # isolated fixture inputs, not installation defaults
         with tempfile.TemporaryDirectory() as folder:
