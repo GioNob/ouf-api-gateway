@@ -1,0 +1,63 @@
+{
+  "routes": {
+    "installation": "ouf-lab-netcup-01",
+    "issuer": "https://auth.ouf-lab.it/realms/ouf",
+    "audience": "ouf-api-gateway",
+    "workload": "ouf-semantic",
+    "scope": "gateway.southbound.invoke",
+    "tenants": ["ouf-lab"],
+    "searchPath": "/internal/providers/schema-gov/search",
+    "fetchPath": "/internal/providers/schema-gov/fetch",
+    "searchRouteId": "semantic-provider-search",
+    "fetchRouteId": "semantic-provider-fetch",
+    "receiptKeyEnvironment": "OUF_SEMANTIC_PROVIDER_OWNER_KEY",
+    "oidcSecretRef": "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET",
+    "upstream": {
+      "type": "roundrobin",
+      "scheme": "https",
+      "nodes": {"ouf-semantic-provider:9443": 1},
+      "pass_host": "rewrite",
+      "upstream_host": "ouf-semantic-provider",
+      "timeout": {"connect": 3, "send": 3, "read": 25}
+    },
+    "tlsProfile": {
+      "role": "DEDICATED_SOUTHBOUND",
+      "mode": "NGINX_PROXY_SSL_VERIFY",
+      "trustedCertificateFile": "/run/ouf-semantic-provider/trust-bundle.pem",
+      "verifyDepth": 3
+    },
+    "rateLimit": {"count": 30, "time_window": 60, "key_type": "var", "key": "remote_addr", "policy": "local", "rejected_code": 429},
+    "maxRequestBytes": 65536
+  },
+  "adapter": {
+    "listenAddress": "0.0.0.0",
+    "listenPort": 9443,
+    "maxWorkers": 4,
+    "requestTimeoutSeconds": 20,
+    "searchPath": "/internal/providers/schema-gov/search",
+    "fetchPath": "/internal/providers/schema-gov/fetch",
+    "provider": {
+      "endpoint": "https://schema.gov.it:443/sparql",
+      "namespace_prefixes": ["https://w3id.org/italia/ont/", "https://w3id.org/italia/controlled-vocabulary/"],
+      "allowed_cidrs": [],
+      "max_request_bytes": 65536,
+      "max_response_bytes": 8388608,
+      "max_intent_chars": 2000,
+      "timeout_seconds": 10,
+      "ca_file": "/run/ouf-semantic-provider/trust-bundle.pem"
+    },
+    "admission": {
+      "installation": "ouf-lab-netcup-01",
+      "issuer": "https://auth.ouf-lab.it/realms/ouf",
+      "audience": "ouf-api-gateway",
+      "workload": "ouf-semantic",
+      "scope": "gateway.southbound.invoke",
+      "tenants": ["ouf-lab"]
+    },
+    "receiptKeyFile": "/run/ouf-semantic-provider/provider-receipt.key",
+    "tlsCertificateFile": "/run/ouf-semantic-provider/server.crt",
+    "tlsPrivateKeyFile": "/run/ouf-semantic-provider/server.key"
+  },
+  "tlsIdentities": {"adapterHostname": "ouf-semantic-provider", "southboundHostname": "ouf-semantic-southbound"},
+  "dns": {"resolvers": ["46.38.252.230", "46.38.225.230", "2a03:4000:0:1::e1e6"], "networkIPVersion": 4, "resolverPort": 53}
+}

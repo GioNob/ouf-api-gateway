@@ -1,0 +1,411 @@
+name: Semantic provider request boundary
+on:
+  push:
+    paths:
+      - 'Dockerfile.semantic-provider'
+      - 'scripts/stage_semantic_provider_adapter.py'
+      - 'scripts/prepare_semantic_provider_transition_intent.py'
+      - 'scripts/restore_semantic_runtime_boot_guard.py'
+      - 'scripts/stage_semantic_runtime_transition.py'
+      - 'scripts/transition_semantic_runtime_guard.py'
+      - 'scripts/inventory_semantic_runtime_readiness.py'
+      - 'scripts/inventory_semantic_provider_network.py'
+      - 'scripts/inventory_semantic_provider_candidate_inputs.py'
+      - 'scripts/prepare_semantic_southbound_validator_credentials.py'
+      - 'scripts/prepare_semantic_provider_launch_inputs.py'
+      - 'scripts/stage_semantic_provider_candidates.py'
+      - 'scripts/create_semantic_provider_stopped_candidates.py'
+      - 'scripts/inventory_semantic_provider_static_ipam.py'
+      - 'tests/test_create_semantic_provider_stopped_candidates.py'
+      - 'tests/test_stage_semantic_provider_candidates.py'
+      - 'tests/test_semantic_southbound_validator_credentials.py'
+      - 'scripts/prepare_semantic_provider_networks.py'
+      - 'tests/test_prepare_semantic_provider_networks.py'
+      - 'scripts/prepare_semantic_provider_trust.py'
+      - 'scripts/prepare_semantic_provider_tls_runtime.py'
+      - 'tests/test_prepare_semantic_provider_tls_runtime.py'
+      - 'examples/semantic-provider-runtime.ouf-lab.json'
+      - 'scripts/stage_semantic_provider_runtime_plan.sh'
+      - 'tests/test_prepare_semantic_provider_trust.py'
+      - 'tools/materialize_southbound_kernel.py'
+      - 'tools/materialize_semantic_shared_faces.py'
+      - 'tests/test_semantic_shared_coordination.py'
+      - 'tests/test_semantic_preexec*.py'
+      - 'scripts/inventory_semantic_preexec_runtime.py'
+      - 'scripts/inventory_semantic_preexec_candidates.py'
+      - 'scripts/semantic_provider_preexec_hook.py'
+      - 'scripts/stage_semantic_admission_package.py'
+      - 'scripts/semantic_provider_admission_preparer.py'
+      - 'tools/semantic_provider_deployment_admission.py'
+      - 'tests/test_semantic_admission.py'
+      - 'tools/semantic_provider_deployment_protocol.py'
+      - 'tests/test_semantic_deployment_protocol.py'
+      - 'tools/semantic_provider_deployment_consumption.py'
+      - 'tests/test_semantic_deployment_consumption.py'
+      - 'scripts/stage_semantic_deployment_package.py'
+      - 'tests/test_semantic_deployment_package.py'
+      - 'scripts/inventory_semantic_deployment_trust_backend.py'
+      - 'tests/test_semantic_deployment_trust_backend.py'
+      - 'tools/semantic_provider_deployment_authentication.py'
+      - 'tools/semantic_provider_deployment_reauthorization.py'
+      - 'tools/semantic_provider_deployment_producer.py'
+      - 'tests/test_semantic_deployment_producer.py'
+      - 'scripts/semantic_provider_installer_approval.py'
+      - 'tests/test_semantic_installer_approval.py'
+      - 'tests/test_semantic_node_attestor.py'
+      - 'tests/test_semantic_node_live_mandate.py'
+      - 'tests/test_semantic_node_live_native.py'
+      - 'tests/test_semantic_node_signed_path_authority.py'
+      - 'tests/test_semantic_node_creation_frame.py'
+      - 'scripts/semantic_provider_node_attestor.py'
+      - 'scripts/stage_semantic_local_producers_package.py'
+      - 'tests/test_semantic_local_producers_package.py'
+      - 'scripts/repair_semantic_local_producers_package_directory.py'
+      - 'tests/test_semantic_package_directory_recovery.py'
+      - 'scripts/prepare_semantic_trust_policy.py'
+      - 'tests/test_semantic_trust_policy_preparation.py'
+      - 'scripts/prepare_semantic_authority_keys.py'
+      - 'tests/test_semantic_authority_keys.py'
+      - 'scripts/inventory_semantic_target_acceptance.py'
+      - 'tests/test_semantic_target_acceptance.py'
+      - 'tests/fixtures/semantic_image_inspect_template.go'
+      - 'tests/fixtures/semantic_node_acceptance_setup.py'
+      - 'tests/test_semantic_deployment_reauthorization.py'
+      - 'tests/test_semantic_authenticated_driver.py'
+      - 'scripts/stage_semantic_authenticated_runtime_package.py'
+      - 'tests/test_semantic_authenticated_runtime_package.py'
+      - 'tests/test_semantic_deployment_authentication.py'
+      - 'scripts/stage_semantic_authenticated_deployment_package.py'
+      - 'tests/test_semantic_authenticated_deployment_package.py'
+      - 'tests/fixtures/semantic_docker_two_phase_fixture.py'
+      - 'scripts/semantic_provider_deployment_broker.py'
+      - 'scripts/stage_semantic_local_broker_package.py'
+      - 'tests/test_semantic_local_broker_package.py'
+      - 'tests/test_semantic_deployment_broker.py'
+      - 'tests/fixtures/semantic_operational_broker*.py'
+      - 'tests/fixtures/semantic_local_producer_fixture.py'
+      - 'tests/test_semantic_admission_native.py'
+      - 'scripts/semantic_provider_docker_runtime.py'
+      - 'tests/fixtures/semantic_docker_admission_fixture.py'
+      - 'scripts/stage_semantic_preexec_package.py'
+      - 'tests/test_semantic_shared_coordination_native.py'
+      - 'tools/materialize_southbound_lease_refresh.py'
+      - 'tests/test_southbound_kernel.py'
+      - 'tests/test_southbound_docker_kernel.py'
+      - 'tests/test_stage_semantic_provider_adapter.py'
+      - 'tools/semantic_provider_*.py'
+      - 'tools/materialize_semantic_provider.py'
+      - 'tools/materialize_semantic_provider_runtime.py'
+      - 'tools/materialize_semantic_provider_tls.py'
+      - 'tools/lua/admit_semantic_provider.lua'
+      - 'tests/test_semantic_provider_*.py'
+      - '.github/workflows/semantic-provider-boundary.yml'
+      - 'docs/SEMANTIC_PROVIDER_BOOT_RUNTIME_TRANSITION.md'
+      - 'scripts/prepare_semantic_provider_java_trust.py'
+      - 'scripts/inventory_semantic_provider_dns.py'
+      - 'tests/test_prepare_semantic_provider_java_trust.py'
+  pull_request:
+    paths:
+      - 'Dockerfile.semantic-provider'
+      - 'scripts/stage_semantic_provider_adapter.py'
+      - 'scripts/prepare_semantic_provider_transition_intent.py'
+      - 'scripts/restore_semantic_runtime_boot_guard.py'
+      - 'scripts/stage_semantic_runtime_transition.py'
+      - 'scripts/transition_semantic_runtime_guard.py'
+      - 'scripts/inventory_semantic_runtime_readiness.py'
+      - 'scripts/inventory_semantic_provider_network.py'
+      - 'scripts/inventory_semantic_provider_candidate_inputs.py'
+      - 'scripts/prepare_semantic_southbound_validator_credentials.py'
+      - 'scripts/prepare_semantic_provider_launch_inputs.py'
+      - 'scripts/stage_semantic_provider_candidates.py'
+      - 'scripts/create_semantic_provider_stopped_candidates.py'
+      - 'scripts/inventory_semantic_provider_static_ipam.py'
+      - 'tests/test_create_semantic_provider_stopped_candidates.py'
+      - 'tests/test_stage_semantic_provider_candidates.py'
+      - 'tests/test_semantic_southbound_validator_credentials.py'
+      - 'scripts/prepare_semantic_provider_networks.py'
+      - 'tests/test_prepare_semantic_provider_networks.py'
+      - 'scripts/prepare_semantic_provider_trust.py'
+      - 'scripts/prepare_semantic_provider_tls_runtime.py'
+      - 'tests/test_prepare_semantic_provider_tls_runtime.py'
+      - 'examples/semantic-provider-runtime.ouf-lab.json'
+      - 'scripts/stage_semantic_provider_runtime_plan.sh'
+      - 'tests/test_prepare_semantic_provider_trust.py'
+      - 'tools/materialize_southbound_kernel.py'
+      - 'tools/materialize_semantic_shared_faces.py'
+      - 'tests/test_semantic_shared_coordination.py'
+      - 'tests/test_semantic_preexec*.py'
+      - 'scripts/inventory_semantic_preexec_runtime.py'
+      - 'scripts/inventory_semantic_preexec_candidates.py'
+      - 'scripts/semantic_provider_preexec_hook.py'
+      - 'scripts/stage_semantic_admission_package.py'
+      - 'scripts/semantic_provider_admission_preparer.py'
+      - 'tools/semantic_provider_deployment_admission.py'
+      - 'tests/test_semantic_admission.py'
+      - 'tools/semantic_provider_deployment_protocol.py'
+      - 'tests/test_semantic_deployment_protocol.py'
+      - 'tools/semantic_provider_deployment_consumption.py'
+      - 'tests/test_semantic_deployment_consumption.py'
+      - 'scripts/stage_semantic_deployment_package.py'
+      - 'tests/test_semantic_deployment_package.py'
+      - 'scripts/inventory_semantic_deployment_trust_backend.py'
+      - 'tests/test_semantic_deployment_trust_backend.py'
+      - 'tools/semantic_provider_deployment_authentication.py'
+      - 'tools/semantic_provider_deployment_reauthorization.py'
+      - 'tools/semantic_provider_deployment_producer.py'
+      - 'tests/test_semantic_deployment_producer.py'
+      - 'scripts/semantic_provider_installer_approval.py'
+      - 'tests/test_semantic_installer_approval.py'
+      - 'tests/test_semantic_node_attestor.py'
+      - 'tests/test_semantic_node_live_mandate.py'
+      - 'tests/test_semantic_node_live_native.py'
+      - 'tests/test_semantic_node_signed_path_authority.py'
+      - 'tests/test_semantic_node_creation_frame.py'
+      - 'scripts/semantic_provider_node_attestor.py'
+      - 'scripts/stage_semantic_local_producers_package.py'
+      - 'tests/test_semantic_local_producers_package.py'
+      - 'scripts/repair_semantic_local_producers_package_directory.py'
+      - 'tests/test_semantic_package_directory_recovery.py'
+      - 'scripts/prepare_semantic_trust_policy.py'
+      - 'tests/test_semantic_trust_policy_preparation.py'
+      - 'scripts/prepare_semantic_authority_keys.py'
+      - 'tests/test_semantic_authority_keys.py'
+      - 'scripts/inventory_semantic_target_acceptance.py'
+      - 'tests/test_semantic_target_acceptance.py'
+      - 'tests/fixtures/semantic_image_inspect_template.go'
+      - 'tests/fixtures/semantic_node_acceptance_setup.py'
+      - 'tests/test_semantic_deployment_reauthorization.py'
+      - 'tests/test_semantic_authenticated_driver.py'
+      - 'scripts/stage_semantic_authenticated_runtime_package.py'
+      - 'tests/test_semantic_authenticated_runtime_package.py'
+      - 'tests/test_semantic_deployment_authentication.py'
+      - 'scripts/stage_semantic_authenticated_deployment_package.py'
+      - 'tests/test_semantic_authenticated_deployment_package.py'
+      - 'tests/fixtures/semantic_docker_two_phase_fixture.py'
+      - 'scripts/semantic_provider_deployment_broker.py'
+      - 'scripts/stage_semantic_local_broker_package.py'
+      - 'tests/test_semantic_local_broker_package.py'
+      - 'tests/test_semantic_deployment_broker.py'
+      - 'tests/fixtures/semantic_operational_broker*.py'
+      - 'tests/fixtures/semantic_local_producer_fixture.py'
+      - 'tests/test_semantic_admission_native.py'
+      - 'scripts/semantic_provider_docker_runtime.py'
+      - 'tests/fixtures/semantic_docker_admission_fixture.py'
+      - 'scripts/stage_semantic_preexec_package.py'
+      - 'tests/test_semantic_shared_coordination_native.py'
+      - 'tests/test_southbound_kernel.py'
+      - 'tests/test_southbound_docker_kernel.py'
+      - 'tests/test_stage_semantic_provider_adapter.py'
+      - 'tools/semantic_provider_*.py'
+      - 'tools/materialize_semantic_provider.py'
+      - 'tools/materialize_semantic_provider_runtime.py'
+      - 'tools/materialize_semantic_provider_tls.py'
+      - 'tools/lua/admit_semantic_provider.lua'
+      - 'tests/test_semantic_provider_*.py'
+      - '.github/workflows/semantic-provider-boundary.yml'
+      - 'docs/SEMANTIC_PROVIDER_BOOT_RUNTIME_TRANSITION.md'
+permissions:
+  contents: read
+jobs:
+  request-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -B -m unittest discover -s tests -p 'test_semantic_provider_*.py'
+
+  provider-apisix-tls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -B -m unittest tests.test_semantic_provider_apisix_live
+        env:
+          OUF_SEMANTIC_PROVIDER_APISIX_TEST: '1'
+
+  provider-image-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_STAGE_ROOT_FIXTURE_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_stage_semantic_provider_adapter
+
+  provider-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -B -m unittest tests.test_semantic_provider_container
+        env:
+          OUF_PROVIDER_CONTAINER_TEST: '1'
+      - run: python3 -B -m unittest tests.test_semantic_provider_network_inventory
+        env:
+          OUF_PROVIDER_NETWORK_TEST: '1'
+          OUF_PROVIDER_NETWORK_TEST_IMAGE: 'python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semantic-provider-package-proof-${{ github.run_id }}
+          path: generated/semantic-provider-package-proof.json
+          if-no-files-found: error
+          retention-days: 30
+
+  southbound-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2
+      - run: sudo env OUF_SOUTHBOUND_KERNEL_TEST=1 "$(command -v python3)" -B -m unittest tests.test_southbound_kernel
+
+      - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+      - run: sudo env OUF_SOUTHBOUND_DOCKER_KERNEL_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_kernel
+
+      - run: sudo env OUF_SOUTHBOUND_DOCKER_DNS_TEST=1 OUF_SOUTHBOUND_DOCKER_KERNEL_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_southbound_docker_dns
+
+      - run: sudo env OUF_COLD_NETWORK_TEST=1 OUF_COLD_NETWORK_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_networks
+
+  provider-trust-prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_trust
+      - run: sudo env OUF_RUNTIME_STAGE_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_stage
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_tls_runtime
+      - run: sudo env OUF_DNS_ROOT_FIXTURE_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_dns
+
+      - run: sudo env OUF_CANDIDATE_METADATA_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_candidate_inputs
+
+      - run: sudo env OUF_VALIDATOR_TEST_PARENT=/root OUF_VALIDATOR_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_southbound_validator_credentials
+
+      - run: sudo env OUF_LAUNCH_TEST_PARENT=/root OUF_LAUNCH_FULL_OWNER_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_provider_launch_inputs
+
+      - run: sudo env OUF_MANIFEST_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_stage_semantic_provider_candidates
+
+      - run: sudo env OUF_IPAM_ADMISSION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_ipam_admission
+
+  semantic-java-trust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: docker pull eclipse-temurin:21-jre
+      - run: sudo env OUF_TRUST_ROOT_FIXTURE_PARENT=/root OUF_TRUST_FULL_OWNER_TEST=1 OUF_JAVA_TRUST_DOCKER_TEST=1 OUF_JAVA_TRUST_IMAGE=eclipse-temurin:21-jre PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_prepare_semantic_provider_java_trust
+
+  semantic-lease-systemd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y nftables
+      - run: sudo env OUF_BOOT_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_boot_guard
+      - run: sudo env OUF_LEASE_SYSTEMD_TEST=1 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_lease_service
+
+  provider-stopped-create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+      - run: sudo env OUF_STOPPED_CREATE_DOCKER_TEST=1 OUF_STOPPED_CREATE_TEST_PARENT=/root OUF_STOPPED_CREATE_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 "$(command -v python3)" -B -m unittest tests.test_create_semantic_provider_stopped_candidates
+
+  provider-transition-intent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_TRANSITION_FULL_OWNER_TEST=1 OUF_TRANSITION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_provider_transition_intent
+
+  provider-runtime-transition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y nftables
+      - run: docker pull python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+      - run: sudo env OUF_RUNTIME_TRANSITION_FULL_OWNER_TEST=1 OUF_RUNTIME_TRANSITION_TEST_PARENT=/root OUF_RUNTIME_TRANSITION_NATIVE_TEST=1 OUF_RUNTIME_TRANSITION_TEST_IMAGE=python@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81 PATH="$PATH" "$(command -v python3)" -B -m unittest tests.test_semantic_provider_runtime_transition tests.test_semantic_runtime_readiness
+
+  shared-face-lease-coordination:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root OUF_PREEXEC_INVENTORY_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination tests.test_semantic_preexec tests.test_semantic_preexec_inventory tests.test_semantic_preexec_native_backend tests.test_semantic_preexec_candidates tests.test_semantic_preexec_docker_adapter.AdapterContractTest
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
+      - run: sudo unshare --net --fork env OUF_SHARED_COORDINATION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_shared_coordination_native
+      - run: runc --version
+      - run: sudo unshare --net --fork env OUF_PREEXEC_OCI_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_preexec_oci_native
+
+  docker-preexec-adapter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
+      - run: sudo env OUF_DOCKER_ADAPTER_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_preexec_docker_adapter
+
+  semantic-admission-preparer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GioNob/ouf-semantic-registry
+          ref: 3505a2f6bfde9c3905b76a5e670ebc30b40d3d6d
+          path: .pairwise/semantic-frame
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_admission tests.test_semantic_deployment_protocol tests.test_semantic_deployment_consumption tests.test_semantic_deployment_package tests.test_semantic_deployment_trust_backend tests.test_semantic_deployment_authentication tests.test_semantic_authenticated_deployment_package tests.test_semantic_deployment_reauthorization tests.test_semantic_authenticated_driver tests.test_semantic_authenticated_runtime_package tests.test_semantic_deployment_producer tests.test_semantic_deployment_broker tests.test_semantic_local_broker_package tests.test_semantic_installer_approval tests.test_semantic_node_attestor tests.test_semantic_node_live_mandate tests.test_semantic_node_signed_path_authority tests.test_semantic_node_creation_frame tests.test_semantic_local_producers_package tests.test_semantic_package_directory_recovery tests.test_semantic_target_acceptance.TargetAcceptanceTest tests.test_semantic_authority_keys tests.test_semantic_trust_policy_preparation.PrivatePolicyTest
+      - run: sudo apt-get update && sudo apt-get install -y nftables iproute2 busybox-static
+      - run: sudo unshare --net --fork env OUF_ADMISSION_NATIVE_TEST=1 "$(command -v python3)" -B -m unittest tests.test_semantic_admission_native
+      - name: Real runc live mandate and source sealed producer CLI without application start
+        run: sudo unshare --net --fork env OUF_NODE_LIVE_NATIVE_TEST=1 OUF_CREATION_FRAME_OBSERVER_SOURCE="$PWD/.pairwise/semantic-frame/tools/semantic_creation_frame_observer.py" OUF_CREATION_FRAME_OBSERVER_SHA256=d15d290e903e16f64b9d153658453f2b857c5241eb30ded961fd981a3ba436e4 OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_node_live_native
+      - run: sudo env OUF_TARGET_ACCEPTANCE_NATIVE_TEST=1 OUF_TEMPLATE_GO_PATH="$(command -v go)" "$(command -v python3)" -B -m unittest tests.test_semantic_target_acceptance.DockerTargetAcceptanceTest
