@@ -2,6 +2,7 @@
 import copy
 from contextlib import contextmanager
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -191,8 +192,34 @@ finally:s.close()
             journal = PrivateJournal(journal_path)
             def hold(): return hold_common_lock(lock)
             coord = Coordinator(owner, binding, hold, journal.read, journal.write)
+            # The actual CLI loads only its root-private hashed source closure,
+            # using isolated Python, the existing journal and common lock.
+            from scripts.run_semantic_coordinated_lease_owner import FILES
+            source = Path(tmp) / 'source'
+            source.mkdir(mode=0o700)
+            repo = Path(__file__).resolve().parents[1]
+            hashes = {}
+            for name in FILES:
+                target = source / name
+                target.parent.mkdir(mode=0o700, exist_ok=True)
+                raw = (repo / name).read_bytes()
+                target.write_bytes(raw); target.chmod(0o600)
+                hashes[name] = hashlib.sha256(raw).hexdigest()
+            executable = Path(shutil.which('nft'))
+            configuration = {'schema': 'ouf.semantic-coordinated-owner-runtime.v1',
+                'kernel': cfg, 'dns': owner.profile, 'expectedStructureHash': expected,
+                'nftPath': str(executable), 'nftSha256': hashlib.sha256(executable.read_bytes()).hexdigest(),
+                'readBudgetSeconds': 2, 'pollSeconds': 1, 'commonLockFile': str(lock),
+                'journalFile': str(journal_path), 'binding': binding, 'sourceHashes': hashes}
+            config_path = Path(tmp) / 'coordinated.json'
+            raw = json.dumps(configuration).encode(); config_path.write_bytes(raw); config_path.chmod(0o600)
+            cli = [sys.executable, '-I', '-B', str(source / FILES[0]),
+                   '--configuration', str(config_path), '--configuration-sha256', hashlib.sha256(raw).hexdigest()]
             coord.refresh(); self.assertEqual(set(queries), {1, 28}); self.assertTrue(any(backend.read_sets(cfg).values()))
             self.assertFalse(coord.guard()['dockerPrestartStructuralGate'])
+            denied = subprocess.run([*cli, '--mode', 'guard'], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn('NO_RAW_OUTPUT=true', denied.stdout)
             with hold():
                 with self.assertRaises(BlockingIOError): coord.guard()
                 with self.assertRaises(BlockingIOError): coord.refresh()
@@ -200,6 +227,21 @@ finally:s.close()
             count = len(queries)
             with self.assertRaises(CoordinationDenied): coord.refresh()
             self.assertEqual(len(queries), count); self.assertTrue(coord.guard()['dockerPrestartStructuralGate'])
+            accepted = subprocess.run([*cli, '--mode', 'guard'], capture_output=True, text=True, timeout=10)
+            self.assertEqual(accepted.returncode, 0, accepted.stdout)
+            self.assertIn('QUIESCED=true', accepted.stdout)
+            changed = source / 'tools/semantic_provider_dns.py'
+            original = changed.read_bytes(); changed.write_bytes(original + b'\n# changed\n')
+            drift = subprocess.run([*cli, '--mode', 'guard'], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(drift.returncode, 0)
+            self.assertNotIn('changed', drift.stdout)
+            changed.write_bytes(original)
+            initializer = source / 'tools/__init__.py'
+            initializer.write_text('print("UNSEALED_INITIALIZER_CANARY")\n'); initializer.chmod(0o600)
+            drift = subprocess.run([*cli, '--mode', 'guard'], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(drift.returncode, 0)
+            self.assertNotIn('CANARY', drift.stdout)
+            initializer.unlink()
             # Explicit fixture authorization is separate from the protocol; no
             # automatic reactivation or reuse of a cached DNS observation.
             record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_READY', 'leaseAuthorized': True})
@@ -217,6 +259,28 @@ finally:s.close()
             self.assertFalse(journal.read()['leaseAuthorized'])
             self.assertTrue(coord.guard()['dockerPrestartStructuralGate'])
             with self.assertRaises(CoordinationDenied): coord.fresh_start()
+            record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_READY', 'leaseAuthorized': True})
+            process = subprocess.Popen([*cli, '--mode', 'supervise'], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True)
+            try:
+                import select
+                self.assertTrue(select.select([process.stdout], [], [], 10)[0], 'coordinated CLI startup timeout')
+                self.assertIn('SEMANTIC_COORDINATED_START=PASS', process.stdout.readline())
+                self.assertTrue(any(backend.read_sets(cfg).values()))
+                process.terminate()
+                output, errors = process.communicate(timeout=10)
+                self.assertEqual(process.returncode, 0, output)
+                self.assertEqual(errors, '')
+                self.assertIn('SEMANTIC_COORDINATED_STOP=PASS', output)
+            finally:
+                if process.poll() is None:
+                    process.kill(); process.communicate(timeout=5)
+            self.assertFalse(any(backend.read_sets(cfg).values()))
+            self.assertEqual(journal.read()['state'], 'QUIESCED')
+            count = len(queries)
+            refused = subprocess.run([*cli, '--mode', 'supervise'], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertEqual(len(queries), count)
             record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_UPDATING'})
             with self.assertRaises(CoordinationDenied): coord.guard()
             with self.assertRaises(CoordinationDenied): coord.refresh()
@@ -226,6 +290,7 @@ finally:s.close()
             self.assertFalse(any(backend.read_sets(cfg).values()))
         print('LEASE_COORDINATION_NATIVE=PASS REAL_DNS_NFT_FLOCK=true QUIESCE_REVOKE=true'
               ' RESTART_FRESH_DNS=true COORDINATED_SUPERVISOR_STOP_REVOKE=true REARM_REFUSED=true'
+              ' ROOT_PRIVATE_CLI=true ISOLATED_PYTHON=true SIGTERM_REVOKE=true'
               ' INCOMPLETE_GATE_DENIED=true HANDLE_REBIND_REFUSED=true'
               ' START_AUTHORIZED=false PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
 
