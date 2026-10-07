@@ -18,6 +18,7 @@ import uuid
 from tools.materialize_semantic_shared_faces import materialize as shared
 from tools.materialize_southbound_kernel import materialize
 from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied, PrivateJournal, hold_common_lock
+from tools.semantic_provider_coordinated_supervisor import supervise
 from tools.semantic_provider_lease_nft import NftBackend, structure_hash
 from tools.semantic_provider_lease_owner import LeaseOwner
 from tools import semantic_provider_dns as dns
@@ -202,7 +203,20 @@ finally:s.close()
             # Explicit fixture authorization is separate from the protocol; no
             # automatic reactivation or reuse of a cached DNS observation.
             record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_READY', 'leaseAuthorized': True})
-            coord.refresh(); self.assertGreaterEqual(len(queries), count+2)
+            test = self
+            class StopAfterFreshCycle:
+                def is_set(self): return False
+                def wait(self, seconds):
+                    test.assertTrue(any(backend.read_sets(cfg).values()))
+                    test.assertFalse(coord.guard()['dockerPrestartStructuralGate'])
+                    return True
+            supervise(coord, lambda: None, 1, StopAfterFreshCycle(), log=lambda *a, **k: None)
+            self.assertGreaterEqual(len(queries), count+2)
+            self.assertFalse(any(backend.read_sets(cfg).values()))
+            self.assertEqual(journal.read()['state'], 'QUIESCED')
+            self.assertFalse(journal.read()['leaseAuthorized'])
+            self.assertTrue(coord.guard()['dockerPrestartStructuralGate'])
+            with self.assertRaises(CoordinationDenied): coord.fresh_start()
             record = journal.read(); journal.write(record, {**record, 'state': 'LEASE_UPDATING'})
             with self.assertRaises(CoordinationDenied): coord.guard()
             with self.assertRaises(CoordinationDenied): coord.refresh()
@@ -211,7 +225,8 @@ finally:s.close()
             with self.assertRaises(RuntimeError): coord.guard()
             self.assertFalse(any(backend.read_sets(cfg).values()))
         print('LEASE_COORDINATION_NATIVE=PASS REAL_DNS_NFT_FLOCK=true QUIESCE_REVOKE=true'
-              ' RESTART_FRESH_DNS=true INCOMPLETE_GATE_DENIED=true HANDLE_REBIND_REFUSED=true'
+              ' RESTART_FRESH_DNS=true COORDINATED_SUPERVISOR_STOP_REVOKE=true REARM_REFUSED=true'
+              ' INCOMPLETE_GATE_DENIED=true HANDLE_REBIND_REFUSED=true'
               ' START_AUTHORIZED=false PROVIDER_CALLS=0 NOT_RELEASE_ACCEPTANCE=true')
 
     def test_real_nft_preexec_owned_install_crash_recovery_and_generation(self):

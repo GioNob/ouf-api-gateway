@@ -186,6 +186,17 @@ class Coordinator:
                     'notReleaseAcceptance': True}
 
     def refresh(self):
+        return self._refresh(revoke_first=False)
+
+    def fresh_start(self):
+        """Revoke the preceding lease under the common lock, then query DNS now.
+
+        An existing LEASE_READY authority is required. A stopped/quiesced owner
+        cannot authorize itself, recreate tables or restore cached relative TTL.
+        """
+        return self._refresh(revoke_first=True)
+
+    def _refresh(self, *, revoke_first):
         with self.hold_lock():
             value = self.journal()
             if value['state'] != 'LEASE_READY' or not value['leaseAuthorized']:
@@ -197,6 +208,10 @@ class Coordinator:
             pending = {**value, 'state': 'LEASE_UPDATING'}
             self.publish(value, pending)
             try:
+                if revoke_first:
+                    self.owner.revoke()
+                    if any(self.sets()):
+                        raise CoordinationDenied('STARTUP_REVOCATION_UNPROVEN')
                 result = self.owner.refresh()  # fresh DNS; no cached observation replay
                 actual = self.sets()
                 ready = {**pending, 'state': 'LEASE_READY', 'leaseAddresses': actual}

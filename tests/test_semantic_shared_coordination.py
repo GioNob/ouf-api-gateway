@@ -8,6 +8,7 @@ import unittest
 
 from tools.materialize_semantic_shared_faces import materialize
 from tools.semantic_provider_lease_coordination import Coordinator, CoordinationDenied, PrivateJournal, hold_common_lock
+from tools.semantic_provider_coordinated_supervisor import supervise
 
 
 def policy():
@@ -88,6 +89,58 @@ class CoordinationTest(unittest.TestCase):
         self.assertTrue(self.coord.guard()['dockerPrestartStructuralGate'])
         self.assertFalse(self.coord.guard()['startAuthorized'])
         with self.assertRaises(CoordinationDenied): self.coord.refresh()
+
+    def test_fresh_start_revokes_under_pending_gate_and_cannot_rearm(self):
+        self.coord.refresh()
+        self.events.clear()
+        self.coord.fresh_start()
+        self.assertEqual(self.events, ['LEASE_UPDATING', 'revoke', 'fresh', 'LEASE_READY'])
+        self.coord.quiesce()
+        before = list(self.events)
+        with self.assertRaises(CoordinationDenied): self.coord.fresh_start()
+        self.assertEqual(self.events, before)
+
+    def test_supervisor_refresh_stop_and_configuration_drift_revoke(self):
+        test = self
+        class Stop:
+            waits = 0
+            def is_set(self): return False
+            def wait(self, seconds):
+                self.waits += 1
+                test.assertFalse(test.coord.guard()['dockerPrestartStructuralGate'])
+                return self.waits == 2
+        supervise(self.coord, lambda: None, 1, Stop(), log=lambda *a, **k: None)
+        self.assertEqual(self.record['state'], 'QUIESCED')
+        self.assertFalse(self.record['leaseAuthorized'])
+        self.assertFalse(self.current)
+        self.assertEqual(self.events.count('fresh'), 2)
+        self.assertTrue(self.coord.guard()['dockerPrestartStructuralGate'])
+        self.record.update(state='LEASE_READY', leaseAuthorized=True)
+        def drift(): raise RuntimeError('changed fixture configuration')
+        with self.assertRaises(RuntimeError):
+            supervise(self.coord, drift, 1, Stop(), log=lambda *a, **k: None)
+        self.assertEqual(self.record['state'], 'QUIESCED')
+        self.assertFalse(self.current)
+
+    def test_startup_failure_blocks_dns_and_supervisor_never_reports_failed_stop_as_pass(self):
+        events = []
+        def failed_revoke(): raise RuntimeError('fixture revocation failed')
+        self.owner.revoke = failed_revoke
+        class Stop:
+            def is_set(self): return False
+            def wait(self, seconds): return True
+        with self.assertRaises(RuntimeError):
+            supervise(self.coord, lambda: None, 1, Stop(), log=lambda *a, **k: events.append(a))
+        self.assertNotIn('fresh', self.events)
+        self.assertEqual(self.record['state'], 'QUIESCING')
+        self.assertFalse(self.record['leaseAuthorized'])
+        self.assertEqual(events, [])
+
+    def test_unbounded_supervisor_poll_denies_without_mutation(self):
+        for seconds in (True, 0, 16, 301):
+            with self.assertRaises(ValueError):
+                supervise(self.coord, lambda: None, seconds, None)
+        self.assertEqual(self.events, [])
 
     def test_incomplete_transition_and_old_empty_only_journal_never_enable_owner(self):
         for state in ('BLOCKED', 'LEASE_UPDATING', 'QUIESCING', 'QUIESCED', 'RUNTIME_EMPTY'):
