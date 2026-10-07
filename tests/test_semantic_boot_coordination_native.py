@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -60,17 +62,55 @@ class BootNativeTest(unittest.TestCase):
             else:
                 for family in ('inet', 'bridge'):
                     self.command('nft', '-f', '-', raw=f'add element {family} lease_owned provider_0 {{ 10.78.0.2 timeout 30s }}\n')
-            # Calls the genuine sealed boot restorer, not a simulated callback.
-            result = prepare_docker_boot(coord, lambda: boot.membership(config), lambda: boot.restore(config, 'b'*64))
+            # Exercise the installed-style command through isolated Python and
+            # a complete root-private source/configuration closure.
+            from scripts.run_semantic_coordinated_lease_owner import FILES
+            repo = Path(__file__).resolve().parents[1]
+            source = root/'source'; source.mkdir(mode=0o700)
+            additions = ('scripts/run_semantic_coordinated_boot_guard.py',
+                         'tools/semantic_provider_boot_coordination.py')
+            hashes = {}
+            for name in (*FILES, *additions):
+                target = source/name; target.parent.mkdir(mode=0o700, exist_ok=True)
+                raw = (repo/name).read_bytes(); target.write_bytes(raw); target.chmod(0o600)
+                hashes[name] = hashlib.sha256(raw).hexdigest()
+            boot_config_path = private('boot-config.json', config)
+            boot_hash = hashlib.sha256(boot_config_path.read_bytes()).hexdigest()
+            old_value = json.loads(old_journal.read_bytes()); old_value['configurationHash'] = boot_hash
+            old_journal.write_text(json.dumps(old_value)); original_journal_raw = old_journal.read_bytes()
+            guard_file = private('boot-guard.py', (repo/'scripts/restore_semantic_runtime_boot_guard.py').read_bytes())
+            owner_config_path = private('owner-config.json', {
+                'schema': 'ouf.semantic-coordinated-owner-runtime.v1', 'kernel': cfg, 'dns': owner.profile,
+                'expectedStructureHash': expected, 'nftPath': shutil.which('nft'),
+                'nftSha256': hashlib.sha256(Path(shutil.which('nft')).read_bytes()).hexdigest(),
+                'readBudgetSeconds': 2, 'pollSeconds': 5, 'commonLockFile': str(lock),
+                'journalFile': str(journal_path), 'binding': binding,
+                'sourceHashes': {name: hashes[name] for name in FILES}})
+            profile_path = private('profile.json', {
+                'schema': 'ouf.semantic-coordinated-boot-profile.v1',
+                'sourceHashes': {name: hashes[name] for name in additions},
+                'coordinatedConfiguration': str(owner_config_path),
+                'coordinatedConfigurationHash': hashlib.sha256(owner_config_path.read_bytes()).hexdigest(),
+                'bootConfiguration': str(boot_config_path), 'bootConfigurationHash': boot_hash,
+                'bootGuardFile': str(guard_file), 'bootGuardHash': hashlib.sha256(guard_file.read_bytes()).hexdigest()})
+            cli = [sys.executable, '-I', '-B', str(source/additions[0]), '--configuration', str(profile_path),
+                   '--configuration-sha256', hashlib.sha256(profile_path.read_bytes()).hexdigest()]
+            executed = subprocess.run(cli, capture_output=True, text=True, timeout=15)
+            self.assertEqual(executed.returncode, 0, executed.stdout + executed.stderr)
+            result = json.loads(executed.stdout.split('SEMANTIC_COORDINATED_BOOT_GUARD=')[1])
             self.assertTrue(result['dockerPrestartStructuralGate'])
             self.assertFalse(result['providerRestartAuthorized'])
             self.assertFalse(journal.read()['leaseAuthorized'])
             self.assertTrue(boot.sets_empty(boot.tables(config)))
             self.assertEqual(journal.read()['state'], 'BLOCKED' if missing else 'QUIESCED')
             self.assertEqual(result['leaseStructureReconciliationRequired'], missing)
-            self.assertEqual(old_journal.read_bytes(), json.dumps({'schema': 'ouf.semantic-runtime-transition.v1',
-                'state': 'RUNTIME_EMPTY', 'transactionId': 'a'*64, 'configurationHash': 'b'*64,
-                'startAuthorized': False, 'leaseStructureHash': expected}).encode())
+            self.assertEqual(old_journal.read_bytes(), original_journal_raw)
+            # Tampering is denied before another journal or firewall mutation.
+            before = journal_path.read_bytes()
+            (source/additions[1]).write_text('raise RuntimeError("unsealed")')
+            denied = subprocess.run(cli, capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertEqual(journal_path.read_bytes(), before)
             with self.assertRaises(Exception): coord.fresh_start()
         self.assertEqual(shared_before, self.command('nft', '-j', 'list', 'table', 'inet', 'unrelated'))
 
