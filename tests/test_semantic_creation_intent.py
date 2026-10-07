@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts import semantic_provider_creation_intent as cli
+from scripts import semantic_provider_deployment_broker as broker_cli
 from tests.test_semantic_deployment_authentication import AuthenticationTest
 from tools.semantic_provider_creation_intent import CreationIntentIssuer
 from tools.semantic_provider_deployment_producer import encoded
@@ -128,5 +129,46 @@ class CreationIntentTest(unittest.TestCase):
         with patch.object(ExistingEd25519Signer, 'sign', advancing):
             with self.assertRaises(PreexecDenied): core.emit(True)
         self.assertTrue((self.output/'issuance-claim.json').exists()); self.assertFalse((self.output/'intent.json').exists())
+    def test_production_broker_consumes_real_issued_intent_once_without_runtime_operation(self):
+        self.core().emit(True)
+        repository = Path(__file__).resolve().parents[1]
+        names = [broker_cli.SELF, broker_cli.PREPARER, broker_cli.DRIVER, *('tools/'+n+'.py' for n in broker_cli.MODULES)]
+        for name in names:
+            p = self.source/name; p.parent.mkdir(mode=0o700, exist_ok=True)
+            p.write_bytes((repository/name).read_bytes()); p.chmod(0o600)
+        candidate = self.root/'candidate'; candidate.mkdir(mode=0o700)
+        lock = self.root/'guard.lock'; lock.touch(mode=0o600)
+        cid, txn = self.mandate['containerId'], self.mandate['transactionId']
+        template = {'schema': 'ouf.semantic-admission-preparer-template.v1',
+            'pythonPath': self.cfg['pythonBinding']['path'], 'pythonHash': self.cfg['pythonBinding']['sha256'],
+            'commands': {}, 'commandHashes': {}, 'candidate': {'containerId': cid, 'transactionId': txn,
+            'networkBindings': [], 'transport': [], 'tableName': 'test_owned', 'runtimeBinding': {'path': '/runc', 'sha256': 'f'*64}},
+            'kernel': {}, 'dns': {}, 'coordinationBinding': {}, 'coordinationJournal': str(self.root/'coordination.json'),
+            'lockFile': str(lock), 'budgetSeconds': 5, 'hostNetworkNamespace': 1}
+        tp = self.root/'template.json'; self.write(tp, template)
+        cfg = {'schema': 'ouf.semantic-deployment-broker.v1', 'sourceRoot': str(self.source),
+            'sourceHashes': {n: self.sha(self.source/n) for n in names}, 'authorities': self.crypto.ctx,
+            'intentBinding': self.bind(self.output/'intent.json'), 'policyBinding': self.cfg['policyBinding'],
+            'signatureDirectory': self.cfg['signatureDirectory'], 'opensslBinding': self.cfg['opensslBinding'],
+            'producers': {'attestation': {}, 'approval': {}}, 'preparerTemplate': self.bind(tp),
+            'candidateRoot': str(candidate), 'runtimeRootParent': str(self.root/'runtime')}
+        cp = self.root/'broker.json'; self.write(cp, cfg)
+        bound = {'installationRef': 'installation-a', 'entityRef': 'entity-a', 'containerId': cid,
+            'transactionId': txn, 'intentHash': self.sha(self.output/'intent.json'), 'configurationHash': self.sha(cp)}
+        self.write(candidate/'deployment.json', {'schema': 'ouf.semantic-deployment-consumption.v1', **bound,
+            'state': 'STAGED', 'bundleHash': None, 'generation': None, 'evidenceHash': None, 'approvalHash': None, 'driverHash': None})
+        self.write(candidate/'broker-state.json', {'schema': 'ouf.semantic-deployment-broker-journal.v1', **bound,
+            'state': 'STAGED', 'runtimeRoot': None, 'bundleHash': None, 'driverHash': None})
+        argv = [self.cfg['pythonBinding']['path'], '-I', '-B', str(self.source/broker_cli.SELF),
+            '--configuration', str(cp), '--mode', 'authorize-create', '--container-id', cid,
+            '--bundle', str(candidate/'bundle'), '--runtime-root', str(self.root/'runtime'/cid)]
+        request = encoded({'id': cid, 'bundleHash': '1'*64})
+        p = subprocess.run(argv, input=request, capture_output=True, timeout=20)
+        self.assertEqual(p.returncode, 0, p.stdout.decode()+p.stderr.decode())
+        for name in ('deployment.json', 'broker-state.json'):
+            self.assertEqual(json.loads((candidate/name).read_bytes())['state'], 'CREATING')
+        again = subprocess.run(argv, input=request, capture_output=True, timeout=20)
+        self.assertEqual(again.returncode, 1)
+        self.assertFalse((candidate/'driver.json').exists()); self.assertFalse((candidate/'bundle').exists())
 
 if __name__ == '__main__': unittest.main()
