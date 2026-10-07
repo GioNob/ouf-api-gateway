@@ -22,7 +22,7 @@ class ExistingEd25519Signer:
     def __init__(self,key_binding,key_ref,verifier,scope):
         self.key=binding(key_binding);require(identity(key_ref),'EXPLICIT_SIGNING_KEY_REF_REQUIRED')
         self.key_ref,self.verifier,self.scope=key_ref,verifier,scope.copy()
-        require(set(scope)=={'role','issuerRef','installationRef','entityRef'} and scope['role'] in {'FINAL_DEPLOYMENT_APPROVAL','CREATION_ATTESTATION'},
+        require(set(scope)=={'role','issuerRef','installationRef','entityRef'} and scope['role'] in {'DEPLOYMENT_INTENT','FINAL_DEPLOYMENT_APPROVAL','CREATION_ATTESTATION'},
                 'EXPLICIT_EVIDENCE_SIGNING_SCOPE_REQUIRED')
 
     def key_raw(self):
@@ -66,3 +66,4 @@ class ExistingEd25519Signer:
         require(finished>=started and keys[0]['notBefore']<=finished<keys[0]['expiresAt']
                 and self.verifier.read_policy()==policy_raw and self.key_raw()==key_raw,'SIGNING_MANDATE_CHANGED_OR_EXPIRED')
         self.verifier.check_budget();return envelope
+

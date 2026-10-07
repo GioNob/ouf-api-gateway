@@ -1,0 +1,30 @@
+name: Semantic creation intent
+on:
+  push:
+    branches: ['codex/semantic-discovery-mcp-gateway']
+    paths:
+      - 'scripts/semantic_provider_creation_intent.py'
+      - 'tools/semantic_provider_creation_intent.py'
+      - 'tools/semantic_provider_deployment_signing.py'
+      - 'tests/test_semantic_creation_intent.py'
+      - '.github/workflows/semantic-creation-intent.yml'
+  pull_request:
+    paths:
+      - 'scripts/semantic_provider_creation_intent.py'
+      - 'tools/semantic_provider_creation_intent.py'
+      - 'tools/semantic_provider_deployment_signing.py'
+      - 'tests/test_semantic_creation_intent.py'
+      - '.github/workflows/semantic-creation-intent.yml'
+permissions:
+  contents: read
+jobs:
+  creation-intent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Real source-sealed CLI and OpenSSL plus existing protocol and approval regressions
+        run: sudo env OUF_SHARED_COORDINATION_TEST_PARENT=/root "$(command -v python3)" -B -m unittest tests.test_semantic_creation_intent.CreationIntentTest tests.test_semantic_deployment_authentication tests.test_semantic_deployment_protocol tests.test_semantic_installer_approval.InstallerApprovalTest

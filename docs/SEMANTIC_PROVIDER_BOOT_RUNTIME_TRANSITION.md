@@ -158,3 +158,30 @@ Five additional regressions cover journal/handle/active-element drift, read drif
 redacted errors and source hash/mode/link checks. Target network namespaces remain
 unproven because the two provider candidates have never started; planned Docker
 addresses and inventory PASS cannot substitute for packet/live acceptance.
+
+## Coordinated owner supervisor preparation (2026-10-07)
+
+The reusable coordinator now exposes `fresh_start()`. It requires an existing
+LEASE_READY authorization, persists LEASE_UPDATING under the original common
+lock, revokes the preceding kernel membership and independently reads empty sets
+before fresh DNS. It never creates authority, changes structure hashes, recreates
+tables or replays cached TTL. The existing `refresh()` contract is unchanged.
+
+`tools/semantic_provider_coordinated_supervisor.py` connects this start operation,
+periodic fresh refresh and quiescence on stop/configuration failure. Polling is
+bounded to at most half the shortest configured lease ceiling. Stop success is
+reported only after verified revocation and a QUIESCED journal. Stopping revokes
+lease authorization; an automatic restart cannot re-arm it. Installation must
+therefore use explicit governed reauthorization rather than an unconditional
+systemd Restart policy.
+
+Unit regressions cover pending-state startup revocation, periodic cycles, stop,
+configuration drift, failed revocation and polling bounds. The existing isolated
+real DNS/nft/flock fixture also exercises the supervisor, active pre-start
+refusal, stop revocation and restart denial without reauthorization.
+
+This is source preparation. No service, configuration or guard on the VPS was
+changed. A sealed operational launcher/package, controlled transition from the
+installed EMPTY_ONLY guard and installation-specific authority/admission/live
+packet acceptance remain required. Docker pre-start requires QUIESCED; a lease
+owner guard PASS with active sets is not permission to start Docker or workloads.
