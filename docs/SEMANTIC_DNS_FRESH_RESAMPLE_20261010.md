@@ -1,0 +1,11 @@
+# Bounded fresh DNS observations after the R8 worker failure
+
+The target worker completed49 renewals and failed at2026-10-09T23:28:50+02:00. The retained cause chain is DNS_OBSERVATION_EXPIRED_OR_NONCACHEABLE -> REFRESH_FAILED_SETS_REVOKED -> REFRESH_FAILED_GATE_BLOCKED. The supervisor left QUIESCED with leaseAuthorized=false. The historical diagnostic does not contain the TTL/elapsed values and cannot distinguish the two DNS subcases.
+
+This candidate permits at most three independent observations within the existing original timeoutSeconds budget (two seconds on the current target). Only an unusable TTL window can be resampled. Each attempt performs fresh queries for all selected resolvers and both A/AAAA families and discards preceding addresses. A short bounded wait permits an almost-expired resolver cache entry to expire. Every query uses the same absolute outer deadline; no timeout reset, stale fallback, TTL floor/extension or cross-family TTL relaxation is introduced. Policy/transport/format failures remain immediate. Persistent noncacheable data or exhausted budget still throws; the existing lease owner revokes and supervisor stops without restart/rearm.
+
+DNSDenied carries numeric observation_window facts and fresh_observation_attempts for a future governed diagnostic recorder; no endpoints, resolver addresses, response bytes or credentials are attached to errors. The old installed activation core does not yet project these extra facts. Integrating that recorder, the new DNS source into a distinct source-bound transport/owner authority, and preparing an exact separately approved privileged transition remain required.
+
+Tests cover almost-expired -> genuinely fresh data, no prior-address reuse, persistent TTL0 after three samples, original total deadline, policy/transport no retry, unchanged negative-family minimum, and insufficient remaining wait budget. The existing real UDP/TCP truncation and ownership/revocation tests also run in CI. No public DNS or provider calls are needed by these tests.
+
+This branch does not change existing deploy snapshot/source hashes, consumed claims, runtime profiles, service state, container images or existing release pins. No target installation, reactivation or release acceptance is claimed.

@@ -152,7 +152,7 @@ def resolve_type(resolver, port, question, qtype, deadline, query=exchange):
     raise DNSDenied('DNS_CNAME_CHAIN_AMBIGUOUS_OR_LONG')
 
 
-def observe(endpoint, resolvers, resolver_port, network_version, allowed_cidrs, timeout_seconds, max_lease_seconds, query=exchange):
+def _observe_once(endpoint, resolvers, resolver_port, network_version, allowed_cidrs, timeout_seconds, max_lease_seconds, query=exchange):
     parsed = urlsplit(endpoint)
     if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.fragment or parsed.query or not parsed.hostname:
         raise DNSDenied('EXPLICIT_HTTPS_ENDPOINT_REQUIRED')
@@ -195,7 +195,12 @@ def observe(endpoint, resolvers, resolver_port, network_version, allowed_cidrs, 
     if not usable: raise DNSDenied('DNS_PROVIDER_FAMILY_MISSING')
     elapsed = time.monotonic()-started
     lease = min(min(ttls), max_lease_seconds)-math.ceil(elapsed)
-    if lease < 1: raise DNSDenied('DNS_OBSERVATION_EXPIRED_OR_NONCACHEABLE')
+    if lease < 1:
+        error = DNSDenied('DNS_OBSERVATION_EXPIRED_OR_NONCACHEABLE')
+        # Numeric facts only: no endpoint, resolver, response or address in errors.
+        error.observation_window = {'minimumObservedTtlSeconds': min(ttls),
+            'elapsedSeconds': elapsed, 'ttlNoncacheable': min(ttls) == 0}
+        raise error
     return {'schema': 'ouf.semantic-provider-dns-observation.v1', 'endpoint': endpoint, 'hostname': host,
         'networkIPVersion': network_version, 'allAddresses': sorted(addresses), 'usableAddresses': usable,
         'deferredResolvers': deferred, 'observations': observations, 'minimumObservedTtlSeconds': min(ttls),
@@ -203,3 +208,51 @@ def observe(endpoint, resolvers, resolver_port, network_version, allowed_cidrs, 
         'expiresAtUnixSeconds': started_wall+elapsed+lease, 'dnssecValidated': False,
         'resolverChannelAuthenticated': False, 'kernelLeaseInstalled': False, 'providerCalls': 0,
         'notReleaseAcceptance': True, 'historicalEvidenceOnly': True}
+
+
+def observe(endpoint, resolvers, resolver_port, network_version, allowed_cidrs,
+            timeout_seconds, max_lease_seconds, query=exchange):
+    """At most three independent observations inside one original time budget.
+
+    Retry only an unusable TTL window, after a bounded cache-expiry wait. Every
+    attempt queries all configured resolvers and both RR families again. No
+    address/evidence from a preceding attempt is combined with a new response.
+    Invalid data, policy drift, transport failure and exhausted budgets still
+    fail closed; this function cannot restart or reauthorize a stopped owner.
+    """
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 30:
+        raise DNSDenied('BOUNDED_EXPLICIT_DNS_PROFILE_REQUIRED')
+    deadline = time.monotonic() + timeout_seconds
+    last = None
+    for attempt in range(1, 4):
+        if time.monotonic() >= deadline:
+            if last is not None: raise last
+            raise DNSDenied('DNS_DEADLINE_EXPIRED')
+        def bounded_query(resolver, port, question, qtype, inner_deadline):
+            if time.monotonic() >= deadline:
+                raise DNSDenied('DNS_DEADLINE_EXPIRED')
+            answer = query(resolver, port, question, qtype, min(deadline, inner_deadline))
+            if time.monotonic() >= deadline:
+                raise DNSDenied('DNS_DEADLINE_EXPIRED')
+            return answer
+        try:
+            value = _observe_once(endpoint, resolvers, resolver_port, network_version,
+                allowed_cidrs, timeout_seconds, max_lease_seconds, bounded_query)
+            if time.monotonic() >= deadline:
+                raise DNSDenied('DNS_DEADLINE_EXPIRED')
+            value['freshObservationAttempts'] = attempt
+            return value
+        except DNSDenied as error:
+            if str(error) != 'DNS_OBSERVATION_EXPIRED_OR_NONCACHEABLE':
+                raise
+            last = error
+            last.fresh_observation_attempts = attempt
+            if attempt == 3: raise
+            window = error.observation_window
+            # A TTL of one normally needs the cache to expire, rather than a
+            # burst of repeated queries against the same almost-expired entry.
+            delay = max(0.05, window['minimumObservedTtlSeconds'] - window['elapsedSeconds'] + 0.01)
+            remaining = deadline - time.monotonic()
+            if delay >= remaining: raise
+            time.sleep(delay)
+    raise last
