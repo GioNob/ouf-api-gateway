@@ -1,0 +1,22 @@
+name: Semantic DNS bounded fresh observations
+on:
+  push:
+    branches: ['codex/semantic-dns-bounded-fresh-resample']
+  pull_request:
+    paths:
+      - 'tools/semantic_provider_dns.py'
+      - 'tests/test_dns_fresh_resample.py'
+      - '.github/workflows/semantic-dns-fresh-resample.yml'
+permissions:
+  contents: read
+jobs:
+  dns-window:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify bounded fresh resampling and original DNS protocol/TTL policy
+        run: |
+          python3 -B -m unittest discover -s tests -p 'test_dns_fresh_resample.py' -v
+          python3 -B -m unittest discover -s tests -p 'test_semantic_provider_dns.py' -v
+          python3 -B -m unittest discover -s tests -p 'test_semantic_provider_lease_owner.py' -v
