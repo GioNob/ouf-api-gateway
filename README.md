@@ -1,3 +1,5 @@
+> **Policy di piattaforma vigente:** [Resilienza, quarantena, incidenti e alert — v3](https://github.com/GioNob/ouf-deploy/blob/main/docs/OUF_RESILIENCE_POLICY.md). Obbligatoria per sviluppo e revisione; [adozione e prove](https://github.com/GioNob/ouf-deploy/blob/main/docs/OUF_RESILIENCE_ADOPTION.md).
+
 # OUF Urban API Gateway
 
 Gateway 1A/1B/1C establishes the PET v1.3 configuration, controlled-publication and MCP capability-binding boundary for Apache APISIX 3.18.x. It validates versioned runtime projections, resolves their references fail-closed and deterministically compiles APISIX routes. Publication is serialized, hash-pinned and can become ACTIVE only after all verification gates pass; failures preserve the last-known-good revision. It contains no ETL, semantic mapping, object resolution or direct database access.
