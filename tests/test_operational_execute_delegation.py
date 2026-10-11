@@ -35,7 +35,8 @@ def invoke(capability, body=None, delegated=None, claims=None, **kwargs):
 def test_operational_delegation_has_fixed_owner_and_signed_human_context(capability):
     body = dispatch(capability, {'limit': 7}, nested=True)
     context = human(); context['scope'] += ' operations.incident.read'; context['externalRoleRefs'] = ['ouf:viewer']
-    engine = invoke(capability, body=body, delegated=proof(context))
+    delegated = proof(context)
+    engine = invoke(capability, body=body, delegated=delegated)
     assert json.loads(engine.body) == {'limit': 7}
     assert engine.headers[b'x-ouf-principal-id'] == b'human-a'
     assert engine.headers[b'x-ouf-service-principal'] == b'workload'
@@ -45,7 +46,7 @@ def test_operational_delegation_has_fixed_owner_and_signed_human_context(capabil
     assert b'authorization' not in engine.headers and b'cookie' not in engine.headers
     if body['Owner'] == 'mcp':
         assert engine.headers[b'x-ouf-delegation-verified'] == b'mcp-operational-aggregate-v1'
-        assert engine.headers[b'x-ouf-delegation'].decode() == proof(context)
+        assert engine.headers[b'x-ouf-delegation'].decode() == delegated
     else:
         assert b'x-ouf-delegation' not in engine.headers and b'x-ouf-delegation-verified' not in engine.headers
 
