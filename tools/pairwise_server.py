@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ipaddress
 import json
 import os
 import sys
@@ -7,6 +8,7 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -50,7 +52,7 @@ class HTTPUpstream:
             return BackendResponse(response.status, response.read(65537), dict(response.headers.items()))
 
 
-def handler(dispatcher, recovery, expected_token):
+def handler(dispatcher, recovery, expected_token, service_identity="ouf-mcp-server"):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/health/ready":
@@ -62,9 +64,15 @@ def handler(dispatcher, recovery, expected_token):
                 self.send_error(404); return
             if self.headers.get("Authorization") != f"Bearer {expected_token}":
                 self._problem(DispatchError(401, "INVALID_SERVICE_IDENTITY", "workload token rejected")); return
-            length = int(self.headers.get("Content-Length", "0"))
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 <= length <= 1048576:
+                    raise ValueError("request length")
+            except ValueError:
+                self._problem(DispatchError(400, "INVALID_REQUEST_LENGTH", "bounded request length required")); return
             body = self.rfile.read(min(length, 1048577))
-            identity = TrustedIdentity("ouf-mcp-server", "agent-1", "tenant-1", "AI_AGENT", "authn-1", "decision-1", frozenset({"urban.object.related_search", "mcp.attempt.recover"}))
+            # Loopback-only CI fixture, not a credential verifier or runtime grant.
+            identity = TrustedIdentity(service_identity, "agent-1", "tenant-1", "AI_AGENT", "authn-1", "decision-1", frozenset({"urban.object.related_search", "mcp.attempt.recover"}))
             try:
                 if self.path == "/internal/capabilities/v1/recovery":
                     response = recovery.recover(body, dict(self.headers.items()), identity)
@@ -92,12 +100,18 @@ def main():
     token = os.environ.get("PAIRWISE_WORKLOAD_TOKEN")
     udp_url = os.environ.get("PAIRWISE_UDP_URL")
     if not token or not udp_url: raise SystemExit("PAIRWISE_WORKLOAD_TOKEN and PAIRWISE_UDP_URL are required")
+    service_identity = os.environ.get("PAIRWISE_MCP_SERVICE_IDENTITY", "ouf-mcp-server")
+    if not service_identity.strip(): raise SystemExit("PAIRWISE_MCP_SERVICE_IDENTITY must be nonempty")
+    host, port = args.listen.rsplit(":", 1)
+    if not ipaddress.ip_address(host).is_loopback: raise SystemExit("pairwise fixture must bind loopback")
+    destination = urlparse(udp_url)
+    if destination.scheme not in {"http", "https"} or not destination.hostname or not ipaddress.ip_address(destination.hostname).is_loopback:
+        raise SystemExit("pairwise fixture upstream must be loopback")
     compiled = compile_config(ROOT / "ouf-config")
     upstream = HTTPUpstream(udp_url)
-    dispatcher = MCPDispatcher(compiled, upstream)
-    recovery = MCPRecoveryMediator(compiled, upstream)
-    host, port = args.listen.rsplit(":", 1)
-    server = ThreadingHTTPServer((host, int(port)), handler(dispatcher, recovery, token))
+    dispatcher = MCPDispatcher(compiled, upstream, service_identity=service_identity)
+    recovery = MCPRecoveryMediator(compiled, upstream, service_identity=service_identity)
+    server = ThreadingHTTPServer((host, int(port)), handler(dispatcher, recovery, token, service_identity))
     print(server.server_address[1], flush=True)
     server.serve_forever()
 
