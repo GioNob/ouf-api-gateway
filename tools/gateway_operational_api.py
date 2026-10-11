@@ -150,7 +150,9 @@ class GatewayOperationalOwnerAPI:
                     raise ValueError("resume")
             elif "cursor" in query:
                 expected = {"cursor", "coverage"} if "coverage" in query else {"cursor"}
-                if set(query) != expected or not isinstance(query["cursor"], str) or str(uuid.UUID(query["cursor"])) != query["cursor"] or uuid.UUID(query["cursor"]).int == 0:
+                if set(query) != expected or not isinstance(query["cursor"], str):
+                    raise ValueError("cursor")
+                if "coverage" in query and (str(uuid.UUID(query["cursor"])) != query["cursor"] or uuid.UUID(query["cursor"]).int == 0):
                     raise ValueError("cursor")
             elif "coverage" in query:
                 if query.get("snapshot") is not True or set(query) - {"snapshot", "coverage", "state", "limit"}:
