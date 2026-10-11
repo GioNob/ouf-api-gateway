@@ -28,15 +28,21 @@ class GatewayOperationalOwnerAPI:
         limit = query.get("limit", 50)
         if not isinstance(limit, int) or limit < 1 or limit > 100:
             return 400, {"code": "OPERATIONAL_LIMIT_INVALID"}
+        since = query.get("since")
+        if since is not None:
+            try:
+                since = self.store._since(since)
+            except (ValueError, TypeError):
+                return 400, {"code": "OPERATIONAL_SINCE_INVALID"}
         if path == self.INCIDENTS_PATH:
             state = query.get("state")
             try:
-                items = self.store.list_incidents(lifecycle_state=state, limit=limit)
+                items = self.store.list_incidents(lifecycle_state=state, limit=limit + 1, since=since)
             except ValueError:
                 return 400, {"code": "OPERATIONAL_STATE_INVALID"}
-            return 200, {"items": [asdict(item) for item in items], "partial": False}
+            return 200, {"items": [asdict(item) for item in items[:limit]], "partial": False, "truncated": len(items) > limit, "priorityProfile": "ouf.incident-priority.v1"}
         if path == self.SUMMARY_PATH:
-            return 200, self.store.summary(limit=limit)
+            return 200, self.store.summary(limit=limit, since=since)
         return 404, {"code": "OWNER_OPERATION_NOT_FOUND"}
 
     @staticmethod
