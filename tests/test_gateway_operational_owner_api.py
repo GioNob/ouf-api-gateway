@@ -1,3 +1,4 @@
+from owner_authorization_fixture import fixture_owner_authorize
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
 from tools.operational_incidents import SQLiteOperationalIncidentStore
 
@@ -5,6 +6,7 @@ from tools.operational_incidents import SQLiteOperationalIncidentStore
 def trusted_headers():
     return {
         "X-OUF-Gateway-Verified": "true",
+        "X-OUF-Tenant-ID": "tenant",
         "X-OUF-Principal-ID": "operator",
         "X-OUF-Authorization-Decision-Ref": "authz://decision/1",
     }
@@ -12,7 +14,7 @@ def trusted_headers():
 
 def test_owner_api_requires_verified_gateway_and_authorization(tmp_path):
     store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite")
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.SUMMARY_PATH, {})
     assert status == 401
     assert body["code"] == "TRUSTED_GATEWAY_CONTEXT_REQUIRED"
@@ -33,7 +35,7 @@ def test_owner_api_returns_safe_persisted_incident_projection(tmp_path):
         correlation_id="publication-1",
         endpoint_ref="gateway://control-plane/publication",
     )
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.INCIDENTS_PATH, trusted_headers(), '{"limit":10}')
     assert status == 200
     assert body["partial"] is False
@@ -49,7 +51,7 @@ def test_owner_api_returns_safe_persisted_incident_projection(tmp_path):
 
 def test_owner_api_is_bounded(tmp_path):
     store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite")
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.INCIDENTS_PATH, trusted_headers(), '{"limit":101}')
     assert status == 400
     assert body["code"] == "OPERATIONAL_LIMIT_INVALID"
