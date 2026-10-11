@@ -1,3 +1,5 @@
+**Bookmark di copertura:** [contratto reference persistente](docs/OPERATIONAL_PUBLICATION_BOOKMARKS_REFERENCE.md), distinto da cursor di pagina e conferma di consultazione. Host/SDK, Ingestion e checkpoint MCP restano gate separati.
+
 > **Policy di piattaforma vigente:** [Resilienza, quarantena, incidenti e alert — v3](https://github.com/GioNob/ouf-deploy/blob/main/docs/OUF_RESILIENCE_POLICY.md). Obbligatoria per sviluppo e revisione; [adozione e prove](https://github.com/GioNob/ouf-deploy/blob/main/docs/OUF_RESILIENCE_ADOPTION.md).
 
 
