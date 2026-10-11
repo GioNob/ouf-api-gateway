@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from dataclasses import asdict
 
+from tools.operational_bookmarks import PublicationBookmarks
 from tools.operational_cursor import CursorRejected, MAX_BYTES
 from tools.operational_incidents import SQLiteOperationalIncidentStore
 
@@ -21,6 +23,7 @@ class GatewayOperationalOwnerAPI:
 
     def __init__(self, store: SQLiteOperationalIncidentStore, owner_authorize=None):
         self.store, self.owner_authorize = store, owner_authorize
+        self.bookmarks = PublicationBookmarks(store)
 
     def handle(self, path: str, headers: dict[str, str], body: bytes | str | None = None) -> tuple[int, dict]:
         if headers.get("X-OUF-Gateway-Verified") != "true":
@@ -45,7 +48,20 @@ class GatewayOperationalOwnerAPI:
                     raise CursorRejected(409, "OPERATIONAL_POLICY_CHANGED")
                 return True
 
-            if query.get("snapshot") or "cursor" in query:
+            if query.get("coverage") or "resumeFrom" in query:
+                def collection(current_identity, current_policy):
+                    fresh_identity, fresh_policy = self._decision(headers, capability)
+                    if fresh_identity != current_identity or fresh_policy != current_policy:
+                        raise CursorRejected(409, "OPERATIONAL_POLICY_CHANGED")
+                    return True
+                bookmarks = self.bookmarks.with_authorization(collection)
+                if "resumeFrom" in query:
+                    result = bookmarks.resume(query["resumeFrom"], identity, policy_ref, visible, query.get("limit", 50))
+                elif "cursor" in query:
+                    result = bookmarks.page(query["cursor"], identity, policy_ref, visible)
+                else:
+                    result = bookmarks.start({k: v for k, v in query.items() if k not in {"snapshot", "coverage"}}, identity, policy_ref, visible)
+            elif query.get("snapshot") or "cursor" in query:
                 result = self.store.cursors.page(query, identity, policy_ref, visible)
             else:
                 limit, since = query.get("limit", 50), query.get("since")
@@ -122,11 +138,25 @@ class GatewayOperationalOwnerAPI:
                 if not isinstance(body, str) or len(body.encode()) > 65536:
                     raise ValueError("size")
                 query = json.loads(body, object_pairs_hook=unique, parse_constant=lambda _: (_ for _ in ()).throw(ValueError("constant")))
-            allowed = {"limit", "since", "state", "snapshot", "cursor"} if incidents else {"limit", "since"}
+            allowed = {"limit", "since", "state", "snapshot", "cursor", "coverage", "resumeFrom"} if incidents else {"limit", "since"}
             if not isinstance(query, dict) or set(query) - allowed or any(v is None for v in query.values()):
                 raise ValueError("shape")
-            if "cursor" in query and (set(query) != {"cursor"} or not isinstance(query["cursor"], str)):
-                raise ValueError("cursor")
+            if "coverage" in query and query["coverage"] is not True:
+                raise ValueError("coverage")
+            if "resumeFrom" in query:
+                if set(query) - {"resumeFrom", "limit"}:
+                    raise ValueError("resume shape")
+                if not isinstance(query["resumeFrom"], str) or str(uuid.UUID(query["resumeFrom"])) != query["resumeFrom"] or uuid.UUID(query["resumeFrom"]).int == 0:
+                    raise ValueError("resume")
+            elif "cursor" in query:
+                expected = {"cursor", "coverage"} if "coverage" in query else {"cursor"}
+                if set(query) != expected or not isinstance(query["cursor"], str):
+                    raise ValueError("cursor")
+                if "coverage" in query and (str(uuid.UUID(query["cursor"])) != query["cursor"] or uuid.UUID(query["cursor"]).int == 0):
+                    raise ValueError("cursor")
+            elif "coverage" in query:
+                if query.get("snapshot") is not True or set(query) - {"snapshot", "coverage", "state", "limit"}:
+                    raise ValueError("coverage shape")
             if "snapshot" in query and type(query["snapshot"]) is not bool:
                 raise ValueError("snapshot")
         except (ValueError, TypeError, UnicodeError):

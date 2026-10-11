@@ -38,6 +38,20 @@ def dispatch_schema(capability):
             'required': ['cursor'], 'properties': {'cursor': {'type': 'string', 'format': 'uuid',
             'pattern': r'^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'}}}]}
     else: fields['Arguments'] = regular
+    # Persistent publication positions remain hidden owner READ operations.
+    # The global MCP vector has a separate qualification gate.
+    if incidents and owner != 'mcp':
+        token = copy.deepcopy(fields['Arguments']['oneOf'][1]['properties']['cursor'])
+        initial = {k: copy.deepcopy(v) for k, v in query.items() if k != 'since'}
+        initial['coverage'] = {'enum': [True]}
+        fields['Arguments']['oneOf'] += [
+            {'type': 'object', 'additionalProperties': False,
+             'required': ['snapshot', 'coverage'], 'properties': initial},
+            {'type': 'object', 'additionalProperties': False,
+             'required': ['cursor', 'coverage'], 'properties': {'cursor': token, 'coverage': {'enum': [True]}}},
+            {'type': 'object', 'additionalProperties': False,
+             'required': ['resumeFrom'], 'properties': {'resumeFrom': token, 'limit': copy.deepcopy(query['limit'])}},
+        ]
     return schema
 
 def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None):

@@ -47,6 +47,12 @@ class PublicationBookmarks:
                 store.db.execute('alter table gateway_bookmark_scope add column '+name+' '+kind)
         store.db.commit()
 
+    def with_authorization(self, authorize_collection):
+        """Request-bound authorization view; never mutate another request's SDK."""
+        view = object.__new__(type(self))
+        view.store, view.authorize_collection = self.store, authorize_collection
+        return view
+
     @staticmethod
     def _frame_digest(frame):
         fields = ('session_id','principal','tenant','fingerprint','policy_ref','page_limit',

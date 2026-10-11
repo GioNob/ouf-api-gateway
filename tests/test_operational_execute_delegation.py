@@ -140,3 +140,25 @@ def test_global_incident_optin_preserves_exact_query_and_verified_context(argume
     assert engine.headers[b'x-ouf-delegation'].decode() == delegated
     assert engine.headers[b'x-ouf-delegation-verified'] == b'mcp-operational-aggregate-v1'
     assert b'authorization' not in engine.headers
+
+@pytest.mark.parametrize('capability', CAPABILITIES)
+def test_owner_publication_bookmark_modes_are_closed_and_never_global_authority(capability):
+    token = '11111111-aaaa-4111-8111-111111111111'
+    validator = Draft7Validator(dispatch_schema(capability), format_checker=FormatChecker())
+    valid = [{'snapshot':True,'coverage':True,'state':'OPEN','limit':1},
+             {'cursor':token,'coverage':True}, {'resumeFrom':token,'limit':1}]
+    owner_incidents = capability.endswith('.incidents') and CAPABILITIES[capability][0] != 'mcp'
+    for arguments in valid:
+        assert validator.is_valid(dispatch(capability, arguments)) is owner_incidents
+        if owner_incidents:
+            engine = invoke(capability, dispatch(capability, arguments, nested=True))
+            assert json.loads(engine.body) == arguments
+            assert b'x-ouf-delegation' not in engine.headers
+    invalid = [{'coverage':True}, {'snapshot':True,'coverage':False},
+               {'snapshot':True,'coverage':True,'since':'2026-10-11T00:00:00Z'},
+               {'cursor':token,'coverage':True,'limit':1}, {'resumeFrom':token,'state':'OPEN'},
+               {'resumeFrom':token,'sourceId':'other'}, {'resumeFrom':token,'coverage':True},
+               {'resumeFrom':None}, {'resumeFrom':token.upper()}, {'resumeFrom':token,'limit':True},
+               {'resumeFrom':'00000000-0000-0000-0000-000000000000'}, {'revision':1}]
+    for arguments in invalid:
+        assert not validator.is_valid(dispatch(capability, arguments)), arguments
