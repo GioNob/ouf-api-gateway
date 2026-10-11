@@ -162,5 +162,36 @@ class PublicationBookmarkReferenceTest(unittest.TestCase):
         self.rejected(503, lambda:self.start())
         self.assertEqual(self.store.db.execute('select count(*) from gateway_publication_bookmark').fetchone()[0],0)
 
+    def test_unchanged_boundaries_reuse_anchor_without_metadata_growth(self):
+        self.add('one')
+        original = self.start()['publicationBookmark']
+        self.assertEqual(self.start()['publicationBookmark'],original)
+        for index in range(3):
+            self.identity['authenticationContextRef'] = 'new-login-'+str(index)
+            page = self.resume(original)
+            self.assertEqual(page['items'],[])
+            self.assertEqual(page['publicationBookmark'],original)
+            self.assertTrue(page['coverage']['noPublicationProgress'])
+        self.assertEqual(self.store.db.execute('select count(*) from gateway_publication_bookmark').fetchone()[0],1)
+
+    def test_changed_capture_metadata_cannot_issue_a_bookmark(self):
+        self.add('one'); self.add('two')
+        first = self.start({'limit':1})
+        with self.store.db:
+            self.store.db.execute('update gateway_incident_session set watermark=watermark+1 where session_id=?',(first['snapshotRef'],))
+        self.rejected(409, lambda:self.bookmarks.page(first['nextCursor'],self.identity,'policy:1',self.visible))
+        self.assertEqual(self.store.db.execute('select count(*) from gateway_publication_bookmark').fetchone()[0],0)
+
+    def test_legacy_scope_without_proven_frame_digest_cannot_be_upgraded_into_coverage(self):
+        self.add('one')
+        first = self.start()
+        with self.store.db:
+            self.store.db.execute('drop table gateway_bookmark_scope')
+            self.store.db.execute('create table gateway_bookmark_scope(session_id text primary key,filters text,parent_token text)')
+            self.store.db.execute('insert into gateway_bookmark_scope values(?,?,null)',(first['snapshotRef'],'{}'))
+        recreated = PublicationBookmarks(self.store, lambda identity,policy:True)
+        self.rejected(409, lambda:recreated.page(first['cursor'],self.identity,'policy:1',self.visible))
+        self.assertIn('publicationBookmark',recreated.start({},self.identity,'policy:1',self.visible))
+
 if __name__ == '__main__': unittest.main()
 
