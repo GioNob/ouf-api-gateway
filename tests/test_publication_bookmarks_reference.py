@@ -156,5 +156,11 @@ class PublicationBookmarkReferenceTest(unittest.TestCase):
             self.store.db.execute('update gateway_publication_history_floor set revision=0')
         self.store.db.rollback()
 
+    def test_unknown_row_authorization_cannot_be_treated_as_truthy_permission(self):
+        self.add('one')
+        self.visible = lambda item: {'allowed':False}
+        self.rejected(503, lambda:self.start())
+        self.assertEqual(self.store.db.execute('select count(*) from gateway_publication_bookmark').fetchone()[0],0)
+
 if __name__ == '__main__': unittest.main()
 

@@ -110,7 +110,12 @@ class PublicationBookmarks:
         self._authorize(identity, policy)
         if not callable(authorize_item):
             raise CursorRejected(503, "BOOKMARK_ROW_AUTHORIZATION_UNAVAILABLE")
-        result = self.store.cursors.page({"cursor": token}, identity, policy, authorize_item)
+        def visible(item):
+            decision = authorize_item(item)
+            if type(decision) is not bool:
+                raise CursorRejected(503, "BOOKMARK_ROW_AUTHORIZATION_UNPROVEN")
+            return decision
+        result = self.store.cursors.page({"cursor": token}, identity, policy, visible)
         db = self.store.db
         row = db.execute("""select s.*,c.position,b.filters,b.parent_token from gateway_incident_page_cursor c
             join gateway_incident_session s using(session_id) join gateway_bookmark_scope b using(session_id)
