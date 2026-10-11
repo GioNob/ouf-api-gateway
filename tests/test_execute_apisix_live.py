@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tools.materialize_permission_proposals import materialize
+from tools.materialize_operational_execute import materialize
 from tests.test_execute_delegation import runtime, envelope
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
@@ -46,6 +46,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
+            elif self.path in ('/api/internal/v1/mcp/operations/summary', '/api/internal/v1/mcp/operations/incidents',
+                               '/api/internal/v1/ingestion/operations/summary', '/api/internal/v1/ingestion/operations/incidents',
+                               '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
+                self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             else:self.send_error(404)
@@ -140,6 +144,42 @@ def test_real_apisix_oidc_delegation_and_execute():
                     forwarded = json.loads(raw)
                     assert json.loads(forwarded['body'])['Arguments'] == arguments
                     assert forwarded['authorization'] is None
+            # Six fixed operational routes: retained context only to aggregate
+            # MCP, then a second governed workload hop to a producer.
+            from tools.materialize_operational_execute import CAPABILITIES
+            code, raw = post('/mcp', {}, token(scope='mcp.connect operations.status.read operations.incident.read', externalRoleRefs=['ouf:viewer']))
+            assert code == 200, (code, raw)
+            operational_proof = json.loads(raw)['proof']
+            for capability, (owner, _, _, _, _, _) in CAPABILITIES.items():
+                body = envelope()
+                body.update(CapabilityID=capability, GatewayBindingRef='capability://'+capability,
+                            Owner=owner, Arguments={'limit':3}, MaxResultBytes=524288,
+                            AuthorizationDecisionRef='bundle:6:'+capability)
+                body['RequestHash'] = hashlib.sha256(b'{"limit":3}').hexdigest()
+                # Nested calls preserve HUMAN subject/tenant/roles while using
+                # a separately verified current MCP workload bearer.
+                body['Identity']['ServicePrincipalID'] = workload
+                route = '/internal/capabilities/v1/execute/'+capability
+                code, raw = post(route, body, token('SERVICE'), operational_proof)
+                assert code == 200, (capability, code, raw)
+                projection = json.loads(raw)
+                h = projection['headers']
+                assert projection['body'] == {'limit':3}
+                assert h['x-ouf-principal-id'] == 'human-a' and h['x-ouf-service-principal'] == workload
+                assert h['x-ouf-external-role-refs'] == 'ouf:viewer' and 'authorization' not in h
+                if owner == 'mcp':
+                    assert h['x-ouf-delegation'] == operational_proof
+                    assert h['x-ouf-delegation-verified'] == 'mcp-operational-aggregate-v1'
+                else:
+                    assert 'x-ouf-delegation' not in h and 'x-ouf-delegation-verified' not in h
+                changed = copy.deepcopy(body); changed['Identity']['PrincipalID'] = 'forged'
+                code, raw = post(route, changed, token('SERVICE'), operational_proof)
+                assert code == 403, (capability, code, raw)
+                changed = copy.deepcopy(body); changed['Arguments']['arbitrary'] = 'secret'
+                code, raw = post(route, changed, token('SERVICE'), operational_proof)
+                assert code == 400, (capability, code, raw)
+            code, _ = post('/internal/capabilities/v1/execute/ouf.operations.arbitrary', envelope(), token('SERVICE'), operational_proof)
+            assert code == 404
         except Exception:
             subprocess.run(['docker','logs','--tail','60',name],check=False)
             raise

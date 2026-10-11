@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / 'lua'
 
-def function(kind, installation, key_env, owner_key_env=None):
+def function(kind, installation, key_env, owner_key_env=None, operational_binding=None):
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
     values = {'DELEGATION_KEY_ENV': key_env, 'ISSUER': installation['issuerUrl'].rstrip('/'),
@@ -16,7 +16,16 @@ def function(kind, installation, key_env, owner_key_env=None):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
+    if kind == 'execute_operational':
+        if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
+            raise ValueError('closed operational binding required')
+        from tools.materialize_operational_execute import CAPABILITIES
+        cap = operational_binding['capability']
+        expected = CAPABILITIES.get(cap)
+        if expected is None or operational_binding['owner'] != expected[0] or operational_binding['scope'] != expected[4]:
+            raise ValueError('operational binding is not approved')
+        values.update(CAPABILITY=cap,OWNER=expected[0],REQUIRED_SCOPE=expected[4])
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational'):
         raise ValueError('invalid function')
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
