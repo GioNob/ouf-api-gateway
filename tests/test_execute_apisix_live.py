@@ -227,12 +227,16 @@ def test_real_apisix_oidc_delegation_and_execute():
                     body['RequestHash'] = hashlib.sha256(json.dumps(arguments,sort_keys=True,separators=(',',':')).encode()).hexdigest()
                     body['Identity']['ServicePrincipalID'] = workload
                     code, raw = post(route,body,token('SERVICE'),operational_proof)
-                    allowed = structurally_valid and owner != 'mcp'
+                    allowed = structurally_valid
                     assert code == (200 if allowed else 400),(capability,arguments,code,raw)
                     if allowed:
                         result = json.loads(raw)
                         assert result['body'] == arguments
-                        assert 'x-ouf-delegation' not in result['headers']
+                        if owner == 'mcp':
+                            assert result['headers']['x-ouf-delegation'] == operational_proof
+                            assert result['headers']['x-ouf-delegation-verified'] == 'mcp-operational-aggregate-v1'
+                        else:
+                            assert 'x-ouf-delegation' not in result['headers']
                         assert 'authorization' not in result['headers']
             code, _ = post('/internal/capabilities/v1/execute/ouf.operations.arbitrary', envelope(), token('SERVICE'), operational_proof)
             assert code == 404
