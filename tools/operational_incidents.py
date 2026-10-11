@@ -38,7 +38,9 @@ class SQLiteOperationalIncidentStore:
     def __init__(self, path: Path | str, clock=None):
         self.path = str(path)
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.db = sqlite3.connect(self.path)
+        # Finite control-plane DB attempt; callers classify lock contention. No
+        # nested retries or sleeps while a transaction is open.
+        self.db = sqlite3.connect(self.path, timeout=2.0)
         self.db.row_factory = sqlite3.Row
         self.db.execute("pragma journal_mode=WAL")
         self.db.execute(
@@ -64,6 +66,8 @@ class SQLiteOperationalIncidentStore:
             """
         )
         self.db.commit()
+        from tools.operational_cursor import OwnerIncidentCursor
+        self.cursors = OwnerIncidentCursor(self)
 
     def close(self) -> None:
         self.db.close()
@@ -89,59 +93,46 @@ class SQLiteOperationalIncidentStore:
         if not dedup_key or not event_type or not impact_summary:
             raise ValueError("incident identity and safe impact summary are required")
         now = self._now()
-        existing = self.db.execute(
-            "select incident_id,first_seen_at,occurrence_count from gateway_operational_incident where dedup_key=?",
-            (dedup_key,),
-        ).fetchone()
-        if existing is None:
-            incident_id = str(uuid.uuid4())
-            first_seen = now
-            occurrences = 1
-            self.db.execute(
+        if visibility_class != "RESTRICTED_OPERATIONAL":
+            raise ValueError("reference store accepts platform operational incidents only")
+        with self.db:
+            row = self.db.execute(
                 """insert into gateway_operational_incident(
                 incident_id,dedup_key,module,event_type,lifecycle_state,severity,first_seen_at,last_seen_at,resolved_at,
                 correlation_id,endpoint_ref,error_code,impact_summary,action_required,occurrence_count,visibility_class
-                ) values(?,?, 'GATEWAY', ?, 'OPEN', ?, ?, ?, null, ?, ?, ?, ?, ?, ?, ?)""",
-                (incident_id, dedup_key, event_type, severity, first_seen, now, correlation_id, endpoint_ref,
-                 error_code, impact_summary, int(action_required), occurrences, visibility_class),
-            )
-        else:
-            incident_id = existing["incident_id"]
-            first_seen = existing["first_seen_at"]
-            occurrences = int(existing["occurrence_count"]) + 1
-            self.db.execute(
-                """update gateway_operational_incident set event_type=?,lifecycle_state='OPEN',severity=?,last_seen_at=?,
-                resolved_at=null,correlation_id=coalesce(?,correlation_id),endpoint_ref=coalesce(?,endpoint_ref),error_code=?,
-                impact_summary=?,action_required=?,occurrence_count=?,visibility_class=? where dedup_key=?""",
-                (event_type, severity, now, correlation_id, endpoint_ref, error_code, impact_summary,
-                 int(action_required), occurrences, visibility_class, dedup_key),
-            )
-        self.db.commit()
-        return self.get(incident_id)
+                ) values(?,?, 'GATEWAY', ?, 'OPEN', ?, ?, ?, null, ?, ?, ?, ?, ?, 1, ?)
+                on conflict(dedup_key) do update set event_type=excluded.event_type,
+                lifecycle_state='OPEN',severity=excluded.severity,
+                last_seen_at=max(gateway_operational_incident.last_seen_at,excluded.last_seen_at),
+                resolved_at=null,correlation_id=coalesce(excluded.correlation_id,gateway_operational_incident.correlation_id),
+                endpoint_ref=coalesce(excluded.endpoint_ref,gateway_operational_incident.endpoint_ref),
+                error_code=excluded.error_code,impact_summary=excluded.impact_summary,
+                action_required=excluded.action_required,
+                occurrence_count=gateway_operational_incident.occurrence_count+1,
+                visibility_class=excluded.visibility_class returning *""",
+                (str(uuid.uuid4()), dedup_key, event_type, severity, now, now, correlation_id, endpoint_ref,
+                 error_code, impact_summary, int(action_required), visibility_class),
+            ).fetchone()
+        return self._incident(row)
 
     def recovering(self, dedup_key: str, impact_summary: str) -> OperationalIncident | None:
-        row = self.db.execute("select incident_id from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
-        if row is None:
-            return None
-        self.db.execute(
-            "update gateway_operational_incident set lifecycle_state='RECOVERING',last_seen_at=?,impact_summary=?,action_required=0 where dedup_key=?",
-            (self._now(), impact_summary, dedup_key),
-        )
-        self.db.commit()
-        return self.get(row["incident_id"])
+        with self.db:
+            row = self.db.execute(
+                """update gateway_operational_incident set lifecycle_state='RECOVERING',
+                last_seen_at=max(last_seen_at,?),resolved_at=null,impact_summary=?,action_required=0
+                where dedup_key=? returning *""", (self._now(), impact_summary, dedup_key)
+            ).fetchone()
+        return self._incident(row) if row else None
 
     def resolve_incident(self, dedup_key: str, impact_summary: str) -> OperationalIncident | None:
-        row = self.db.execute("select incident_id from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
-        if row is None:
-            return None
         now = self._now()
-        self.db.execute(
-            """update gateway_operational_incident set lifecycle_state='RESOLVED',last_seen_at=?,resolved_at=?,
-            impact_summary=?,action_required=0 where dedup_key=?""",
-            (now, now, impact_summary, dedup_key),
-        )
-        self.db.commit()
-        return self.get(row["incident_id"])
+        with self.db:
+            row = self.db.execute(
+                """update gateway_operational_incident set lifecycle_state='RESOLVED',last_seen_at=max(last_seen_at,?),
+                resolved_at=max(last_seen_at,?),impact_summary=?,action_required=0 where dedup_key=? returning *""",
+                (now, now, impact_summary, dedup_key)
+            ).fetchone()
+        return self._incident(row) if row else None
 
     def get(self, incident_id: str) -> OperationalIncident:
         row = self.db.execute("select * from gateway_operational_incident where incident_id=?", (incident_id,)).fetchone()

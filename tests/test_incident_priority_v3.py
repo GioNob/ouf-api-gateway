@@ -1,9 +1,10 @@
+from owner_authorization_fixture import fixture_owner_authorize
 from datetime import datetime, timedelta, timezone
 import pytest
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
 from tools.operational_incidents import SQLiteOperationalIncidentStore
 
-HEADERS = {"X-OUF-Gateway-Verified":"true", "X-OUF-Principal-ID":"operator", "X-OUF-Authorization-Decision-Ref":"decision"}
+HEADERS = {"X-OUF-Tenant-ID":"tenant", "X-OUF-Gateway-Verified":"true", "X-OUF-Principal-ID":"operator", "X-OUF-Authorization-Decision-Ref":"decision"}
 def add(store, key, severity="ERROR", action=True):
     return store.open_incident(dedup_key=key, event_type="DEPENDENCY_UNAVAILABLE", severity=severity,
         error_code="TIMEOUT", impact_summary="Dependent work paused.", action_required=action)
@@ -24,7 +25,7 @@ def test_priority_before_limit_and_full_summary_counts(tmp_path):
     assert summary["status"] == "DEGRADED"
     assert summary["openIncidents"] == 3
     assert summary["truncated"] is True
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.INCIDENTS_PATH,HEADERS,'{"limit":1}')
     assert status == 200 and body["truncated"] is True
     assert body["items"][0]["incident_id"] == critical.incident_id
@@ -36,7 +37,7 @@ def test_catchup_includes_recovery_update_and_normalizes_offset(tmp_path):
     old = add(store,"old")
     now[0] += timedelta(hours=2)
     store.resolve_incident("old","Recovered after operator disconnected.")
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.INCIDENTS_PATH,HEADERS,'{"since":"2026-10-11T04:00:00+02:00"}')
     assert status == 200
     assert [i["incident_id"] for i in body["items"]] == [old.incident_id]
@@ -51,7 +52,7 @@ def test_catchup_includes_recovery_update_and_normalizes_offset(tmp_path):
 def test_invalid_since_is_rejected(tmp_path,since):
     import json
     store = SQLiteOperationalIncidentStore(tmp_path/"ops.sqlite")
-    api = GatewayOperationalOwnerAPI(store)
+    api = GatewayOperationalOwnerAPI(store, fixture_owner_authorize)
     status, body = api.handle(api.INCIDENTS_PATH,HEADERS,json.dumps({"since":since}))
     assert status == 400 and body["code"] == "OPERATIONAL_SINCE_INVALID"
     store.close()
