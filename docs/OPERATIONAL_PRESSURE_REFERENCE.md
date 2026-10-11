@@ -30,3 +30,6 @@ The architectural reasoning follows primary AWS guidance on limiting retries, id
 - [Using load shedding to avoid overload](https://builder.aws.com/content/3Eun1EEyX6p2e3VYNyRLSJzLuMV/using-load-shedding-to-avoid-overload): protect useful/control work under overload; retry amplification can worsen pressure.
 
 Consulted2026-10-11. OUF finite values, durable quarantine/new HUMAN budgets and operator receipt semantics are project policy decisions and must be qualified in OUF, not attributed to AWS as prescribed values.
+
+
+Native qualification: candidate `e4266100d0c235a6933716a4652a82e51eb3c1d4` passed push38121552092 and PR38121553557, with258 reference tests/2 explicit skips, Authorization pairwise and real APISIX. PR62 merged as `dd510e2f69e7ca37a3d4945552f8d2b88556afe1`. This qualifies the reference engine; production sampler/scheduler activation remains OPEN. [Finite alert outbox](OPERATIONAL_ALERT_OUTBOX_REFERENCE.md) is a separate reference foundation and does not renew execution budgets.
