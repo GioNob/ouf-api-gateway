@@ -112,7 +112,7 @@ class OwnerIncidentCursor:
             raise CursorRejected(503, "OPERATIONAL_RESPONSE_CAPACITY")
         return result
 
-    def _capture(self, query, identity, policy_ref):
+    def _capture(self, query, identity, policy_ref, lower_revision=None):
         db = self.store.db
         now = self.store._now()
         limit = query.get("limit", 50)
@@ -141,6 +141,11 @@ class OwnerIncidentCursor:
             if query.get("since"):
                 conditions.append("json_extract(t.body,'$.last_seen_at')>=?")
                 params.append(query["since"])
+            if lower_revision is not None:
+                if type(lower_revision) is not int or not 0 <= lower_revision <= watermark:
+                    raise CursorRejected(409, "BOOKMARK_PUBLICATION_CONFLICT")
+                conditions.append("t.revision>?")
+                params.append(lower_revision)
             where = " where " + " and ".join(conditions) if conditions else ""
             params.append(available + 1)
             rows = db.execute("""select t.body from gateway_incident_transition t
