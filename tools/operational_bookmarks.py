@@ -16,7 +16,7 @@ class PublicationBookmarks:
         store.db.executescript("""
         create table if not exists gateway_bookmark_scope(
           session_id text primary key references gateway_incident_session(session_id) on delete cascade,
-          filters text not null,parent_token text);
+          filters text not null,parent_token text,frame_digest text,parent_watermark integer);
         create table if not exists gateway_bookmark_page(
           session_id text not null references gateway_incident_session(session_id) on delete cascade,
           position integer not null,digest text not null,complete integer not null check(complete in(0,1)),
@@ -41,6 +41,17 @@ class PublicationBookmarks:
           before update on gateway_publication_history_floor when new.revision<old.revision
           begin select raise(abort,'HISTORY_FLOOR_CANNOT_REWIND'); end;
         """)
+        columns = {r['name'] for r in store.db.execute('pragma table_info(gateway_bookmark_scope)')}
+        for name, kind in [('frame_digest', 'text'), ('parent_watermark', 'integer')]:
+            if name not in columns:
+                store.db.execute('alter table gateway_bookmark_scope add column '+name+' '+kind)
+        store.db.commit()
+
+    @staticmethod
+    def _frame_digest(frame):
+        fields = ('session_id','principal','tenant','fingerprint','policy_ref','page_limit',
+                  'created_at','expires_at','history_gap','watermark','item_count')
+        return digest({key: frame[key] for key in fields})
 
     @staticmethod
     def _identity(identity):
@@ -96,15 +107,16 @@ class PublicationBookmarks:
         filters = json.loads(row["filters"])
         query = dict(filters, limit=limit)
         token = self.store.cursors._capture(query, identity, policy, lower_revision=row["watermark"])
-        self._scope(token, filters, bookmark)
+        self._scope(token, filters, bookmark, row['watermark'])
         return self.page(token, identity, policy, authorize_item)
 
-    def _scope(self, token, filters, parent):
+    def _scope(self, token, filters, parent, parent_watermark=None):
         # No remote authorization or waiting inside these short metadata writes.
+        frame = self.store.db.execute('select s.* from gateway_incident_page_cursor c join gateway_incident_session s using(session_id) where c.token=?', (token,)).fetchone()
         with self.store.db:
-            self.store.db.execute("""insert into gateway_bookmark_scope
-                select session_id,?,? from gateway_incident_page_cursor where token=?""",
-                (json.dumps(filters, sort_keys=True, separators=(",", ":")), parent, token))
+            self.store.db.execute("""insert into gateway_bookmark_scope(session_id,filters,parent_token,frame_digest,parent_watermark)
+                select session_id,?,?,?,? from gateway_incident_page_cursor where token=?""",
+                (json.dumps(filters, sort_keys=True, separators=(",", ":")), parent, self._frame_digest(frame), parent_watermark, token))
 
     def page(self, token, identity, policy, authorize_item):
         self._authorize(identity, policy)
@@ -117,11 +129,13 @@ class PublicationBookmarks:
             return decision
         result = self.store.cursors.page({"cursor": token}, identity, policy, visible)
         db = self.store.db
-        row = db.execute("""select s.*,c.position,b.filters,b.parent_token from gateway_incident_page_cursor c
+        row = db.execute("""select s.*,c.position,b.filters,b.parent_token,b.frame_digest,b.parent_watermark from gateway_incident_page_cursor c
             join gateway_incident_session s using(session_id) join gateway_bookmark_scope b using(session_id)
             where c.token=?""", (token,)).fetchone()
         if row is None:
             raise CursorRejected(404, "BOOKMARK_SCOPE_NOT_FOUND")
+        if row['frame_digest'] != self._frame_digest(row):
+            raise CursorRejected(409, 'BOOKMARK_CAPTURE_CHANGED')
         with db:
             db.execute("""insert into gateway_bookmark_page values(?,?,?,?)
                 on conflict(session_id,position) do update set digest=excluded.digest,complete=excluded.complete""",
@@ -135,6 +149,7 @@ class PublicationBookmarks:
             if complete == expected:
                 result["publicationBookmark"] = self._issue(row, identity, policy)
                 result["coverage"]["parentBookmark"] = row["parent_token"]
+                result['coverage']['noPublicationProgress'] = row['parent_watermark'] == row['watermark']
         if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_BYTES:
             raise CursorRejected(503, "OPERATIONAL_RESPONSE_CAPACITY")
         return result
@@ -145,6 +160,9 @@ class PublicationBookmarks:
         expiry = (self.store.clock().astimezone(timezone.utc) + timedelta(days=90)).isoformat().replace("+00:00", "Z")
         db.execute("begin immediate")
         try:
+            current = db.execute('select * from gateway_incident_session where session_id=?', (frame['session_id'],)).fetchone()
+            if current is None or self._frame_digest(current) != frame['frame_digest']:
+                raise CursorRejected(409, 'BOOKMARK_CAPTURE_CHANGED')
             expected = max(1, math.ceil(frame["item_count"] / frame["page_limit"]))
             complete = db.execute("select count(*) from gateway_bookmark_page where session_id=? and complete=1",
                                   (frame["session_id"],)).fetchone()[0]
@@ -157,6 +175,14 @@ class PublicationBookmarks:
             if existing:
                 db.commit()
                 return existing[0]
+            equivalent = db.execute("""select token from gateway_publication_bookmark where principal=? and tenant=?
+                and identity_digest=? and policy_ref=? and filters=? and watermark=? and expires_at>?
+                and ((? is null and parent_token is null) or token=?) order by created_at,token limit 1""",
+                (identity['principal'],identity['tenant'],self._identity(identity),policy,frame['filters'],frame['watermark'],now,
+                 frame['parent_token'],frame['parent_token'])).fetchone()
+            if equivalent:
+                db.commit()
+                return equivalent[0]
             # One bounded cleanup; no silent replacement of live positions.
             db.execute("""delete from gateway_publication_bookmark where token in
                 (select token from gateway_publication_bookmark where expires_at<=? order by expires_at limit 1)""", (now,))
