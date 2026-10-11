@@ -1,0 +1,80 @@
+{
+  "schema": "ouf.operational-owner-pages-qualification.v1",
+  "date": "2026-10-11",
+  "notReleaseAcceptance": true,
+  "targetOperations": 0,
+  "emailsSent": 0,
+  "ingestion": {
+    "pr": 37,
+    "candidate": "248b06256c2ea28236ae1bc7bdd55e3f8233d231",
+    "merge": "25de72ce1b01307378874ae8aef73e9f87dd0969",
+    "allCandidateGates": 18,
+    "focusedTests": 37,
+    "focusedRun": 38120034345,
+    "moduleRun": 38120034381,
+    "status": "QUALIFIED"
+  },
+  "gateway": {
+    "pr": 60,
+    "candidate": "c2054ae394e142d8c34420feb664fb478c85075c",
+    "merge": "85b91415f6f5abab617e78c9baa5628c74921b89",
+    "referenceTests": 243,
+    "explicitSkips": 2,
+    "pushRun": 38120893134,
+    "prRun": 38120894753,
+    "realApisix": "PASS",
+    "status": "REFERENCE_QUALIFIED"
+  },
+  "gatewayPairwise": {
+    "pr": 61,
+    "candidate": "2973a76303a1bb571a8b7139d684a45bcce7b549",
+    "merge": "fe00b34b970e034f1a9bc25b3a0867c87be220af",
+    "pushRun": 38121330878,
+    "prRun": 38121333190,
+    "status": "QUALIFIED"
+  },
+  "gatewayPressure": {
+    "pr": 62,
+    "candidate": "e4266100d0c235a6933716a4652a82e51eb3c1d4",
+    "merge": "dd510e2f69e7ca37a3d4945552f8d2b88556afe1",
+    "focusedGroups": 13,
+    "pushRun": 38121552092,
+    "prRun": 38121553557,
+    "status": "REFERENCE_QUALIFIED_NOT_SCHEDULER_ACTIVE",
+    "referenceTests": 258
+  },
+  "mcpOwnerScope": {
+    "pr": 53,
+    "candidate": "ead7568d780ac88fa1f4dfcce78ba407104e2e5d",
+    "merge": "7f38f11f39cc5c7526a70fab2b9e50fadeb0ea8c",
+    "status": "QUALIFIED",
+    "raceTopLevelTests": 23,
+    "raceSubtests": 33,
+    "raceJob": 114417339513,
+    "fullRun": 38121619631,
+    "prFullRun": 38121623166,
+    "candidateGates": 6,
+    "reachableVulnerabilities": 0
+  },
+  "limitations": [
+    "No target deployment/SDK host wiring or HA evidence",
+    "No stable global MCP cursor or consultation receipt yet",
+    "No history retention pruning",
+    "No production pressure sampler/quotas active",
+    "No alert transport configured or emails sent",
+    "R9/R10 consumed; root preflight suspended"
+  ],
+  "gatewayAlertOutbox": {
+    "pr": 63,
+    "candidate": "7c739bf2c70b0631179ce2b29708c057af902e7f",
+    "merge": "4c126d59004bf459d1ef57eba7d36b67810a2cc9",
+    "status": "INERT_REFERENCE_QUALIFIED_NOT_CHANNEL_ACTIVE",
+    "referenceTests": 278,
+    "focusedGroups": 20,
+    "explicitSkips": 2,
+    "pushRun": 38122320736,
+    "prRun": 38122322990,
+    "job": 114419424343,
+    "emailsSent": 0
+  }
+}

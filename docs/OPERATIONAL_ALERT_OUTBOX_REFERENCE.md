@@ -31,3 +31,6 @@ At most32destinations,4,096retained deliveries,1,024nonterminal deliveries,128no
 20 focused reference groups pass locally, including5,000 equivalent reports, restart,24hour/128attempt bounds, Retry-After, stable keys, HUMAN renewal/history/CAS, revocation/tenant/resource denial, critical escalation/recovery, capacity rollback, ambiguous outcomes/reconciliation,8-query control limit, malformed receipt/outcome and late worker fencing. Native full Gateway/Authorization/APISIX must pass before merge.
 
 Actual SMTP/provider adapter and its finite timeout/idempotency/reconciliation proof, secret custody/recipient resolution, scheduler/quotas, actual owner-local policy evaluator, HA persistence/retention and independent monitoring remain OPEN. The primitive does not activate an email channel or create runtime HUMAN authority. No production deploy, VPS action or R9/R10 replay is included.
+
+
+Native qualification: candidate `7c739bf2c70b0631179ce2b29708c057af902e7f` passed push38122320736 and PR38122322990 (job114419424343),278 reference tests/2 explicit skips, Authorization pairwise and real APISIX. PR63 merged as `4c126d59004bf459d1ef57eba7d36b67810a2cc9`. The channel remains inert without actual governed host/transport/recipient configuration; no email has been sent.
