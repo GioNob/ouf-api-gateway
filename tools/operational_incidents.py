@@ -149,7 +149,7 @@ class SQLiteOperationalIncidentStore:
             raise KeyError(incident_id)
         return self._incident(row)
 
-    def list_incidents(self, *, lifecycle_state: str | None = None, limit: int = 100) -> list[OperationalIncident]:
+    def list_incidents(self, *, lifecycle_state: str | None = None, limit: int = 100, since: str | None = None) -> list[OperationalIncident]:
         if limit < 1 or limit > 200:
             raise ValueError("limit must be between 1 and 200")
         params: list[object] = []
@@ -159,16 +159,29 @@ class SQLiteOperationalIncidentStore:
                 raise ValueError("invalid lifecycle state")
             where = " where lifecycle_state=?"
             params.append(lifecycle_state)
+        if since is not None:
+            since = self._since(since)
+            where += (" and " if where else " where ") + "last_seen_at>=?"
+            params.append(since)
         params.append(limit)
         rows = self.db.execute(
-            f"select * from gateway_operational_incident{where} order by last_seen_at desc limit ?", params
+            f"""select * from gateway_operational_incident{where} order by case when lifecycle_state='RESOLVED' then 1 else 0 end,
+            case severity when 'CRITICAL' then 4 when 'ERROR' then 3 when 'WARNING' then 2 when 'INFO' then 1 else 0 end desc,
+            action_required desc, last_seen_at desc, incident_id asc limit ?""", params
         ).fetchall()
         return [self._incident(row) for row in rows]
 
-    def summary(self, limit: int = 100) -> dict:
-        items = self.list_incidents(limit=limit)
-        open_count = sum(i.lifecycle_state == "OPEN" for i in items)
-        recovering_count = sum(i.lifecycle_state == "RECOVERING" for i in items)
+    def summary(self, limit: int = 100, since: str | None = None) -> dict:
+        items = self.list_incidents(limit=limit, since=since)
+        where = " where last_seen_at>=?" if since is not None else ""
+        params = (self._since(since),) if since is not None else ()
+        counts = self.db.execute(
+            f"""select count(*) as total,
+            coalesce(sum(lifecycle_state='OPEN'),0) as open_count,
+            coalesce(sum(lifecycle_state='RECOVERING'),0) as recovering_count
+            from gateway_operational_incident{where}""", params
+        ).fetchone()
+        open_count, recovering_count = int(counts["open_count"]), int(counts["recovering_count"])
         return {
             "module": "GATEWAY",
             "status": "DEGRADED" if open_count else ("RECOVERING" if recovering_count else "HEALTHY"),
@@ -176,7 +189,18 @@ class SQLiteOperationalIncidentStore:
             "recoveringIncidents": recovering_count,
             "items": [asdict(i) for i in items],
             "partial": False,
+            "truncated": int(counts["total"]) > len(items),
+            "priorityProfile": "ouf.incident-priority.v1",
         }
+
+    @staticmethod
+    def _since(value: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError("since must be a timezone-aware timestamp")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("since must be a timezone-aware timestamp")
+        return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     @staticmethod
     def _incident(row: sqlite3.Row) -> OperationalIncident:
