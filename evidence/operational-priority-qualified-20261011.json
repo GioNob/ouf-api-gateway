@@ -1,0 +1,116 @@
+{
+  "schema": "ouf.resilience.operational-priority-qualification.v1",
+  "date": "2026-10-11",
+  "policyVersion": 3,
+  "notReleaseAcceptance": true,
+  "targetDeployment": false,
+  "gateway": {
+    "candidate": "8429e7af376fa0f7c5ea923617dfe75288c79168",
+    "merge": "92987cf7089e95b1c1c79ad76bcd9bf56c0b1d1b",
+    "pr": 59,
+    "runs": [
+      38105584454,
+      38105586013
+    ],
+    "fullTestsPassed": 229,
+    "skipped": 2,
+    "realApisixGatePassed": 1,
+    "authorizationPairwisePassed": 1,
+    "newRegressionCases": 6,
+    "scope": "SQLite reference owner projection"
+  },
+  "ingestion": {
+    "candidate": "7883c73a8f69da7fb28276d05e33bfa1b061abc7",
+    "pr": 35,
+    "postgresRun": 38105677637,
+    "postgresJob": 114370593237,
+    "focusedTestsPassed": 21,
+    "newRegressionTests": 3,
+    "moduleRun": 38105677584,
+    "moduleJobs": [
+      114370592846,
+      114370592923,
+      114370592985
+    ],
+    "scope": "PostgreSQL owner query priority, resolution catch-up, tenant and visibility preservation",
+    "merge": "ddc6104c97a1d8817e61173862b71a01e405c5ae",
+    "fullTestsPassed": 137
+  },
+  "mcp": {
+    "candidate": "9c458fb3662147a39d642631f15e93be4ef80bb0",
+    "pr": 51,
+    "scope": "priority and truncation of returned owner candidates; full gate pending",
+    "securityFindings": {
+      "toolchain": "go1.25.13",
+      "dependency": "golang.org/x/text v0.39.0",
+      "reachableFindings": 10,
+      "failedRun": 38105699846,
+      "fixGo": "1.26.9",
+      "fixText": "0.41.0",
+      "status": "QUALIFIED_FIXED_INPUTS",
+      "moduleInputsRun": 38105883793,
+      "moduleInputsJob": 114371210960,
+      "reachableFindingsAfter": 0,
+      "unreachableRequiredModuleFindings": 1
+    },
+    "merge": "71631d920cc8991d8786c21e4b4826e28a3cada0",
+    "fullRun": 38105960598,
+    "fullJob": 114371431690,
+    "raceRun": 38105960600,
+    "raceJob": 114371431657,
+    "topLevelOperationalTests": 14,
+    "runs": [
+      {
+        "id": 38105963789,
+        "name": "Incident priority resilience v3",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request"
+      },
+      {
+        "id": 38105963774,
+        "name": "Authorization Java Go conformance",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request"
+      },
+      {
+        "id": 38105963817,
+        "name": "MCP evidence and late recovery",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "pull_request"
+      },
+      {
+        "id": 38105960600,
+        "name": "Incident priority resilience v3",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push"
+      },
+      {
+        "id": 38105960628,
+        "name": "Authorization Java Go conformance",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push"
+      },
+      {
+        "id": 38105960598,
+        "name": "MCP evidence and late recovery",
+        "status": "completed",
+        "conclusion": "success",
+        "event": "push"
+      }
+    ],
+    "newRegressionTests": 5
+  },
+  "open": [
+    "complete producer cursor/pagination and impact priority",
+    "persistent operator consultation/login checkpoint",
+    "dependency-wide incident grouping and affected-work counts",
+    "systemic detector, quotas and capacity integration",
+    "configured alert outbox/delivery/escalation",
+    "full multi-owner and target deployed authorization"
+  ]
+}
