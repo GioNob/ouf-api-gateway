@@ -24,3 +24,6 @@ OPEN: actual Gateway host/SDK wiring, Ingestion publication bookmarks, governed 
 Scope metadata binds an immutable digest of the reviewed captured session fields. Watermark/identity/policy/page-limit/count/expiry drift invalidates progress before issuing a bookmark, with a second frame check inside issuance. Legacy scope rows lacking an original frame digest remain unproven and cannot be silently upgraded; their existing long-lived bookmarks may resume through a newly captured, freshly authorized session.
 
 Repeated starts at the same scope/boundary reuse an anchor. Unchanged resume returns its live parent token with noPublicationProgress=true instead of creating a new bookmark for every poll. A captured immutable parent watermark, rather than UUID order, proves that boolean. Current authorization, all page-chain checks, expiry and control/page/session quotas remain mandatory; this is metadata deduplication, never client consultation or a retry budget reset.
+
+
+Owner HTTP opt-in is described in [publication bookmark transport](OPERATIONAL_PUBLICATION_BOOKMARK_HTTP.md). Production SDK/hosting and global-vector qualification remain separate gates.

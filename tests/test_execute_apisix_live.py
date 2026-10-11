@@ -207,6 +207,33 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert result['headers']['x-ouf-delegation'] == operational_proof
                     assert result['headers']['x-ouf-delegation-verified'] == 'mcp-operational-aggregate-v1'
                     assert 'authorization' not in result['headers']
+            # Owner publication coverage is a hidden READ mode, never a global vector.
+            for capability in ['ouf.gateway.operations.incidents','ouf.ingestion.operations.incidents','ouf.operations.incidents']:
+                owner = CAPABILITIES[capability][0]
+                route = '/internal/capabilities/v1/execute/'+capability
+                for arguments, structurally_valid in [
+                    ({'snapshot':True,'coverage':True,'limit':1},True),
+                    ({'cursor':cursor,'coverage':True},True),
+                    ({'resumeFrom':cursor,'limit':1},True),
+                    ({'resumeFrom':cursor,'state':'OPEN'},False),
+                    ({'snapshot':True,'coverage':True,'since':'2026-10-11T00:00:00Z'},False),
+                    ({'coverage':True},False),
+                    ({'resumeFrom':'00000000-0000-0000-0000-000000000000'},False),
+                ]:
+                    body = envelope()
+                    body.update(CapabilityID=capability,GatewayBindingRef='capability://'+capability,
+                                Owner=owner,Arguments=arguments,MaxResultBytes=524288,
+                                AuthorizationDecisionRef='bundle:6:'+capability)
+                    body['RequestHash'] = hashlib.sha256(json.dumps(arguments,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                    body['Identity']['ServicePrincipalID'] = workload
+                    code, raw = post(route,body,token('SERVICE'),operational_proof)
+                    allowed = structurally_valid and owner != 'mcp'
+                    assert code == (200 if allowed else 400),(capability,arguments,code,raw)
+                    if allowed:
+                        result = json.loads(raw)
+                        assert result['body'] == arguments
+                        assert 'x-ouf-delegation' not in result['headers']
+                        assert 'authorization' not in result['headers']
             code, _ = post('/internal/capabilities/v1/execute/ouf.operations.arbitrary', envelope(), token('SERVICE'), operational_proof)
             assert code == 404
         except Exception:
