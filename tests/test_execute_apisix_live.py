@@ -178,6 +178,35 @@ def test_real_apisix_oidc_delegation_and_execute():
                 changed = copy.deepcopy(body); changed['Arguments']['arbitrary'] = 'secret'
                 code, raw = post(route, changed, token('SERVICE'), operational_proof)
                 assert code == 400, (capability, code, raw)
+            # Global incident snapshot/continuation has a closed opt-in contract.
+            capability = 'ouf.operations.incidents'
+            route = '/internal/capabilities/v1/execute/'+capability
+            cursor = '11111111-1111-4111-8111-111111111111'
+            for arguments, allowed in [
+                ({'snapshot':True,'limit':1,'sourceId':'source-a','state':'OPEN'},True),
+                ({'cursor':cursor},True),
+                ({'snapshot':False},False),
+                ({'snapshot':None},False),
+                ({'cursor':cursor,'limit':1},False),
+                ({'cursor':cursor,'sourceId':'source-a'},False),
+                ({'snapshot':True,'cursor':cursor},False),
+                ({'cursor':'00000000-0000-0000-0000-000000000000'},False),
+                ({'cursor':'11111111-AAAA-4111-8111-111111111111'},False),
+            ]:
+                body = envelope()
+                body.update(CapabilityID=capability,GatewayBindingRef='capability://'+capability,
+                            Owner='mcp',Arguments=arguments,MaxResultBytes=524288,
+                            AuthorizationDecisionRef='bundle:6:'+capability)
+                body['RequestHash'] = hashlib.sha256(json.dumps(arguments,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+                body['Identity']['ServicePrincipalID'] = workload
+                code, raw = post(route,body,token('SERVICE'),operational_proof)
+                assert code == (200 if allowed else 400),(arguments,code,raw)
+                if allowed:
+                    result = json.loads(raw)
+                    assert result['body'] == arguments
+                    assert result['headers']['x-ouf-delegation'] == operational_proof
+                    assert result['headers']['x-ouf-delegation-verified'] == 'mcp-operational-aggregate-v1'
+                    assert 'authorization' not in result['headers']
             code, _ = post('/internal/capabilities/v1/execute/ouf.operations.arbitrary', envelope(), token('SERVICE'), operational_proof)
             assert code == 404
         except Exception:
