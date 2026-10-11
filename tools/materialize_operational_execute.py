@@ -40,7 +40,7 @@ def dispatch_schema(capability):
     else: fields['Arguments'] = regular
     # Persistent publication positions remain hidden owner READ operations.
     # The global MCP vector has a separate qualification gate.
-    if incidents and owner != 'mcp':
+    if incidents:
         token = copy.deepcopy(fields['Arguments']['oneOf'][1]['properties']['cursor'])
         initial = {k: copy.deepcopy(v) for k, v in query.items() if k != 'since'}
         initial['coverage'] = {'enum': [True]}
