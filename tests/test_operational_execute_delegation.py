@@ -77,16 +77,16 @@ def test_operational_delegation_denies_changed_identity_authority_or_scope(mode)
         with pytest.raises(Denied): invoke(cap, body, delegated, claims, **kwargs)
 
 @pytest.mark.parametrize('capability', CAPABILITIES)
-def test_operational_queries_are_closed_and_cursor_is_owner_only(capability):
+def test_operational_queries_are_closed_and_incident_cursor_is_explicit(capability):
     validator = Draft7Validator(dispatch_schema(capability), format_checker=FormatChecker())
     valid = [{}, {'limit': 100}, {'since': '2026-10-11T00:00:00Z'}]
     invalid = [None, [], {'future': 'secret'}, {'limit': 0}, {'limit': True}, {'limit': 101}, {'since': '2026-10-11T00:00:00'}]
-    producer_incidents = CAPABILITIES[capability][0] != 'mcp' and capability.endswith('.incidents')
+    producer_incidents = capability.endswith('.incidents')
     cursor = {'cursor': '11111111-1111-4111-8111-111111111111'}
     (valid if producer_incidents else invalid).append(cursor)
     if producer_incidents: valid.append({'snapshot': True, 'limit': 100})
     else: invalid.append({'snapshot': True})
-    invalid += [{'cursor': cursor['cursor'], 'limit': 1}, {'cursor': '00000000-0000-0000-0000-000000000000'}, {'snapshot': False}]
+    invalid += [{'snapshot': None}, {'cursor': None}, {'snapshot': True, 'cursor': cursor['cursor']}, {'cursor': '11111111-AAAA-4111-8111-111111111111'}, {'cursor': cursor['cursor'], 'limit': 1}, {'cursor': '00000000-0000-0000-0000-000000000000'}, {'snapshot': False}]
     if CAPABILITIES[capability][0] == 'gateway': invalid.append({'sourceId': 'source'})
     else: valid.append({'sourceId': 'source'})
     if capability.endswith('.incidents'): valid.append({'state': 'OPEN'})
@@ -126,3 +126,17 @@ def test_operational_materialization_rejects_binding_drift(change):
 def test_operational_renderer_cannot_embed_arbitrary_authority():
     for binding in ({}, {'capability': 'arbitrary', 'owner': 'mcp', 'scope': 'operations.status.read'}, {'capability': 'ouf.gateway.operations.summary', 'owner': 'mcp', 'scope': 'operations.status.read'}):
         with pytest.raises(ValueError): function('execute_operational', INSTALL, 'TEST_KEY', operational_binding=binding)
+
+@pytest.mark.parametrize('arguments', [{'snapshot': True, 'limit': 1, 'sourceId': 'source-a', 'state': 'OPEN'},
+                                     {'cursor': '11111111-1111-4111-8111-111111111111'}])
+def test_global_incident_optin_preserves_exact_query_and_verified_context(arguments):
+    capability = 'ouf.operations.incidents'
+    body = dispatch(capability, arguments, nested=True)
+    assert Draft7Validator(dispatch_schema(capability), format_checker=FormatChecker()).is_valid(body)
+    context = human(); context['scope'] += ' operations.incident.read'
+    delegated = proof(context)
+    engine = invoke(capability, body=body, delegated=delegated)
+    assert json.loads(engine.body) == arguments
+    assert engine.headers[b'x-ouf-delegation'].decode() == delegated
+    assert engine.headers[b'x-ouf-delegation-verified'] == b'mcp-operational-aggregate-v1'
+    assert b'authorization' not in engine.headers

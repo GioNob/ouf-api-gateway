@@ -32,7 +32,7 @@ def dispatch_schema(capability):
     incidents = capability.endswith('.incidents')
     if incidents: query['state'] = {'enum': ['OPEN', 'RECOVERING', 'RESOLVED']}
     regular = {'type': 'object', 'additionalProperties': False, 'properties': query}
-    if owner != 'mcp' and incidents:
+    if incidents:
         query['snapshot'] = {'enum': [True]}
         fields['Arguments'] = {'oneOf': [regular, {'type': 'object', 'additionalProperties': False,
             'required': ['cursor'], 'properties': {'cursor': {'type': 'string', 'format': 'uuid',
