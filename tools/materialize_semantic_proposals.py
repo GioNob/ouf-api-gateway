@@ -15,6 +15,8 @@ CAPABILITIES = {
 }
 
 def materialize(runtime, oidc_secret_ref, delegation_key_env, semantic_owner_key_env, authorization_owner_key_env=None):
+    if authorization_owner_key_env is None:
+        raise ValueError('existing authorization owner key environment required to preserve THS routes')
     result = operational_runtime(runtime, oidc_secret_ref, delegation_key_env, authorization_owner_key_env)
     template = next(r for r in result['routes'] if r['uri'] == '/internal/capabilities/v1/execute')
     schemas = json.loads((ROOT/'schemas/mcp-gateway-semantic-proposals-v1.json').read_text())['oneOf']
@@ -55,7 +57,7 @@ if __name__ == '__main__':
     p.add_argument('--oidc-client-secret-ref', required=True)
     p.add_argument('--delegation-key-env', required=True)
     p.add_argument('--semantic-owner-key-env', required=True)
-    p.add_argument('--authorization-owner-key-env')
+    p.add_argument('--authorization-owner-key-env', required=True)
     p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
     a.output.write_text(json.dumps(materialize(json.loads(a.runtime.read_text()), a.oidc_client_secret_ref,

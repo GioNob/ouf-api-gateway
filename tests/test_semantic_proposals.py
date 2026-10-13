@@ -78,9 +78,13 @@ def test_actual_lua_blocks_unknown_authority_and_drift(kind):
     with pytest.raises(Denied): execute(cap, body=body, claims=claims, delegation=delegation, key=key)
 
 def test_materializer_closed_routes_schemas_and_no_automatic_retry():
-    doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
+    doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
     routes = [r for r in doc['routes'] if '/execute/semantic/' in r.get('uri', '')]
     assert len(routes) == 4
+    assert len([r for r in doc['routes'] if r['id'].startswith('authorization-ths-')]) == 3
+    assert len([r for r in doc['routes'] if '/execute/authorization/' in r.get('uri', '')]) == 3
+    with pytest.raises(ValueError, match='preserve THS'):
+        materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
     for route in routes:
         assert route['upstream']['nodes'] == {'ouf-semantic-registry:8080': 1} and route['upstream']['retries'] == 0
         schema = route['plugins']['request-validation']['body_schema'];cap = schema['properties']['CapabilityID']['const']
@@ -90,10 +94,10 @@ def test_materializer_closed_routes_schemas_and_no_automatic_retry():
         assert '/api/trusted-human/' not in route['plugins']['proxy-rewrite']['uri']
     rt = runtime();route = next(r for r in rt['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId') == 'ouf.semantic.propose')
     route['plugins']['proxy-rewrite']['uri'] = '/api/trusted-human/v1/semantic-approval-challenges'
-    with pytest.raises(ValueError): materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
+    with pytest.raises(ValueError): materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
 
 def test_ths_and_owner_signing_keys_are_not_tool_inputs():
-    doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
+    doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
     assert not any('/semantic/' in r.get('uri', '') and ('publish' in r.get('uri', '') or 'decision' in r.get('uri', '')) for r in doc['routes'])
     with pytest.raises(ValueError): function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'bad-key')
 
