@@ -1,0 +1,20 @@
+name: Semantic proposal Gateway qualification
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  actual-lua-and-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q tests/test_semantic_proposals.py tests/test_permission_proposals.py tests/test_execute_delegation.py
+      - name: Generate vectors with actual materialized Lua
+        run: python -c "from tests.test_semantic_proposals import write_owner_vectors; write_owner_vectors('semantic-owner-vectors.json')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semantic-owner-lua-vectors
+          path: semantic-owner-vectors.json
