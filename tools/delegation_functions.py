@@ -12,10 +12,19 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind == 'execute_permissions':
+    if kind in ('execute_permissions', 'execute_semantic_proposals'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
+    if kind == 'execute_semantic_proposals':
+        from tools.materialize_semantic_proposals import CAPABILITIES
+        if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
+            raise ValueError('closed semantic binding required')
+        cap = operational_binding['capability']
+        expected = CAPABILITIES.get(cap)
+        if expected is None or operational_binding['owner'] != 'semantic' or operational_binding['scope'] != expected[2]:
+            raise ValueError('semantic binding is not approved')
+        values.update(CAPABILITY=cap,REQUIRED_SCOPE=expected[2],OPERATION=expected[1],OWNER_PATH='/api/semantic/v1/proposal-commands/'+expected[0])
     if kind == 'execute_operational':
         if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
             raise ValueError('closed operational binding required')
@@ -26,6 +35,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
             raise ValueError('operational binding is not approved')
         values.update(CAPABILITY=cap,OWNER=expected[0],REQUIRED_SCOPE=expected[4])
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals'):
         raise ValueError('invalid function')
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
+

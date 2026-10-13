@@ -1,0 +1,15 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: ouf.semantic.approval.request
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: semantic
+  operationType: COMMAND
+  scope: ouf.semantic.approval.request
+  classification:
+  - RESTRICTED_OPERATIONAL
+  mcp:
+    toolEligible: true
+    humanRequired: false
