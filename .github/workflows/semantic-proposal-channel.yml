@@ -14,6 +14,7 @@ jobs:
       - run: python -m pytest -q tests/test_semantic_proposals.py tests/test_permission_proposals.py tests/test_execute_delegation.py
       - name: Generate vectors with actual materialized Lua
         run: python -c "from tests.test_semantic_proposals import write_owner_vectors; write_owner_vectors('semantic-owner-vectors.json')"
+      - run: python -c "print('OUF_LUA_VECTORS='+open('semantic-owner-vectors.json').read())"
       - uses: actions/upload-artifact@v4
         with:
           name: semantic-owner-lua-vectors

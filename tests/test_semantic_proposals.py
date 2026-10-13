@@ -66,13 +66,14 @@ def test_actual_lua_blocks_unknown_authority_and_drift(kind):
     if kind == 'operation': body['OperationClass'] = 'READ'
     if kind == 'publish': body['CapabilityID'] = 'ouf.semantic.publish'
     if kind == 'intent': body['Arguments']['commandKey'] = 'new-intent'
-    if kind == 'expired': delegation = proof(dict(human(), exp=999, scope=cap))
-    if kind == 'future':
+    if kind in ('expired', 'future'):
         parts = proof(dict(human(), scope=cap)).split('.')
-        p = json.loads(base64.urlsafe_b64decode(parts[0]+'='*((4-len(parts[0])%4)%4)));p.update(iat=1001, exp=1031)
+        p = json.loads(base64.urlsafe_b64decode(parts[0]+'='*((4-len(parts[0])%4)%4)));p.update(iat=1001, exp=1031) if kind == 'future' else p.update(iat=970, exp=1000)
         encoded = base64.urlsafe_b64encode(json.dumps(p).encode()).rstrip(b'=')
         delegation = (encoded+b'.'+base64.urlsafe_b64encode(hmac.new(KEY.encode(),encoded,hashlib.sha256).digest()).rstrip(b'=')).decode()
-    if kind == 'signature': delegation = proof(dict(human(), scope=cap))[:-1]+'x'
+    if kind == 'signature':
+        value = proof(dict(human(), scope=cap)); at = value.index('.')+1
+        delegation = value[:at]+('A' if value[at] != 'A' else 'B')+value[at+1:]
     if kind == 'key': key = None
     with pytest.raises(Denied): execute(cap, body=body, claims=claims, delegation=delegation, key=key)
 

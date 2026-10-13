@@ -7,7 +7,7 @@ metadata:
 spec:
   owner: semantic
   operationType: READ
-  scope: ouf.semantic.propose
+  scope: ouf.semantic.read
   classification:
   - RESTRICTED_OPERATIONAL
   mcp:

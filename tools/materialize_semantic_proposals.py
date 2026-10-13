@@ -11,7 +11,7 @@ CAPABILITIES = {
     'ouf.semantic.propose': ('create', 'COMMAND', 'ouf.semantic.propose'),
     'ouf.semantic.review.prepare': ('validate', 'COMMAND', 'ouf.semantic.review.prepare'),
     'ouf.semantic.approval.request': ('review', 'COMMAND', 'ouf.semantic.approval.request'),
-    'ouf.semantic.proposal.read': ('read', 'READ', 'ouf.semantic.propose'),
+    'ouf.semantic.proposal.read': ('read', 'READ', 'ouf.semantic.read'),
 }
 
 def materialize(runtime, oidc_secret_ref, delegation_key_env, semantic_owner_key_env, authorization_owner_key_env=None):
