@@ -53,6 +53,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
+            elif self.path=='/api/udp/v1/objects/search':
+                self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
             else:self.send_error(404)
         def reply(self,value):
             data=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
