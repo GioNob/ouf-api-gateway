@@ -657,9 +657,7 @@
             },
             "ActorType": {
               "enum": [
-                "HUMAN",
-                "AI_AGENT",
-                "SERVICE"
+                "HUMAN"
               ]
             },
             "AuthenticationContextRef": {
