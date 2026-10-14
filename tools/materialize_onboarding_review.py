@@ -9,6 +9,8 @@ from pathlib import Path
 
 from tools.delegation_functions import function
 from tools.materialize_managed_file_ths import materialize as human_picker
+from tools.materialize_trusted_human_onboarding_runtime import materialize_route as human_route
+from tools.materialize_apisix_internal_m2m_routes import materialize as service_routes
 
 ROOT = Path(__file__).resolve().parents[1]
 MODES = {
@@ -73,12 +75,37 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
         page['labels'].update({'ouf-capability': capability, 'ouf-surface': 'TRUSTED_HUMAN_WORKFLOW'})
         page['plugins']['client-control'] = {'max_body_size': 65536}
         page['plugins'].pop('proxy-control', None)
-        page['upstream']['timeout'] = {'connect': 3, 'send': 3, 'read': 10}
+        # The source action includes a bounded 35s readiness probe plus activation.
+        page['upstream']['timeout'] = {'connect': 3, 'send': 3, 'read': 60 if flow == 'onboarding' else 10}
         _append(result, page)
+    secret_ref = templates[0]['plugins']['openid-connect']['client_secret']
+    indexed = {r['id']: r for r in runtime['routes']}
+    readiness_id = 'trusted-human-ingestion-onboarding-readiness'
+    readiness = indexed[readiness_id]
+    path = '/api/trusted-human/v1/ingestion/onboarding-readiness'
+    if (readiness['uri'] != path or readiness['methods'] != ['POST']
+            or readiness['x-ouf-backend-binding'] != {'service': 'ouf-ingestion-runtime', 'port': 8080, 'path': path}
+            or readiness['x-ouf-policy']['requiredScope'] != 'ouf.onboarding.configuration.write'
+            or readiness['x-ouf-policy']['timeoutSeconds'] != 35):
+        raise ValueError('readiness owner binding mismatch')
+    _append(result, human_route(readiness, installation, secret_ref))
+    compatibility_id = 'r4a-onboarding-ingestion-compatibility-read'
+    compatibility = indexed[compatibility_id]
+    path = '/api/internal/v1/onboarding/compatibility/ingestion-runtime'
+    if (compatibility['uri'] != path or compatibility['methods'] != ['GET']
+            or compatibility['x-ouf-backend-binding'] != {'service': 'ouf-onboarding', 'port': 8080, 'path': path}
+            or compatibility['x-ouf-policy']['requiredScope'] != 'ouf.onboarding.configuration.read'
+            or compatibility['x-ouf-policy']['timeoutSeconds'] != 10):
+        raise ValueError('compatibility owner binding mismatch')
+    route = service_routes(runtime, [compatibility_id], secret_ref)['routes'][0]
+    # Preserve query parameters for the owner's exact source/version/hash check.
+    route['upstream'].update(retries=0, timeout={'connect': 3, 'send': 3, 'read': 10})
+    _append(result, route)
     return result
 
 
 def _append(result, route):
-    if any(r.get('id') == route['id'] or r.get('uri') == route['uri'] for r in result['routes']):
+    if any(r.get('id') == route['id'] or (r.get('uri') == route['uri']
+           and set(r.get('methods', [])) & set(route['methods'])) for r in result['routes']):
         raise ValueError('review route already exists; reconcile before materialization')
     result['routes'].append(route)

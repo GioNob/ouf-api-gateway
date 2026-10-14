@@ -104,3 +104,35 @@ receipts and header stripping, old-scope/AI-actor/intent denials, complete neste
 execution payloads, route preservation and HUMAN selector separation. CI and
 owner pairwise receipts are additional gates; these results do not establish
 target installation or a complete CSV end-to-end result.
+
+## HUMAN activation continuation
+
+The source-review materializer also includes the two production requests used
+by the owner activation coordinator:
+
+| Method and path | Upstream | Authority | Read budget |
+| --- | --- | --- | --- |
+| POST `/api/trusted-human/v1/ingestion/onboarding-readiness` | `ouf-ingestion-runtime:8080` | HUMAN, `ouf.onboarding.configuration.write` | 35 s |
+| GET `/api/internal/v1/onboarding/compatibility/ingestion-runtime` | `ouf-onboarding:8080` | Ingestion SERVICE, `ouf.onboarding.configuration.read` | 10 s |
+
+The readiness request retains the authenticated HUMAN bearer; no service
+identity substitutes for that decision. The compatibility query carries the
+source ID, onboarding version UUID and exact `sha256:` configuration hash,
+validated by the Onboarding owner. The existing attestation POST at the same
+path remains separate and unchanged. Neither route retries automatically.
+
+The existing HUMAN approvals POST namespace must be rematerialized from its
+declaration with a 55-second read budget for `/review/activate`. The common
+HUMAN materializer now honors the finite timeout declared by each route;
+this also respects the already declared 30-second upload and 20-second profile
+budgets. The outer Onboarding browser proxy allows 60 seconds, leaving room
+for the owner's 55-second request. Semantic browser requests retain 10 seconds.
+Installation must reconcile this one existing approvals route alongside the
+new routes; retaining the old 10-second upstream would cut off valid work.
+
+Local qualification: 474 tests and 13 subtests passed, with three existing
+environment-gated skips. Actual generated Lua rejects non-HUMAN readiness
+callers and preserves the bearer, and the composed route test keeps the
+attestation POST while adding its independently authorized GET. These are
+source/package checks; target authorization and the complete running workflow
+still require their own evidence.

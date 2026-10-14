@@ -25,6 +25,7 @@ ROUTE_IDS=(
     "trusted-human-managed-file-upload",
     "trusted-human-managed-file-actions-post",
     "trusted-human-managed-file-preview-get",
+    "trusted-human-ingestion-onboarding-readiness",
 )
 
 def text(obj,key):
@@ -83,6 +84,9 @@ def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False
     uri=text(route,"uri")
     backend_path=text(backend,"path")
     methods=route.get("methods")
+    timeout=policy.get("timeoutSeconds",10)
+    if type(timeout) is not int or not 1 <= timeout <= 60:
+        raise MaterializationError("bounded HUMAN lifecycle timeout required")
     if not isinstance(port,int) or port<1 or port>65535 or not re.fullmatch(r"[A-Za-z0-9._-]+",service):
         raise MaterializationError("invalid backend")
     if route.get("id"," ").startswith("trusted-human-managed-file-") and (service!="ouf-onboarding" or port!=8080):
@@ -133,7 +137,7 @@ def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False
             "type":"roundrobin","scheme":"http",
             "nodes":{f"{service}:{port}":1},
             "retries":0,
-            "timeout":{"connect":10,"send":10,"read":10},
+            "timeout":{"connect":min(10,timeout),"send":min(10,timeout),"read":timeout},
         },
     }
 
