@@ -57,8 +57,8 @@ def test_review_does_not_inherit_old_scope_or_confer_confirmation(case):
 def test_additive_review_and_first_party_browser_boundary():
     rt, existing = retained_installation();before = copy.deepcopy(existing)
     result = materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
-    assert existing == before and result['routes'][:-4] == before['routes']
-    for route in result['routes'][-4:-2]:
+    assert existing == before and result['routes'][:-6] == before['routes']
+    for route in result['routes'][-6:-4]:
         mode = route['uri'].rsplit('/', 1)[1]
         validator = Draft202012Validator(route['plugins']['request-validation']['body_schema'], format_checker=FormatChecker())
         assert validator.is_valid(request(mode))
@@ -67,13 +67,52 @@ def test_additive_review_and_first_party_browser_boundary():
             assert not validator.is_valid(bad)
         assert route['upstream']['retries'] == 0
         assert route['plugins']['openid-connect']['bearer_only'] is True
-    page = result['routes'][-2]
+    page = result['routes'][-4]
     assert page['uri'] == '/trusted-human/onboarding/*'
     assert page['methods'] == ['GET', 'POST'] and page['upstream']['nodes'] == {'ouf-onboarding:8080': 1}
     assert 'openid-connect' not in page['plugins']  # OAuth session/CSRF stay at existing owner.
     assert 'authorization' in page['plugins']['serverless-pre-function']['functions'][0]
-    assert result['routes'][-1]['uri'] == '/trusted-human/semantic/*'
+    assert page['upstream']['timeout']['read'] == 60
+    assert result['routes'][-3]['uri'] == '/trusted-human/semantic/*'
     with pytest.raises(ValueError, match='reconcile'): materialize(result, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
+
+
+def test_activation_uses_human_readiness_and_separate_service_hash_read():
+    from tests.test_execute_delegation import Engine
+    rt, existing = retained_installation()
+    # The attestation POST may already exist; adding GET must preserve it.
+    post = {'id': 'retained-compatibility-post', 'uri': '/api/internal/v1/onboarding/compatibility/ingestion-runtime', 'methods': ['POST']}
+    existing['routes'].append(post)
+    result = materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
+    readiness, compatibility = result['routes'][-2:]
+    assert readiness['uri'] == '/api/trusted-human/v1/ingestion/onboarding-readiness'
+    assert readiness['methods'] == ['POST']
+    assert readiness['upstream']['nodes'] == {'ouf-ingestion-runtime:8080': 1}
+    assert readiness['upstream']['retries'] == 0 and readiness['upstream']['timeout']['read'] == 35
+    assert readiness['plugins']['openid-connect']['required_scopes'] == ['ouf.onboarding.configuration.write']
+    assert readiness['plugins']['openid-connect']['set_access_token_header'] is False
+    # Run the generated actor guard; original bearer remains owned by the caller.
+    for actor in ('HUMAN', 'AI_AGENT', 'SERVICE'):
+        engine = Engine(dict(human(), ouf_actor_type=actor))
+        bearer = engine.headers[b'authorization']
+        guard = engine.lua.execute(readiness['plugins']['serverless-post-function']['functions'][0].encode())
+        if actor == 'HUMAN':
+            guard(None, None)
+            assert engine.headers[b'authorization'] == bearer
+        else:
+            with pytest.raises(Denied): guard(None, None)
+    assert compatibility['methods'] == ['GET']
+    assert compatibility['upstream']['nodes'] == {'ouf-onboarding:8080': 1}
+    assert compatibility['upstream']['retries'] == 0 and compatibility['upstream']['timeout']['read'] == 10
+    assert compatibility['plugins']['openid-connect']['required_scopes'] == ['ouf.onboarding.configuration.read']
+    assert post in result['routes']
+    query = next(r for r in rt['routes'] if r['id'] == compatibility['id'])['x-ouf-query-contract']
+    validator = Draft202012Validator(query, format_checker=FormatChecker())
+    valid = {'sourceId': 'teatri', 'onboardingVersionId': '22222222-2222-4222-8222-222222222222', 'configurationHash': 'sha256:'+'a'*64}
+    assert validator.is_valid(valid)
+    for missing in valid:
+        assert not validator.is_valid({k:v for k,v in valid.items() if k != missing})
+    assert not validator.is_valid(dict(valid, configurationHash='unpinned'))
 
 
 def test_review_schema_bounds_and_login_custody():

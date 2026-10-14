@@ -27,12 +27,16 @@ def test_materializes_bounded_human_onboarding_routes():
         "trusted-human-managed-file-preview-get":"ouf.managed-source.preview",
     }
     for route in doc["routes"]:
-        assert route["upstream"]["nodes"]=={"ouf-onboarding:8080":1}
+        owner="ouf-ingestion-runtime" if route["id"]=="trusted-human-ingestion-onboarding-readiness" else "ouf-onboarding"
+        assert route["upstream"]["nodes"]=={owner+":8080":1}
         assert route["plugins"]["openid-connect"]["required_scopes"]==[
             scopes.get(route["id"],"ouf.onboarding.configuration.write")]
         assert route["plugins"]["openid-connect"]["set_access_token_header"] is False
         assert "ouf_actor_type" in route["plugins"]["serverless-post-function"]["functions"][0]
         assert route["plugins"]["client-control"]["max_body_size"]<=(10485760 if route["id"]=="trusted-human-managed-file-upload" else 5242880)
+        expected_timeout={"trusted-human-ingestion-onboarding-readiness":35,"trusted-human-onboarding-approvals-post":55,
+                          "trusted-human-managed-file-upload":30,"trusted-human-managed-file-actions-post":20}.get(route["id"],10)
+        assert route["upstream"]["timeout"]["read"]==expected_timeout
     assert any(r["uri"]=="/api/onboarding/v1/sources" for r in doc["routes"])
     assert any(r["uri"]=="/api/onboarding/v1/sources/*" for r in doc["routes"])
     assert any(r["uri"]=="/api/trusted-human/v1/approval-challenges/*" for r in doc["routes"])

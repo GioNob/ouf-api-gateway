@@ -20,4 +20,4 @@ spec:
     identity: OIDC
     allowedActorTypes: [HUMAN]
     maxRequestBytes: 65536
-    timeoutSeconds: 10
+    timeoutSeconds: 55
