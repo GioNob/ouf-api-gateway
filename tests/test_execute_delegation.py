@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft7Validator, FormatChecker
-from lupa import LuaRuntime
+from lupa.lua54 import LuaRuntime
 
 from tools.delegation_functions import function
 from tools.materialize_apisix_execute_runtime import materialize
@@ -32,13 +32,18 @@ def envelope():
 
 class Denied(Exception): pass
 
+def deny_python_attribute(obj, name, is_setting):
+    raise AttributeError('Python attribute access is disabled in the Lua test harness')
+
 class Engine:
     """Execute actual generated Lua; Python supplies ngx and crypto/OpenSSL equivalents.
 
     OIDC signature enforcement is covered separately by the APISIX container gate.
     """
     def __init__(self,claims,headers=None,body=None,now=1000,key=KEY):
-        self.lua=LuaRuntime(encoding=None,unpack_returned_tuples=True)
+        self.lua=LuaRuntime(encoding=None,unpack_returned_tuples=True,
+                            register_builtins=False,register_eval=False,
+                            attribute_filter=deny_python_attribute)
         self.headers={k.lower().encode():v.encode() for k,v in (headers or {}).items()}
         raw=base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b'=')
         self.headers[b'authorization']=b'Bearer e30.'+raw+b'.test'
@@ -66,6 +71,13 @@ class Engine:
         def clear_header(name): self.headers.pop(name.lower(),None)
         self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization']}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
     def run(self,kind): self.lua.execute(function(kind,INSTALL,'TEST_KEY').encode())(None,None)
+
+def test_lua_harness_blocks_python_builtins_eval_and_callback_introspection():
+    engine=Engine(human())
+    assert engine.lua.eval(b'python.builtins == nil and python.eval == nil')
+    for expression in [b'ngx.time.__class__', b'ngx.time.__globals__']:
+        with pytest.raises(AttributeError):
+            engine.lua.eval(expression)
 
 def proof(claims=None):
     engine=Engine(claims or human());engine.run('issue_delegation')
