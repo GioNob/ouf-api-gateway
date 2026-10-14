@@ -1,0 +1,16 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: ouf.onboarding.configuration.write
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: onboarding
+  operationType: COMMAND
+  scope: ouf.onboarding.configuration.write
+  classification:
+  - OPEN
+  - ANONYMOUS
+  mcp:
+    toolEligible: false
+    humanRequired: true

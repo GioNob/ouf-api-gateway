@@ -40,7 +40,7 @@ class Engine:
 
     OIDC signature enforcement is covered separately by the APISIX container gate.
     """
-    def __init__(self,claims,headers=None,body=None,now=1000,key=KEY):
+    def __init__(self,claims,headers=None,body=None,now=1000,key=KEY,uri=''):
         self.lua=LuaRuntime(encoding=None,unpack_returned_tuples=True,
                             register_builtins=False,register_eval=False,
                             attribute_filter=deny_python_attribute)
@@ -62,6 +62,8 @@ class Engine:
         def new(key,algorithm):
             return self.lua.table_from({b'final':lambda _,data:hmac.new(key,data,hashlib.sha256).digest()})
         self.modules[b'resty.openssl.hmac']=self.lua.table_from({b'new':new})
+        self.modules[b'resty.openssl.digest']=self.lua.table_from({b'new':lambda _:self.lua.table_from({b'final':lambda _,data:hashlib.sha256(data).digest()})})
+        self.modules[b'resty.string']=self.lua.table_from({b'to_hex':lambda data:data.hex().encode()})
         self.modules[b'bit']=self.lua.eval(b'{bor=function(a,b) return a|b end,bxor=function(a,b) return a~b end}')
         self.lua.globals()[b'require']=lambda name:self.modules[name]
         self.lua.execute(b'os.getenv=function(name) return TEST_KEY end')
@@ -69,7 +71,7 @@ class Engine:
         def denied(code): raise Denied(code)
         def set_header(name,value): self.headers[name.lower()]=value
         def clear_header(name): self.headers.pop(name.lower(),None)
-        self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization']}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
+        self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization'],b'uri':uri.encode()}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
     def run(self,kind): self.lua.execute(function(kind,INSTALL,'TEST_KEY').encode())(None,None)
 
 def test_lua_harness_blocks_python_builtins_eval_and_callback_introspection():

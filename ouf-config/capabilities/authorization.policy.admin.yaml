@@ -1,0 +1,15 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata:
+  id: authorization.policy.admin
+  version: 1.0.0
+  status: ACTIVE
+spec:
+  owner: authorization
+  operationType: COMMAND
+  scope: authorization.policy.admin
+  classification:
+    - SECURITY_SENSITIVE
+  mcp:
+    toolEligible: false
+    humanRequired: true

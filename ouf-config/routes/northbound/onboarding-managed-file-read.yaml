@@ -17,13 +17,15 @@ spec:
         required: true
         pattern: ^object://[a-z0-9._/-]+$
   backendBinding:
-    service: ouf-object-storage
+    service: ouf-onboarding
     port: 8080
-    path: /v1/content
+    path: /api/internal/v1/onboarding/managed-files/content
   policy:
-    identity: MTLS_SERVICE
+    identity: M2M
     allowedServiceIdentities:
-    - ouf-source-onboarding
-    - ouf-ingestion-runtime
+    - ouf-onboarding
+    - installation://iam.workloadClients.ingestion
+    allowedActorTypes:
+    - SERVICE
     maxRequestBytes: 10485760
     timeoutSeconds: 10

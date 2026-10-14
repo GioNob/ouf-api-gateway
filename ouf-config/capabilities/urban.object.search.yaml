@@ -12,5 +12,5 @@ spec:
   - OPEN
   - ANONYMOUS
   mcp:
-    toolEligible: false
+    toolEligible: true
     humanRequired: false

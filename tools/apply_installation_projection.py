@@ -3,6 +3,9 @@ import argparse, copy, hashlib, json
 from pathlib import Path
 
 INSTALLATION_MCP_REF = "installation://iam.workloadClients.mcpServer"
+INSTALLATION_INGESTION_REF = "installation://iam.workloadClients.ingestion"
+INSTALLATION_UDP_REF = "installation://iam.workloadClients.udp"
+INSTALLATION_SEMANTIC_REF = "installation://iam.workloadClients.semantic"
 INSTALLATION_AUDIENCE_REF = "installation://iam.gatewayAudience"
 
 class ProjectionError(RuntimeError):
@@ -23,21 +26,51 @@ def _require(obj, path):
 
 def apply_projection(compiled, projection):
     out = copy.deepcopy(compiled)
-    mcp_client = _require(projection, "mcp.environment.MCP_OIDC_CLIENT_ID")
+    mcp_client = _require(projection, "iam.workloadClients.mcpServer")
+    ingestion_client = _require(projection, "iam.workloadClients.ingestion")
+    udp_client = _require(projection, "iam.workloadClients.udp")
+    semantic_client = _require(projection, "iam.workloadClients.semantic")
+    projected_mcp_client = _require(projection, "mcp.environment.MCP_OIDC_CLIENT_ID")
+    if projected_mcp_client != mcp_client:
+        raise ProjectionError("mcp workload identity disagrees with iam.workloadClients.mcpServer")
     audience = _require(projection, "gateway.requiredAudience")
     issuer = _require(projection, "gateway.issuerUrl")
     api_base = _require(projection, "gateway.publicApiBaseUrl")
+    services = projection.get("services") or {}
+    service_bindings = services.get("bindings") or {}
+    if not isinstance(service_bindings, dict):
+        raise ProjectionError("invalid projection field services.bindings")
 
     for route in out.get("routes", []):
         policy = route.get("x-ouf-policy") or {}
         allowed = policy.get("allowedServiceIdentities")
         if isinstance(allowed, list):
-            policy["allowedServiceIdentities"] = [
-                mcp_client if value == INSTALLATION_MCP_REF else value
-                for value in allowed
-            ]
+            resolved_allowed = []
+            for value in allowed:
+                if value == INSTALLATION_MCP_REF:
+                    resolved_allowed.append(mcp_client)
+                elif value == INSTALLATION_INGESTION_REF:
+                    resolved_allowed.append(ingestion_client)
+                elif value == INSTALLATION_UDP_REF:
+                    resolved_allowed.append(udp_client)
+                elif value == INSTALLATION_SEMANTIC_REF:
+                    resolved_allowed.append(semantic_client)
+                else:
+                    resolved_allowed.append(value)
+            if any(isinstance(value, str) and value.startswith("installation://") for value in resolved_allowed):
+                raise ProjectionError("unresolved installation service identity")
+            policy["allowedServiceIdentities"] = resolved_allowed
         if policy.get("requiredAudience") == INSTALLATION_AUDIENCE_REF:
             policy["requiredAudience"] = audience
+
+        backend = route.get("x-ouf-backend-binding")
+        if isinstance(backend, dict):
+            service = backend.get("service")
+            if isinstance(service, str) and service in service_bindings:
+                runtime_service = service_bindings[service]
+                if not isinstance(runtime_service, str) or not runtime_service.strip():
+                    raise ProjectionError(f"invalid service binding for {service}")
+                backend["service"] = runtime_service.strip()
 
         mediation = route.get("x-ouf-mediation")
         if isinstance(mediation, dict) and mediation.get("serviceIdentityRef") == INSTALLATION_MCP_REF:
@@ -51,6 +84,10 @@ def apply_projection(compiled, projection):
         "gatewayAudience": audience,
         "publicApiBaseUrl": api_base,
         "mcpServiceIdentity": mcp_client,
+        "ingestionServiceIdentity": ingestion_client,
+        "udpServiceIdentity": udp_client,
+        "semanticServiceIdentity": semantic_client,
+        "serviceBindings": dict(sorted(service_bindings.items())),
     }
     base = dict(out)
     base.pop("configurationSha256", None)

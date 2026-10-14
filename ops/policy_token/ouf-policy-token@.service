@@ -1,0 +1,20 @@
+[Unit]
+Description=Renew OUF %i workload policy reader token
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/ouf/policy-token/%i.conf
+ExecStart=/usr/bin/python3 /opt/ouf/ops/refresh-policy-token.py
+TimeoutStartSec=25
+UMask=0077
+RuntimeDirectory=ouf-%i-auth
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/ouf-%i-auth
