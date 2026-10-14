@@ -22,7 +22,5 @@ spec:
     - installation://iam.workloadClients.mcpServer
     allowedActorTypes:
     - HUMAN
-    - AI_AGENT
-    - SERVICE
     maxRequestBytes: 65536
     timeoutSeconds: 3

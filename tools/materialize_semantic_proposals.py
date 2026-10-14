@@ -11,7 +11,7 @@ CAPABILITIES = {
     'ouf.semantic.propose': ('create', 'COMMAND', 'ouf.semantic.propose'),
     'ouf.semantic.review.prepare': ('validate', 'COMMAND', 'ouf.semantic.review.prepare'),
     'ouf.semantic.approval.request': ('review', 'COMMAND', 'ouf.semantic.approval.request'),
-    'ouf.semantic.proposal.read': ('read', 'READ', 'ouf.semantic.read'),
+    'ouf.semantic.proposal.read': ('read', 'READ', 'ouf.semantic.proposal.read'),
 }
 
 def materialize(runtime, oidc_secret_ref, delegation_key_env, semantic_owner_key_env, authorization_owner_key_env=None):
@@ -54,7 +54,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
         if (binding['service_id'] != 'ouf-semantic-registry' or binding['plugins']['proxy-rewrite']['uri'] != path
             or c['owner'] != 'semantic' or c['operationType'] != operation or c.get('humanRequired') or not c.get('toolEligible')
             or p['identity'] != 'M2M' or p['requiredScope'] != scope
-            or p['allowedActorTypes'] != ['HUMAN', 'AI_AGENT', 'SERVICE']
+            or p['allowedActorTypes'] != (['HUMAN'] if mode == 'read' else ['HUMAN', 'AI_AGENT', 'SERVICE'])
             or p['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
             or p['maxRequestBytes'] != 65536 or p['timeoutSeconds'] != 3):
             raise ValueError('semantic proposal binding mismatch: '+cap)

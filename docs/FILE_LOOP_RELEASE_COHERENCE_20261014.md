@@ -1,5 +1,12 @@
 # Gateway file-loop release coherence — 2026-10-14
 
+Semantic receipt reads now use the exact `ouf.semantic.proposal.read` READ
+scope and HUMAN actor contract. The SERVICE capability `ouf.semantic.read`
+and the existing consultation route keep their established meanings. The
+same bounded read route, caller identity and owner receipt remain in use;
+the target requires the dedicated descriptor, grant and OAuth scope before
+this route is usable. Native proposal mutations retain their actor profile.
+
 The proposal candidate `23b02bd2195d36499b6618750d52dd49d65c9a60`
 and merged main `3a31a30ae67b606bf225710e580b53e98e93bdc8` have the same
 tree. That tree omitted file-loop capabilities from the qualified deployment

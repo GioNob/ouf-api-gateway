@@ -18,6 +18,7 @@ if type(p) ~= 'table' or p.v ~= 1 or p.purpose ~= 'mcp-execute' or p.iss ~= ISSU
     or type(p.iat) ~= 'number' or type(p.exp) ~= 'number' or p.iat > now or p.exp <= now
     or p.exp <= p.iat or p.exp-p.iat > 60 or p.tenant ~= claims.tenant_id
     or not scope_has(p.scope, REQUIRED_SCOPE) then return fail(403) end
+if CAPABILITY == 'ouf.semantic.proposal.read' and p.actor ~= 'HUMAN' then return fail(403) end
 for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
     if not text(p[key]) then return fail(403) end
 end

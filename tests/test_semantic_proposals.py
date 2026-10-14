@@ -42,6 +42,10 @@ def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, d
 @pytest.mark.parametrize('cap', CAPABILITIES)
 @pytest.mark.parametrize('actor', ['HUMAN', 'AI_AGENT', 'SERVICE'])
 def test_actual_lua_signs_exact_identity_path_body_and_owner_permission(cap, actor):
+    if cap == 'ouf.semantic.proposal.read' and actor != 'HUMAN':
+        with pytest.raises(Denied):
+            execute(cap, actor=actor)
+        return
     engine = execute(cap, actor=actor)
     encoded, signature = engine.headers[b'x-ouf-semantic-proposal-receipt'].split(b'.')
     pad = lambda x: x+b'='*((4-len(x)%4)%4)
@@ -53,6 +57,10 @@ def test_actual_lua_signs_exact_identity_path_body_and_owner_permission(cap, act
     assert r['bodyHash'] == hashlib.sha256(engine.body).hexdigest() and r['exp']-r['iat'] == 30
     assert json.loads(engine.body) == request(cap, actor)
     assert not {'authorization', 'cookie', 'x-ouf-delegation', 'x-ouf-principal-id'} & {k.decode() for k in engine.headers}
+
+def test_receipt_read_does_not_reuse_service_semantic_scope():
+    with pytest.raises(Denied):
+        execute('ouf.semantic.proposal.read', delegation=proof(dict(human(), scope='mcp.connect ouf.semantic.read')))
 
 @pytest.mark.parametrize('kind', ['scope', 'workload', 'tenant', 'identity', 'owner', 'operation', 'publish', 'intent', 'expired', 'future', 'signature', 'key'])
 def test_actual_lua_blocks_unknown_authority_and_drift(kind):
@@ -91,6 +99,9 @@ def test_materializer_closed_routes_schemas_and_no_automatic_retry():
         validator = Draft7Validator(schema, format_checker=FormatChecker());validator.validate(request(cap))
         bad = request(cap);bad['Arguments']['approvedBy'] = 'agent';assert not validator.is_valid(bad)
         bad = request(cap);bad['Arguments']['commandKey'] = '';assert not validator.is_valid(bad)
+        if cap == 'ouf.semantic.proposal.read':
+            for actor in ('AI_AGENT', 'SERVICE'):
+                assert not validator.is_valid(request(cap, actor))
         assert '/api/trusted-human/' not in route['plugins']['proxy-rewrite']['uri']
     rt = runtime();route = next(r for r in rt['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId') == 'ouf.semantic.propose')
     route['plugins']['proxy-rewrite']['uri'] = '/api/trusted-human/v1/semantic-approval-challenges'
@@ -123,7 +134,7 @@ def test_import_rdf_is_a_bounded_ontology_draft_under_the_same_receipt():
 def write_owner_vectors(path):
     vectors=[]
     for cap in CAPABILITIES:
-        e=execute(cap,actor='AI_AGENT')
+        e=execute(cap,actor='HUMAN' if cap == 'ouf.semantic.proposal.read' else 'AI_AGENT')
         vectors.append({'path':'/api/semantic/v1/proposal-commands/'+CAPABILITIES[cap][0],
                         'proof':e.headers[b'x-ouf-semantic-proposal-receipt'].decode(), 'body':e.body.decode()})
     body = request(actor='AI_AGENT')
