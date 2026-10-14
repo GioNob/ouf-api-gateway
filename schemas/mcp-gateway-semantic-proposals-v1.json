@@ -44,7 +44,6 @@
             "authorityRef",
             "semanticVersion",
             "labels",
-            "definition",
             "commandKey"
           ],
           "properties": {
@@ -196,8 +195,52 @@
             "commandKey": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+            },
+            "rdfTurtle": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 49152
+            },
+            "mediaType": {
+              "const": "text/turtle"
             }
-          }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "definition"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "rdfTurtle"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "mediaType"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "required": [
+                "rdfTurtle",
+                "mediaType"
+              ],
+              "properties": {
+                "artifactType": {
+                  "const": "ONTOLOGY"
+                },
+                "definition": {
+                  "type": "object",
+                  "maxProperties": 0
+                }
+              }
+            }
+          ]
         },
         "Identity": {
           "type": "object",

@@ -101,10 +101,36 @@ def test_ths_and_owner_signing_keys_are_not_tool_inputs():
     assert not any('/semantic/' in r.get('uri', '') and ('publish' in r.get('uri', '') or 'decision' in r.get('uri', '')) for r in doc['routes'])
     with pytest.raises(ValueError): function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'bad-key')
 
+def test_import_rdf_is_a_bounded_ontology_draft_under_the_same_receipt():
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads((root/'schemas/mcp-gateway-semantic-proposals-v1.json').read_text())['oneOf'][0]
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    body = request();body['Arguments'].update(artifactType='ONTOLOGY', rdfTurtle='@prefix owl: <http://www.w3.org/2002/07/owl#> . <ouf:test:Place> a owl:Ontology .', mediaType='text/turtle')
+    assert validator.is_valid(body)
+    del body['Arguments']['definition']
+    assert validator.is_valid(body)
+    engine = execute(body=body)
+    assert json.loads(engine.body) == body
+    for field, value in [('artifactType', 'CLASS'), ('rdfTurtle', 'x'*49153), ('mediaType', 'application/rdf+xml'),
+                         ('definition', {'invented': True}), ('url', 'https://untrusted.invalid/ontology.ttl')]:
+        bad = copy.deepcopy(body);bad['Arguments'][field] = value
+        assert not validator.is_valid(bad)
+    bad = copy.deepcopy(body);del bad['Arguments']['mediaType'];assert not validator.is_valid(bad)
+    bad = request();bad['Arguments']['mediaType'] = 'text/turtle';assert not validator.is_valid(bad)
+    oversized = copy.deepcopy(body);oversized['Arguments']['labels']['it'] = 'x'*65536
+    with pytest.raises(Denied): execute(body=oversized)
+
 def write_owner_vectors(path):
     vectors=[]
     for cap in CAPABILITIES:
         e=execute(cap,actor='AI_AGENT')
         vectors.append({'path':'/api/semantic/v1/proposal-commands/'+CAPABILITIES[cap][0],
                         'proof':e.headers[b'x-ouf-semantic-proposal-receipt'].decode(), 'body':e.body.decode()})
+    body = request(actor='AI_AGENT')
+    body['Arguments'].update(artifactType='ONTOLOGY', rdfTurtle='@prefix owl: <http://www.w3.org/2002/07/owl#> . <ouf:test:Place> a owl:Ontology .',
+                             mediaType='text/turtle', commandKey='intent-rdf-1')
+    body['IdempotencyKey'] = 'intent-rdf-1'
+    e = execute(body=body, actor='AI_AGENT')
+    vectors.append({'path':'/api/semantic/v1/proposal-commands/create',
+                    'proof':e.headers[b'x-ouf-semantic-proposal-receipt'].decode(), 'body':e.body.decode()})
     Path(path).write_text(json.dumps(vectors)+'\n')
