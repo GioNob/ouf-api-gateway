@@ -21,7 +21,7 @@ def test_materializes_authorization_bundle_route():
     assert route["id"] == "mcp-authorization-policy-bundle-read"
     assert route["uri"] == "/internal/capabilities/v1/authorization/policy-bundle/active"
     assert route["methods"] == ["GET"]
-    assert route["upstream"]["nodes"] == {"ouf-source-onboarding:8080": 1}
+    assert route["upstream"]["nodes"] == {"ouf-onboarding:8080": 1}
     oidc = route["plugins"]["openid-connect"]
     assert oidc["client_id"] == "ouf-api-gateway"
     assert oidc["required_scopes"] == ["authorization.bundle.read"]
@@ -31,6 +31,8 @@ def test_materializes_authorization_bundle_route():
     assert "X-OUF-Gateway-Verified" in pre
     assert "clear_header" in pre
     assert "ouf-mcp-server" in post
+    assert "ouf-ingestion" in post
+    assert "ouf-udp" in post
     assert "allowed_services" in post
     assert "ngx.req.clear_header('Authorization')" not in post
 

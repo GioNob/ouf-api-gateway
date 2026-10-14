@@ -13,7 +13,7 @@ spec:
     method: GET
     path: /api/onboarding/v1/runtime/publications/*
   backendBinding:
-    service: ouf-source-onboarding
+    service: ouf-onboarding
     port: 8080
     path: /api/onboarding/v1/runtime/publications/*
   policy:
@@ -21,7 +21,7 @@ spec:
     maxRequestBytes: 65536
     timeoutSeconds: 10
     allowedServiceIdentities:
-    - ouf-ingestion-runtime
-    - ouf-udp-object-resolution
+    - installation://iam.workloadClients.ingestion
+    - installation://iam.workloadClients.udp
     allowedActorTypes:
-    - SERVICE_IDENTITY
+    - SERVICE

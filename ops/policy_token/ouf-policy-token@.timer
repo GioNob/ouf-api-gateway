@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically renew OUF %i workload policy reader token
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=60s
+AccuracySec=1s
+Unit=ouf-policy-token@%i.service
+
+[Install]
+WantedBy=timers.target
