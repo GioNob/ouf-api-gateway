@@ -36,15 +36,19 @@ local operations = {
     preview={'ouf.managed-source.preview','READ'},
     create={'ouf.managed-source.onboarding.create','COMMAND'},
     handoff={'ouf.managed-source.file.upload','COMMAND'},
+    ['review-prepare']={'ouf.managed-source.onboarding.review.prepare','COMMAND'},
+    ['review-read']={'ouf.managed-source.onboarding.read','READ'},
 }
 -- proxy-rewrite may already have changed ngx.var.uri in APISIX's rewrite phase.
 -- The exact route and request-validation schema bind the operation; both
 -- accepted URI forms have the same final segment.
-local name = ngx.var.uri:match('/([a-z]+)$')
+local name = ngx.var.uri:match('/([a-z-]+)$')
 local operation = name and operations[name]
 if not operation or e.CapabilityID ~= operation[1]
     or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'onboarding'
     or e.OperationClass ~= operation[2] or not scope_has(p.scope, e.CapabilityID) then return fail(403) end
+if name == 'review-prepare' and (type(e.Arguments) ~= 'table'
+    or e.Arguments.commandKey ~= e.IdempotencyKey) then return fail(409) end
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
     or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end

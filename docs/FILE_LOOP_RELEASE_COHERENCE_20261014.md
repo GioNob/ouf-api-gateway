@@ -48,3 +48,52 @@ semantic consultation, UDP search and current operational routes before adding
 the proposal routes, and checks exact preservation plus collision/authentication
 denials. CI qualification is recorded on the pull request. This is not target
 or complete CSV end-to-end acceptance.
+
+## Bounded review follow-up
+
+The follow-up adds two delegated HUMAN draft operations, each with its own
+explicit scope and the existing purpose-bound managed-file owner receipt:
+
+| Gateway suffix under `/internal/capabilities/v1/execute/managed.file/` | Owner suffix under `/api/internal/v1/onboarding/managed-file-mcp/` | Capability / scope | Timeout |
+| --- | --- | --- | --- |
+| `review-prepare` | `review-prepare` | `ouf.managed-source.onboarding.review.prepare` | 10 s |
+| `review-read` | `review-read` | `ouf.managed-source.onboarding.read` | 3 s |
+
+Preparation accepts a stable command key, the expected onboarding lock version,
+and an optional closed `executionProposal` matching the Onboarding owner
+contract. It prepares a draft for human review. It does not confirm, activate,
+or grant a policy. The Gateway binds the command key to the envelope idempotency
+key and forwards the exact bounded payload under the owner receipt. All
+upstreams have retries disabled. Use
+`tools.materialize_onboarding_review.materialize(existing, runtime,
+delegation_key_env, owner_key_env)` after retaining the existing route document.
+It preserves every existing route and rejects conflicting new route IDs/paths
+or a changed owner OAuth login route.
+
+The same materializer adds `/trusted-human/onboarding/*` and
+`/trusted-human/semantic/*` to the existing Onboarding OAuth-session/CSRF
+boundary. Incoming bearer and OUF context headers are stripped from that
+browser surface. HUMAN approval continues through owner-authenticated actions,
+not an MCP approval tool.
+
+Semantic HUMAN bindings and their existing materializer/installer are restored
+from `3014f3c3738ffb1a53971cb46676dd71c119cee3`, another qualified branch omitted
+from main. These preserve separate review, approve and publish scopes and
+bounded path selectors. The selector compiler now rejects duplicate
+method/URI/regex triples. Existing routes or grants are not replaced by this
+source restoration.
+
+Semantic proposal CREATE also accepts one bounded Turtle import draft:
+`artifactType=ONTOLOGY`, `mediaType=text/turtle`, `rdfTurtle` up to 49,152
+characters inside the existing 65,536-byte envelope, and an absent or empty
+`definition`. The owner and MCP enforce the corresponding 49,152 UTF-8 byte
+limit. Native definitions and RDF fields are mutually exclusive. Both branches
+use the same command and owner receipt; there is no URL fetch or publication
+shortcut. The actual-Lua owner fixture now contains five vectors including RDF.
+
+Follow-up local qualification: 472 tests and 13 subtests passed, with the same
+three environment-gated skips described above. New checks exercise actual Lua
+receipts and header stripping, old-scope/AI-actor/intent denials, complete nested
+execution payloads, route preservation and HUMAN selector separation. CI and
+owner pairwise receipts are additional gates; these results do not establish
+target installation or a complete CSV end-to-end result.
