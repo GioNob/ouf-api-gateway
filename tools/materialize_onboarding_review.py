@@ -19,6 +19,28 @@ MODES = {
 }
 
 
+
+def apisix_review_schema(schema):
+    """Project one reference-free schema for APISIX's Lua JSON Schema store.
+
+    The canonical contract keeps its URN. This metadata-only projection may
+    remove that exact nested resource identifier only while no references
+    depend on it; all validation keywords remain byte-for-byte equivalent.
+    """
+    def has_reference(value):
+        if isinstance(value, dict):
+            return any(k in ('$ref', '$dynamicRef', '$recursiveRef') or has_reference(v)
+                       for k, v in value.items())
+        return isinstance(value, list) and any(has_reference(v) for v in value)
+    result = copy.deepcopy(schema)
+    proposal = result['properties']['Arguments']['properties']['executionProposal']
+    if (proposal.get('$id') != 'urn:ouf:managed-file-execution-proposal:lexical-csv:v1'
+            or has_reference(result)):
+        raise ValueError('exact reference-free execution proposal schema required')
+    del proposal['$id']
+    return result
+
+
 def materialize(existing, runtime, delegation_key_env, owner_key_env):
     if delegation_key_env == owner_key_env:
         raise ValueError('distinct delegation and owner signing keys required')
@@ -52,8 +74,10 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
         route = copy.deepcopy(templates[0])
         route.update(id=route_id, uri=uri, methods=['POST'])
         route['labels']['ouf-mediation'] = 'onboarding-review-v1'
-        route['plugins']['request-validation'] = {'max_req_body_size': 65536,
-            'body_schema': json.loads((ROOT/f'schemas/mcp-gateway-onboarding-{mode}-dispatch-v1.json').read_text())}
+        schema = json.loads((ROOT/f'schemas/mcp-gateway-onboarding-{mode}-dispatch-v1.json').read_text())
+        if mode == 'review-prepare':
+            schema = apisix_review_schema(schema)
+        route['plugins']['request-validation'] = {'max_req_body_size': 65536, 'body_schema': schema}
         route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [
             function('execute_managed_file', installation, delegation_key_env, owner_key_env)]}
         route['plugins']['proxy-rewrite'] = {'uri': path}

@@ -165,3 +165,31 @@ def write_owner_vectors(path):
         vectors.append({'path': '/api/internal/v1/onboarding/managed-file-mcp/'+mode,
                         'proof': e.headers[b'x-ouf-managed-file-receipt'].decode(), 'body': e.body.decode()})
     Path(path).write_text(json.dumps(vectors)+'\n')
+
+
+def test_apisix_projection_removes_only_unreferenced_nested_id():
+    from tools.materialize_onboarding_review import apisix_review_schema
+    original = json.loads((ROOT/'schemas/mcp-gateway-onboarding-review-prepare-dispatch-v1.json').read_text())
+    before = copy.deepcopy(original)
+    projected = apisix_review_schema(original)
+    expected = copy.deepcopy(original)
+    del expected['properties']['Arguments']['properties']['executionProposal']['$id']
+    assert original == before and projected == expected
+    rt, existing = retained_installation()
+    route = next(r for r in materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')['routes']
+                 if r['id'] == 'mcp-managed-file-review-prepare')
+    assert route['plugins']['request-validation']['body_schema'] == projected
+    for schema in (original, projected):
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        assert validator.is_valid(request())
+        bad = request(); bad['Arguments']['unapproved'] = True
+        assert not validator.is_valid(bad)
+    for keyword in ('$ref', '$dynamicRef', '$recursiveRef'):
+        changed = copy.deepcopy(original)
+        changed['properties']['Arguments'][keyword] = '#/properties/Arguments'
+        with pytest.raises(ValueError, match='reference-free'):
+            apisix_review_schema(changed)
+    changed = copy.deepcopy(original)
+    changed['properties']['Arguments']['properties']['executionProposal']['$id'] = 'urn:other'
+    with pytest.raises(ValueError, match='reference-free'):
+        apisix_review_schema(changed)
