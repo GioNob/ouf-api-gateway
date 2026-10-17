@@ -101,3 +101,14 @@ def test_mcp_identity_must_match_iam_workload_binding():
     broken["mcp"]["environment"]["MCP_OIDC_CLIENT_ID"] = "other-mcp"
     with pytest.raises(ProjectionError, match="mcp workload identity disagrees"):
         apply_projection(compile_config(ROOT / "ouf-config"), broken)
+
+def test_ingestion_frozen_configuration_is_a_separate_service_only_read():
+    compiled = compile_config(ROOT / "ouf-config")
+    resolved = apply_projection(compiled, projection())
+    route = next(r for r in resolved["routes"] if r["id"] == "r4a-onboarding-ingestion-configuration-read")
+    policy = route["x-ouf-policy"]
+    assert policy["allowedActorTypes"] == ["SERVICE"]
+    assert policy["allowedServiceIdentities"] == ["ouf-ingestion"]
+    assert route["x-ouf-backend-binding"]["service"] == "ouf-onboarding"
+    human = next(r for r in resolved["routes"] if r["id"] == "trusted-human-onboarding-lifecycle-get")
+    assert human["x-ouf-policy"]["allowedActorTypes"] == ["HUMAN"]
