@@ -34,12 +34,12 @@ def request(mode='prepare', command_read=False):
     return e
 
 
-def execute(mode='prepare', body=None, delegation=None, uri=None):
+def execute(mode='prepare', body=None, delegation=None, uri=None, now=1000):
     e = body or request(mode)
     headers = {'X-OUF-Delegation': delegation or proof(dict(human(), scope=e['CapabilityID'])),
         'X-Correlation-ID': e['CorrelationID'], 'Idempotency-Key': e['IdempotencyKey'],
         'X-Tool-Attempt-ID': e['AttemptID'], 'X-OUF-Source-Revision-Receipt': 'forged', 'Authorization': 'Bearer forged'}
-    engine = Engine(workload(), headers, e, uri=uri or '/internal/capabilities/v1/execute/source.revision/'+mode)
+    engine = Engine(dict(workload(), exp=now+300), headers, e, now=now, uri=uri or '/internal/capabilities/v1/execute/source.revision/'+mode)
     engine.modules[b'resty.openssl.digest'] = engine.lua.table_from({b'new': lambda _: engine.lua.table_from({b'final': lambda _, data: hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string'] = engine.lua.table_from({b'to_hex': lambda data: data.hex().encode()})
     engine.lua.execute(function('execute_source_revision', INSTALL, 'TEST_KEY', 'OWNER_KEY').encode())(None, None)
