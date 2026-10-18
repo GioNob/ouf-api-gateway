@@ -1,0 +1,28 @@
+name: Generic source revision owner interoperability
+on: [push, pull_request]
+permissions: {contents: read}
+jobs:
+  lua-java:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: GioNob/ouf-source-onboarding
+          ref: be388e1462778438a208c2e00e166370fee32189
+          path: .pairwise/onboarding
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q tests/test_source_revision.py
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21', cache: maven}
+      - run: bash scripts/install-authorization-sdk.sh
+        working-directory: .pairwise/onboarding
+      - name: Verify fresh real Lua signatures at the real owner boundary
+        run: |
+          cp tests/fixtures/SourceRevisionGatewayPairwiseTest.java .pairwise/onboarding/src/test/java/it/comune/trieste/ouf/onboarding/
+          mvn -B -ntp -f .pairwise/onboarding/pom.xml -Dtest=SourceRevisionGatewayPairwiseTest test
+        env:
+          OUF_REVISION_GATEWAY_ROOT: ${{ github.workspace }}
