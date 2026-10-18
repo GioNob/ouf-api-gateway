@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "GatewayBindingRef",
+    "CapabilityID",
+    "Owner",
+    "OperationClass",
+    "Arguments",
+    "Identity",
+    "AuthorizationDecisionRef",
+    "CorrelationID",
+    "IdempotencyKey",
+    "AttemptID",
+    "RequestHash",
+    "MaxResultBytes"
+  ],
+  "properties": {
+    "GatewayBindingRef": {
+      "const": "capability://ouf.onboarding.revision.prepare"
+    },
+    "CapabilityID": {
+      "const": "ouf.onboarding.revision.prepare"
+    },
+    "Owner": {
+      "const": "onboarding"
+    },
+    "OperationClass": {
+      "const": "COMMAND"
+    },
+    "Arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "parentVersionId",
+        "expectedVersion",
+        "configurationHash",
+        "commandKey",
+        "publicationEffect",
+        "changes"
+      ],
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "parentVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "configurationHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "commandKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "publicationEffect": {
+          "const": "NEW_PUBLICATION_MAY_START_ACQUISITION"
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "propertyIri",
+              "sourceField",
+              "reconciliation"
+            ],
+            "properties": {
+              "propertyIri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "sourceField": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "reconciliation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "policyRef",
+                  "cardinality",
+                  "normalizerRef",
+                  "normalizerVersion",
+                  "validity"
+                ],
+                "properties": {
+                  "policyRef": {
+                    "const": "urn:ouf:policy:linked-object-property-reconciliation:v1"
+                  },
+                  "cardinality": {
+                    "enum": [
+                      "SINGLE",
+                      "MULTI"
+                    ]
+                  },
+                  "normalizerRef": {
+                    "enum": [
+                      "EXACT_TYPED",
+                      "NFC_TRIM"
+                    ]
+                  },
+                  "normalizerVersion": {
+                    "const": 1
+                  },
+                  "validity": {
+                    "enum": [
+                      "UNBOUNDED",
+                      "SOURCE_INTERVAL"
+                    ]
+                  },
+                  "revisionField": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "deletionField": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ServicePrincipalID",
+        "PrincipalID",
+        "TenantID",
+        "ActorType",
+        "AuthenticationContextRef"
+      ],
+      "properties": {
+        "ServicePrincipalID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[ -~]+$"
+        },
+        "PrincipalID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[ -~]+$"
+        },
+        "TenantID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[ -~]+$"
+        },
+        "ActorType": {
+          "enum": [
+            "HUMAN"
+          ]
+        },
+        "AuthenticationContextRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^[ -~]+$"
+        }
+      }
+    },
+    "AuthorizationDecisionRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[ -~]+$"
+    },
+    "CorrelationID": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[ -~]+$"
+    },
+    "IdempotencyKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "AttemptID": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "RequestHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "MaxResultBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576
+    }
+  }
+}
