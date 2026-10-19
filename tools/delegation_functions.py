@@ -34,8 +34,16 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         if expected is None or operational_binding['owner'] != expected[0] or operational_binding['scope'] != expected[4]:
             raise ValueError('operational binding is not approved')
         values.update(CAPABILITY=cap,OWNER=expected[0],REQUIRED_SCOPE=expected[4])
+    if kind == 'execute_ingestion_read':
+        from tools.materialize_ingestion_read import CAPABILITIES, SCOPE
+        if (not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}
+            or operational_binding['capability'] not in CAPABILITIES or operational_binding['owner'] != 'ingestion'
+            or operational_binding['scope'] != SCOPE):
+            raise ValueError('closed ingestion READ binding required')
+        values.update(CAPABILITY=operational_binding['capability'],OWNER='ingestion',REQUIRED_SCOPE=SCOPE)
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
         raise ValueError('invalid function')
-    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
+    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(('execute_operational' if kind == 'execute_ingestion_read' else kind)+'.lua')).read_text() + '\nend'
+
 
