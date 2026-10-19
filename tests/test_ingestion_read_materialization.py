@@ -98,3 +98,12 @@ def test_distributed_service_binding_uses_projected_backend_and_port():
 def test_renderer_cannot_select_a_write_other_owner_scope_or_arbitrary_capability():
  for binding in ({},{'capability':'ouf.ingestion.run','owner':'ingestion','scope':SCOPE},{'capability':'ouf.ingestion.status','owner':'udp','scope':SCOPE},{'capability':'ouf.ingestion.status','owner':'ingestion','scope':'operations.status.read'}):
   with pytest.raises(ValueError):function('execute_ingestion_read',INSTALL,'TEST_KEY',operational_binding=binding)
+
+def test_retained_compiled_subset_is_exact_output_of_production_compiler():
+ from pathlib import Path
+ from tools.compile_config import compile_config
+ root=Path(__file__).resolve().parents[1]
+ expected=json.loads((root/'catalogue/ingestion-read-compiled-bindings.json').read_text())
+ actual=compile_config(root/'ouf-config')
+ selected=[row for row in actual['routes']if row['id']in('mcp-ingestion-history','mcp-ingestion-status')]
+ assert expected=={'routes':selected}
