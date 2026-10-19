@@ -47,7 +47,7 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
-            elif self.path in ('/api/internal/v1/mcp/operations/summary', '/api/internal/v1/mcp/operations/incidents',
+            elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/history', '/api/internal/v1/mcp/operations/summary', '/api/internal/v1/mcp/operations/incidents',
                                '/api/internal/v1/ingestion/operations/summary', '/api/internal/v1/ingestion/operations/incidents',
                                '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
@@ -124,6 +124,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 'postgres:17-alpine','psql','-h','127.0.0.1','-U',udp_env['OUF_UDP_DB_USER'],'-d','ouf_udp','-v','ON_ERROR_STOP=1','-c',sql],check=True,stdout=subprocess.DEVNULL)
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
+        from tools.materialize_ingestion_read import materialize as ingestion_reads
+        doc=ingestion_reads(doc,rt,'DELEGATION_KEY')
         for r in doc['routes']:
             oidc=r['plugins'].get('openid-connect')
             if oidc:oidc['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
@@ -160,6 +162,35 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
+            # Exact two missing Ingestion READ bindings through real APISIX/OIDC.
+            code, raw = post('/mcp', {}, token(scope='mcp.connect ingestion.operations.read'))
+            assert code == 200, (code, raw)
+            ingestion_proof = json.loads(raw)['proof']
+            for mode in ('status', 'history'):
+                capability = 'ouf.ingestion.' + mode
+                body = envelope()
+                body.update(CapabilityID=capability, GatewayBindingRef='capability://'+capability,
+                            Owner='ingestion', Arguments={'sourceId':'source-a','limit':7})
+                read_path = '/internal/capabilities/v1/execute/' + capability
+                code, raw = post(read_path, body, token('SERVICE'), ingestion_proof)
+                assert code == 200, (code, raw)
+                forwarded = json.loads(raw)
+                assert forwarded['body'] == body['Arguments']
+                assert forwarded['headers']['x-ouf-capability-id'] == capability
+                assert forwarded['headers']['x-ouf-principal-id'] == 'human-a'
+                assert forwarded['headers']['x-ouf-service-principal'] == workload
+                assert 'ingestion.operations.read' in forwarded['headers']['x-ouf-granted-scopes'].split()
+                assert not any(k in forwarded['headers'] for k in ('authorization','cookie','x-ouf-delegation'))
+                bad = copy.deepcopy(body); bad['Identity']['TenantID'] = 'other'
+                invalid = copy.deepcopy(body); invalid['Arguments']['url'] = 'https://attacker.invalid'
+                for request, bearer, delegated in [
+                    (body,None,ingestion_proof),(body,token('SERVICE')+'broken',ingestion_proof),
+                    (body,token('SERVICE',azp='other'),ingestion_proof),
+                    (body,token('SERVICE'),ingestion_proof[:-2]+'zz'),
+                    (bad,token('SERVICE'),ingestion_proof),(body,token('SERVICE'),proof),
+                    (invalid,token('SERVICE'),ingestion_proof)]:
+                    code, raw = post(read_path, request, bearer, delegated)
+                    assert code in (400,401,403), (code,raw)
             from tests.test_permission_proposals import request as permission_request
             cap='authorization.permissions.propose'
             code,raw=post('/mcp',{},token(scope='mcp.connect '+cap,externalRoleRefs=['ente:staff']))
