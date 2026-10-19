@@ -35,12 +35,11 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
             raise ValueError('operational binding is not approved')
         values.update(CAPABILITY=cap,OWNER=expected[0],REQUIRED_SCOPE=expected[4])
     if kind == 'execute_ingestion_read':
-        from tools.materialize_ingestion_read import CAPABILITIES, SCOPE
         if (not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}
-            or operational_binding['capability'] not in CAPABILITIES or operational_binding['owner'] != 'ingestion'
-            or operational_binding['scope'] != SCOPE):
+            or operational_binding['capability'] not in ('ouf.ingestion.status','ouf.ingestion.history') or operational_binding['owner'] != 'ingestion'
+            or operational_binding['scope'] != 'ingestion.operations.read'):
             raise ValueError('closed ingestion READ binding required')
-        values.update(CAPABILITY=operational_binding['capability'],OWNER='ingestion',REQUIRED_SCOPE=SCOPE)
+        values.update(CAPABILITY=operational_binding['capability'],OWNER='ingestion',REQUIRED_SCOPE='ingestion.operations.read')
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
     if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
         raise ValueError('invalid function')
