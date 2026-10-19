@@ -12,10 +12,12 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
+        if kind == 'execute_ingestion_read' and owner_key_env == key_env:
+            raise ValueError('distinct ingestion owner receipt key reference required')
     if kind == 'execute_semantic_proposals':
         from tools.materialize_semantic_proposals import CAPABILITIES
         if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
@@ -43,6 +45,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
     if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
         raise ValueError('invalid function')
-    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(('execute_operational' if kind == 'execute_ingestion_read' else kind)+'.lua')).read_text() + '\nend'
+    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
+
 
 

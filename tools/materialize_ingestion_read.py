@@ -17,7 +17,9 @@ def dispatch_schema(capability):
   'since':{'type':'string','format':'date-time','maxLength':100,'pattern':r'^.+T.+(Z|[+-][0-9]{2}:[0-9]{2})$'}}}
  return schema
 
-def materialize(existing,runtime,delegation_key_env):
+def materialize(existing,runtime,delegation_key_env,owner_key_env=None):
+ if (not isinstance(owner_key_env,str)or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,127}",owner_key_env)or owner_key_env==delegation_key_env):
+  raise ValueError("distinct ingestion owner receipt key environment required")
  result=copy.deepcopy(existing);installation=runtime['x-ouf-installation']
  templates=[r for r in result['routes']if r.get('uri')=='/internal/capabilities/v1/execute']
  if len(templates)!=1:raise ValueError('one retained execute template required')
@@ -48,12 +50,13 @@ def materialize(existing,runtime,delegation_key_env):
    if old.get('id')==rid or uri in paths:
     raise ValueError('ingestion READ route already selected; reconcile')
   route=copy.deepcopy(template);route.update(id=rid,uri=uri,methods=['POST'],status=1,priority=0)
-  route.setdefault('labels',{})['ouf-mediation']='ingestion-read-execute-v1'
+  route.setdefault('labels',{})['ouf-mediation']='ingestion-read-owner-receipt-v1'
   route['plugins']['request-validation']={'max_req_body_size':65536,'body_schema':dispatch_schema(capability)}
-  route['plugins']['serverless-post-function']={'phase':'access','functions':[function('execute_ingestion_read',installation,delegation_key_env,
+  route['plugins']['serverless-post-function']={'phase':'access','functions':[function('execute_ingestion_read',installation,delegation_key_env,owner_key_env=owner_key_env,
    operational_binding={'capability':capability,'owner':'ingestion','scope':SCOPE})]}
   route['plugins']['proxy-rewrite']={'uri':path}
   route['upstream']={'type':'roundrobin','scheme':'http','nodes':{f'{service}:{port}':1},'retries':0,
    'timeout':{'connect':3,'send':3,'read':3}}
   result['routes'].append(route)
  return result
+

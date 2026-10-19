@@ -1,4 +1,4 @@
-import copy,hashlib,json
+import base64,copy,hashlib,hmac,json
 import pytest
 from jsonschema import Draft7Validator,FormatChecker
 from tools.materialize_ingestion_read import CAPABILITIES,SCOPE,dispatch_schema,materialize
@@ -31,15 +31,22 @@ def invoke(cap,mode=None):
  headers={'X-OUF-Delegation':delegated,'X-Correlation-ID':value['CorrelationID'],'Idempotency-Key':value['IdempotencyKey'],'X-Tool-Attempt-ID':value['AttemptID'],'Cookie':'secret','X-OUF-External-Role-Refs':'forged'}
  if mode=='correlation':headers['X-Correlation-ID']='other'
  e=Engine(claims,headers,value,**kw)
- e.lua.execute(function('execute_ingestion_read',INSTALL,'TEST_KEY',operational_binding={'capability':cap,'owner':'ingestion','scope':SCOPE}).encode())(None,None)
+ e.lua.globals()[b'OWNER_TEST_KEY']=('cd'*32).encode()
+ e.lua.execute(b'os.getenv=function(name) if name == "OWNER_KEY" then return OWNER_TEST_KEY end return TEST_KEY end')
+ e.lua.execute(function('execute_ingestion_read',INSTALL,'TEST_KEY',owner_key_env='OWNER_KEY',operational_binding={'capability':cap,'owner':'ingestion','scope':SCOPE}).encode())(None,None)
  return e
 
 @pytest.mark.parametrize('cap',CAPABILITIES)
 def test_real_lua_preserves_source_arguments_and_verified_human_owner_context(cap):
  e=invoke(cap);assert json.loads(e.body)=={'sourceId':'source-a','limit':10}
- assert e.headers[b'x-ouf-capability-id'].decode()==cap
- assert e.headers[b'x-ouf-principal-id']==b'human-a' and e.headers[b'x-ouf-service-principal']==b'workload'
- assert e.headers[b'x-ouf-granted-scopes'].decode().endswith(SCOPE)
+ payload,signature=e.headers[b'x-ouf-ingestion-read-receipt'].decode().split('.')
+ expected=hmac.new(('cd'*32).encode(),('ouf-ingestion-read-owner-v1.'+payload).encode(),hashlib.sha256).digest()
+ assert base64.urlsafe_b64decode(signature+'='*(-len(signature)%4))==expected
+ r=json.loads(base64.urlsafe_b64decode(payload+'='*(-len(payload)%4)))
+ assert r['capability']==cap and r['purpose']=='ingestion-read-owner' and r['actor']=='HUMAN'
+ assert r['subject']=='human-a' and r['workload']=='workload' and r['scope'].endswith(SCOPE)
+ assert r['bodyHash']==hashlib.sha256(e.body).hexdigest() and r['exp']-r['iat']==30
+ assert r['path']=='/api/internal/v1/ingestion/operations/'+CAPABILITIES[cap]
  assert all(k not in e.headers for k in (b'authorization',b'cookie',b'x-ouf-delegation',b'x-ouf-delegation-verified',b'x-ouf-external-role-refs'))
 
 @pytest.mark.parametrize('cap',CAPABILITIES)
@@ -58,7 +65,7 @@ def test_closed_schema_bounds_source_query_and_rejects_mutation_or_url(cap):
 
 
 def test_adds_only_two_declared_routes_and_preserves_every_existing_byte():
- before=existing();rt=runtime();result=materialize(before,rt,'DELEGATION_KEY')
+ before=existing();rt=runtime();result=materialize(before,rt,'DELEGATION_KEY','OWNER_KEY')
  assert result['routes'][:-2]==before['routes'];assert len(result['routes'])==len(before['routes'])+2
  for row in result['routes'][-2:]:
   cap=row['plugins']['request-validation']['body_schema']['properties']['CapabilityID']['const'];mode=CAPABILITIES[cap]
@@ -85,19 +92,19 @@ def test_binding_or_auth_template_drift_fails_closed(change):
  elif change=='jwks':template['plugins']['openid-connect']['use_jwks']=False
  elif change=='generic-method':template['methods']=['GET']
  elif change=='collision':before['routes'].append({'id':'collision','uris':['/internal/capabilities/v1/execute/ouf.ingestion.status']})
- with pytest.raises(ValueError):materialize(before,rt,'DELEGATION_KEY')
+ with pytest.raises(ValueError):materialize(before,rt,'DELEGATION_KEY','OWNER_KEY')
 
 def test_distributed_service_binding_uses_projected_backend_and_port():
  rt=runtime();rt['x-ouf-installation']['serviceBindings']={'ouf-ingestion-runtime':'ingestion.remote.internal'}
  for row in rt['routes']:
   if row['id']in('mcp-ingestion-status','mcp-ingestion-history'):
    row['x-ouf-backend-binding'].update(service='ingestion.remote.internal',port=8443)
- result=materialize(existing(),rt,'DELEGATION_KEY')
+ result=materialize(existing(),rt,'DELEGATION_KEY','OWNER_KEY')
  assert all(row['upstream']['nodes']=={'ingestion.remote.internal:8443':1}for row in result['routes'][-2:])
 
 def test_renderer_cannot_select_a_write_other_owner_scope_or_arbitrary_capability():
  for binding in ({},{'capability':'ouf.ingestion.run','owner':'ingestion','scope':SCOPE},{'capability':'ouf.ingestion.status','owner':'udp','scope':SCOPE},{'capability':'ouf.ingestion.status','owner':'ingestion','scope':'operations.status.read'}):
-  with pytest.raises(ValueError):function('execute_ingestion_read',INSTALL,'TEST_KEY',operational_binding=binding)
+  with pytest.raises(ValueError):function('execute_ingestion_read',INSTALL,'TEST_KEY',owner_key_env='OWNER_KEY',operational_binding=binding)
 
 def test_retained_compiled_subset_is_exact_output_of_production_compiler():
  from pathlib import Path
@@ -107,3 +114,17 @@ def test_retained_compiled_subset_is_exact_output_of_production_compiler():
  actual=compile_config(root/'ouf-config')
  selected=[row for row in actual['routes']if row['id']in('mcp-ingestion-history','mcp-ingestion-status')]
  assert expected=={'routes':selected}
+
+
+@pytest.mark.parametrize('key',[None,'','bad-key','DELEGATION_KEY'])
+def test_missing_or_shared_owner_key_reference_is_never_inferred(key):
+ with pytest.raises(ValueError):materialize(existing(),runtime(),'DELEGATION_KEY',key)
+
+def test_owner_key_is_independent_from_mcp_proof_and_spoofed_receipt_is_removed():
+ ctx=human();ctx['scope']+=' '+SCOPE;value=body('ouf.ingestion.status')
+ e=Engine(workload(),{'X-OUF-Delegation':proof(ctx),'X-Correlation-ID':value['CorrelationID'],'Idempotency-Key':value['IdempotencyKey'],'X-Tool-Attempt-ID':value['AttemptID'],'X-OUF-Ingestion-Read-Receipt':'forged'},value)
+ e.lua.execute(b'os.getenv=function(name) if name == "OWNER_KEY" then return "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" end return TEST_KEY end')
+ e.lua.execute(function('execute_ingestion_read',INSTALL,'TEST_KEY',owner_key_env='OWNER_KEY',operational_binding={'capability':'ouf.ingestion.status','owner':'ingestion','scope':SCOPE}).encode())(None,None)
+ payload,signature=e.headers[b'x-ouf-ingestion-read-receipt'].decode().split('.')
+ assert signature==base64.urlsafe_b64encode(hmac.new(('cd'*32).encode(),('ouf-ingestion-read-owner-v1.'+payload).encode(),hashlib.sha256).digest()).decode().rstrip('=')
+ assert all(k not in e.headers for k in (b'authorization',b'x-ouf-delegation',b'x-ouf-principal-id'))
