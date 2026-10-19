@@ -1,0 +1,118 @@
+{
+  "routes": [
+    {
+      "id": "mcp-ingestion-history",
+      "uri": "/internal/capabilities/v1/execute/ouf.ingestion.history",
+      "methods": [
+        "POST"
+      ],
+      "upstream_id": "ingestion-runtime-operations@1.0.0",
+      "service_id": "ouf-ingestion-runtime",
+      "labels": {
+        "capability": "ouf.ingestion.history@1.0.0",
+        "source": "ingestion-runtime-operations@1.0.0",
+        "exposure": "internal"
+      },
+      "x-ouf-backend-binding": {
+        "service": "ouf-ingestion-runtime",
+        "port": 8080,
+        "path": "/api/internal/v1/ingestion/operations/history"
+      },
+      "plugins": {
+        "request-id": {
+          "header_name": "X-Correlation-ID",
+          "include_in_response": true,
+          "algorithm": "uuid"
+        },
+        "limit-count": {
+          "count": 100,
+          "time_window": 60,
+          "rejected_code": 429
+        },
+        "proxy-rewrite": {
+          "uri": "/api/internal/v1/ingestion/operations/history"
+        }
+      },
+      "x-ouf-policy": {
+        "identity": "M2M",
+        "allowedServiceIdentities": [
+          "installation://iam.workloadClients.mcpServer"
+        ],
+        "allowedActorTypes": [
+          "HUMAN_USER",
+          "MCP_SERVER"
+        ],
+        "maxRequestBytes": 65536,
+        "timeoutSeconds": 3,
+        "requiredScope": "ingestion.operations.read"
+      },
+      "x-ouf-capability": {
+        "capabilityId": "ouf.ingestion.history",
+        "version": "1.0.0",
+        "owner": "ingestion",
+        "operationType": "READ",
+        "toolEligible": true,
+        "humanRequired": false
+      },
+      "x-ouf-query-contract": {},
+      "x-ouf-recovery-binding": null
+    },
+    {
+      "id": "mcp-ingestion-status",
+      "uri": "/internal/capabilities/v1/execute/ouf.ingestion.status",
+      "methods": [
+        "POST"
+      ],
+      "upstream_id": "ingestion-runtime-operations@1.0.0",
+      "service_id": "ouf-ingestion-runtime",
+      "labels": {
+        "capability": "ouf.ingestion.status@1.0.0",
+        "source": "ingestion-runtime-operations@1.0.0",
+        "exposure": "internal"
+      },
+      "x-ouf-backend-binding": {
+        "service": "ouf-ingestion-runtime",
+        "port": 8080,
+        "path": "/api/internal/v1/ingestion/operations/status"
+      },
+      "plugins": {
+        "request-id": {
+          "header_name": "X-Correlation-ID",
+          "include_in_response": true,
+          "algorithm": "uuid"
+        },
+        "limit-count": {
+          "count": 100,
+          "time_window": 60,
+          "rejected_code": 429
+        },
+        "proxy-rewrite": {
+          "uri": "/api/internal/v1/ingestion/operations/status"
+        }
+      },
+      "x-ouf-policy": {
+        "identity": "M2M",
+        "allowedServiceIdentities": [
+          "installation://iam.workloadClients.mcpServer"
+        ],
+        "allowedActorTypes": [
+          "HUMAN_USER",
+          "MCP_SERVER"
+        ],
+        "maxRequestBytes": 65536,
+        "timeoutSeconds": 3,
+        "requiredScope": "ingestion.operations.read"
+      },
+      "x-ouf-capability": {
+        "capabilityId": "ouf.ingestion.status",
+        "version": "1.0.0",
+        "owner": "ingestion",
+        "operationType": "READ",
+        "toolEligible": true,
+        "humanRequired": false
+      },
+      "x-ouf-query-contract": {},
+      "x-ouf-recovery-binding": null
+    }
+  ]
+}

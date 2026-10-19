@@ -101,3 +101,29 @@ def test_mcp_identity_must_match_iam_workload_binding():
     broken["mcp"]["environment"]["MCP_OIDC_CLIENT_ID"] = "other-mcp"
     with pytest.raises(ProjectionError, match="mcp workload identity disagrees"):
         apply_projection(compile_config(ROOT / "ouf-config"), broken)
+
+def test_ingestion_frozen_configuration_is_a_separate_service_only_read():
+    compiled = compile_config(ROOT / "ouf-config")
+    resolved = apply_projection(compiled, projection())
+    route = next(r for r in resolved["routes"] if r["id"] == "r4a-onboarding-ingestion-configuration-read")
+    policy = route["x-ouf-policy"]
+    assert policy["allowedActorTypes"] == ["SERVICE"]
+    assert policy["allowedServiceIdentities"] == ["ouf-ingestion"]
+    assert route["x-ouf-backend-binding"]["service"] == "ouf-onboarding"
+    human = next(r for r in resolved["routes"] if r["id"] == "trusted-human-onboarding-lifecycle-get")
+    assert human["x-ouf-policy"]["allowedActorTypes"] == ["HUMAN"]
+
+    from tools.materialize_apisix_internal_m2m_routes import materialize
+    from ops.apisix.deploy_internal_m2m_routes import validate_routes
+    packet = materialize(resolved, ["r4a-onboarding-ingestion-configuration-read"], "$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET")
+    validate_routes(packet["routes"])
+    native = packet["routes"][0]
+    assert native["methods"] == ["GET"]
+    assert native["uri"] == "/api/internal/v1/onboarding/ingestion-configuration"
+    assert native["plugins"]["openid-connect"]["required_scopes"] == ["ouf.onboarding.configuration.read"]
+    assert native["plugins"]["openid-connect"]["ssl_verify"] is True
+    assert native["upstream"]["nodes"] == {"ouf-onboarding:8080": 1}
+    guard = native["plugins"]["serverless-post-function"]["functions"][0]
+    assert '["ouf-ingestion"]=true' in guard
+    assert '["SERVICE"]=true' in guard
+    assert '["HUMAN"]=true' not in guard

@@ -1,0 +1,21 @@
+name: Ingestion READ materialization
+on:
+  push:
+    paths:
+      - 'tools/materialize_ingestion_read.py'
+      - 'tools/delegation_functions.py'
+      - 'tools/lua/execute_ingestion_read.lua'
+      - 'tests/export_ingestion_owner_vector.py'
+      - 'tests/test_ingestion_read_materialization.py'
+      - '.github/workflows/ingestion-read-materialization.yml'
+permissions:
+  contents: read
+jobs:
+  closed-read-routes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: pip install -r requirements-dev.txt
+      - run: python3 -m pytest -q tests/test_ingestion_read_materialization.py tests/test_execute_delegation.py tests/test_operational_execute_delegation.py
+      - run: python3 -m tests.export_ingestion_owner_vector /tmp/ingestion-read-owner-vectors.json
