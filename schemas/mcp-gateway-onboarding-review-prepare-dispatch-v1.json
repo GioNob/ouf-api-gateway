@@ -58,8 +58,8 @@
         },
         "executionProposal": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
-          "$id": "urn:ouf:managed-file-execution-proposal:lexical-csv:v1",
-          "description": "Preparation only. CSV cells stay lexical strings; property/access/source/tenant and exact semantic-reference consistency are checked against owner records. No approval, publication, compatibility attestation or runtime authority is issued.",
+          "$id": "urn:ouf:managed-file-execution-proposal:typed-csv:v2",
+          "description": "Preparation only. CSV cells remain lexical in RAW; explicitly configured string, decimal and date mappings determine materialization types. Owner checks property/access/source/tenant and exact semantic references. No approval, publication, compatibility attestation or runtime authority is issued.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -323,7 +323,11 @@
                             "maxLength": 2048
                           },
                           "datatype": {
-                            "const": "http://www.w3.org/2001/XMLSchema#string"
+                            "enum": [
+                              "http://www.w3.org/2001/XMLSchema#string",
+                              "http://www.w3.org/2001/XMLSchema#decimal",
+                              "http://www.w3.org/2001/XMLSchema#date"
+                            ]
                           },
                           "accessLabel": {
                             "type": "string",
