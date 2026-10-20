@@ -129,7 +129,8 @@ def test_review_schema_bounds_and_login_custody():
     with pytest.raises(ValueError, match='OAuth login'): materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
 
 
-def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt():
+@pytest.mark.parametrize("datatype", ["string", "decimal", "date"])
+def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt(datatype):
     publication = '00000000-0000-4000-8000-000000000002'
     iri = 'https://schema.org/name'
     policy = {'ref': 'identity-policy', 'version': '1', 'tenantId': 'tenant-a', 'canonicalClass': 'https://schema.org/PerformingArtsTheater',
@@ -142,7 +143,7 @@ def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt():
                 'semanticPublicationSetRef': publication,
                 'udp': {'resolution': {'strategyId': 'GOVERNED_IDENTITY', 'strategyVersion': '1', 'policyRef': 'identity-policy', 'governedIdentity': policy},
                         'materialization': {'policyRef': 'authority-policy', 'properties': [{'sourceField': 'nome', 'propertyIri': iri,
-                         'datatype': 'http://www.w3.org/2001/XMLSchema#string', 'accessLabel': 'OPEN', 'authorityOrder': ['teatri']}],
+                         'datatype': 'http://www.w3.org/2001/XMLSchema#'+datatype, 'accessLabel': 'OPEN', 'authorityOrder': ['teatri']}],
                          'bitemporalProperties': [], 'checkpointInterval': 1}},
                 'limits': {'maxRows': 100, 'maxColumns': 20, 'maxCellChars': 1000}}
     e = request();e['Arguments']['executionProposal'] = proposal
