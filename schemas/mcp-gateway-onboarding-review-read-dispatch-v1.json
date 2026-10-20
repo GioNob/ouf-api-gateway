@@ -32,10 +32,6 @@
     "Arguments": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "sourceId",
-        "onboardingVersionId"
-      ],
       "properties": {
         "sourceId": {
           "type": "string",
@@ -44,8 +40,48 @@
         "onboardingVersionId": {
           "type": "string",
           "format": "uuid"
+        },
+        "view": {
+          "const": "LATEST"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceId",
+            "onboardingVersionId"
+          ],
+          "properties": {
+            "sourceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+            },
+            "onboardingVersionId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceId",
+            "view"
+          ],
+          "properties": {
+            "sourceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+            },
+            "view": {
+              "const": "LATEST"
+            }
+          }
+        }
+      ]
     },
     "Identity": {
       "type": "object",
