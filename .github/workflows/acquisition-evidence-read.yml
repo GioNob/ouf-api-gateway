@@ -13,9 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
-        with: {repository: GioNob/ouf-ingestion-runtime, ref: 89f8f5b6b2fc40523f04e96f9be2c9c11f54993d, path: .pairwise/ingestion}
+        with: {repository: GioNob/ouf-ingestion-runtime, ref: 43bb56a3b460c39af1e5d479dc6cd15ae7937442, path: .pairwise/ingestion}
       - uses: actions/checkout@v4
-        with: {repository: GioNob/ouf-udp-object-resolution, ref: 3ff4fd1b73880fcc30497a98cf39cc197dd7489f, path: .pairwise/udp}
+        with: {repository: GioNob/ouf-udp-object-resolution, ref: 241fd5f6cbb33eeea34f3271fde70a866ed15e87, path: .pairwise/udp}
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - uses: actions/setup-java@v4
