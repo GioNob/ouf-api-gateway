@@ -5,7 +5,7 @@ spec:
   direction: northbound
   exposure: internal
   capabilityRef: urban.acquisition.read@1.0.0
-  sourceRef: r2b-udp@1.0.0
+  sourceRef: acquisition-udp-read@1.0.0
   match: {method: POST, path: /internal/capabilities/v1/execute/urban.acquisition.read}
   backendBinding: {service: ouf-udp-evidence-read, port: 8080, path: /api/udp/v1/operations/acquisition}
   policy:
