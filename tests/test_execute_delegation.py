@@ -130,7 +130,11 @@ def test_malformed_role_claim_rejected(roles):
 @pytest.mark.parametrize('kind',['signature','tenant','principal','client','actor','acr','workload','scope','audience','issuer','expired','future','key'])
 def test_invalid_context_never_reaches_owner(kind):
     p=proof();body=envelope();claims=workload();kwargs={}
-    if kind=='signature': p=p[:-2]+('aa' if p[-2:]!='aa' else 'bb')
+    if kind=='signature':
+        payload,encoded=p.rsplit('.',1)
+        signature=base64.urlsafe_b64decode(encoded+'='*(-len(encoded)%4))
+        changed=bytes([signature[0]^1])+signature[1:]
+        p=payload+'.'+base64.urlsafe_b64encode(changed).decode().rstrip('=')
     elif kind in ['tenant','principal','client','actor','acr']:
         field={'tenant':'TenantID','principal':'PrincipalID','client':'ServicePrincipalID','actor':'ActorType','acr':'AuthenticationContextRef'}[kind];body['Identity'][field]='forged'
     elif kind=='workload': claims['azp']='other'
