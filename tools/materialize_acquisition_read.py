@@ -6,9 +6,9 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 CAPABILITIES={
-    'ouf.ingestion.acquisition.read': ('ingestion','ouf-ingestion-runtime','/api/internal/v1/ingestion/operations/acquisition',
+    'ouf.ingestion.acquisition.read': ('ingestion','ouf-ingestion-evidence-read','/api/internal/v1/ingestion/operations/acquisition',
         ('ingestion.run.read','ingestion.contract.read','ingestion.lineage.read'),'ingestion.lineage.read','afterLineageId'),
-    'urban.acquisition.read': ('udp','ouf-udp-object-resolution','/api/udp/v1/operations/acquisition',
+    'urban.acquisition.read': ('udp','ouf-udp-evidence-read','/api/udp/v1/operations/acquisition',
         ('urban.object.read','lineage.object.read','lineage.property.read'),'lineage.object.read','afterHandoffId'),
 }
 

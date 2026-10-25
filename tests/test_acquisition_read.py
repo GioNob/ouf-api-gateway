@@ -74,6 +74,7 @@ def test_additive_compiler_preserves_retained_routes_and_rejects_auth_backend_dr
     rt=runtime();before=base_materialize(rt,'$ENV://OIDC','DELEGATION_KEY');result=materialize(before,rt,'DELEGATION_KEY','INGESTION_KEY','UDP_KEY')
     assert result['routes'][:-2]==before['routes']and len(result['routes'])==len(before['routes'])+2
     for route in result['routes'][-2:]:assert route['upstream']['retries']==0 and route['upstream']['timeout']['read']==12
+    assert [list(r['upstream']['nodes'])for r in result['routes'][-2:]]==[['ouf-ingestion-evidence-read:8080'],['ouf-udp-evidence-read:8080']]
     for change in ['backend','scope','timeout','ssl','duplicate','collision']:
         changed=copy.deepcopy(rt);retained=copy.deepcopy(before)
         b=next(r for r in changed['routes']if r.get('uri')=='/internal/capabilities/v1/execute/ouf.ingestion.acquisition.read')
