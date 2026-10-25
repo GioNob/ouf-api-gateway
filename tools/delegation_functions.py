@@ -12,7 +12,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read', 'execute_acquisition_read'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
@@ -42,8 +42,20 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
             or operational_binding['scope'] != 'ingestion.operations.read'):
             raise ValueError('closed ingestion READ binding required')
         values.update(CAPABILITY=operational_binding['capability'],OWNER='ingestion',REQUIRED_SCOPE='ingestion.operations.read')
+    if kind == 'execute_acquisition_read':
+        from tools.materialize_acquisition_read import CAPABILITIES
+        if not isinstance(operational_binding,dict) or set(operational_binding)!={'capability','owner','scope'}:
+            raise ValueError('closed acquisition binding required')
+        capability=operational_binding['capability'];spec=CAPABILITIES.get(capability)
+        if spec is None or operational_binding['owner']!=spec[0]or operational_binding['scope']!=spec[4]or owner_key_env==key_env:
+            raise ValueError('acquisition binding is not approved')
+        ingestion=spec[0]=='ingestion'
+        values.update(CAPABILITY=capability,OWNER=spec[0],OWNER_PATH=spec[2],REQUIRED_SCOPES=' '.join(sorted(spec[3])),CURSOR_FIELD=spec[5],
+            RECEIPT_PURPOSE='ingestion-read-owner'if ingestion else'udp-acquisition-owner',
+            RECEIPT_DOMAIN='ouf-ingestion-read-owner-v1.'if ingestion else'ouf-udp-acquisition-owner-v1.',
+            RECEIPT_HEADER='X-OUF-Ingestion-Read-Receipt'if ingestion else'X-OUF-UDP-Acquisition-Receipt')
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_ingestion_read', 'execute_acquisition_read'):
         raise ValueError('invalid function')
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
 
