@@ -13,9 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
-        with: {repository: GioNob/ouf-ingestion-runtime, ref: 43bb56a3b460c39af1e5d479dc6cd15ae7937442, path: .pairwise/ingestion}
+        with: {repository: GioNob/ouf-ingestion-runtime, ref: 3ab998feb55ba0681d30635cdac35fac0f78e5db, path: .pairwise/ingestion}
       - uses: actions/checkout@v4
-        with: {repository: GioNob/ouf-udp-object-resolution, ref: 241fd5f6cbb33eeea34f3271fde70a866ed15e87, path: .pairwise/udp}
+        with: {repository: GioNob/ouf-udp-object-resolution, ref: b6a9f36a4f98ae8a2aab3bd055e5703bd84a8fb7, path: .pairwise/udp}
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - uses: actions/setup-java@v4
@@ -31,6 +31,14 @@ jobs:
         run: |
           (cd .pairwise/ingestion && bash scripts/install-authorization-sdk.sh && mvn -B -ntp -Dtest=AcquisitionReceiptPairwiseTest test)
           (cd .pairwise/udp && bash scripts/install-authorization-sdk.sh && mvn -B -ntp -Dtest=AcquisitionReceiptPairwiseTest test)
+      - name: Retain exact additive compiler source, no installation or runtime values
+        run: |
+          mkdir -p target/acquisition-source
+          git archive --format=tar.gz --output=target/acquisition-source/source.tar.gz HEAD tools schemas ouf-config requirements-dev.txt
+          printf '%s\n' "$GITHUB_SHA" > target/acquisition-source/source-commit.txt
+          cd target/acquisition-source && sha256sum source.tar.gz source-commit.txt > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with: {name: 'acquisition-gateway-source-${{ github.run_id }}', path: target/acquisition-source/, retention-days: 30}
       - name: Retain qualification evidence
         if: always()
         uses: actions/upload-artifact@v4
