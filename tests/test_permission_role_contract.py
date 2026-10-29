@@ -8,6 +8,7 @@ from jsonschema import Draft7Validator
 
 from tests.test_execute_delegation import envelope, runtime
 from tools.materialize_permission_proposals import materialize
+from tools.mcp_union_projection import project
 
 ROOT = Path(__file__).resolve().parents[1]
 READ = 'authorization.permissions.read'
@@ -69,7 +70,22 @@ def test_gateway_inputs_match_pinned_mcp_manifest():
     schemas = json.loads((ROOT/'schemas/mcp-gateway-permissions-dispatch-v1.json').read_text())['oneOf']
     for schema in schemas:
         cap = schema['properties']['CapabilityID']['const']
-        assert schema['properties']['Arguments'] == fixture['schemas'][cap]
+        assert schema['properties']['Arguments'] == project(fixture['schemas'][cap])
+
+def test_projection_only_factors_constraints_enforced_by_the_closed_parent():
+    fixture=json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-09d1f52.json').read_text())
+    before=copy.deepcopy(fixture)
+    previous=json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-5615fdc.json').read_text())
+    for capability in (READ,PROPOSE):
+        schema=project(fixture['schemas'][capability])
+        assert schema['type']=='object' and schema['additionalProperties'] is False
+        for selected,arguments,allowed in cases():
+            if selected==capability:
+                assert Draft7Validator(schema).is_valid(arguments) is allowed
+                assert Draft7Validator(fixture['schemas'][capability]).is_valid(arguments) is allowed
+        if capability==PROPOSE:
+            assert schema==previous['schemas'][capability]
+    assert fixture==before
 
 def test_permission_commands_keep_previous_acceptance_and_no_confirmation():
     old=json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-5615fdc.json').read_text())['schemas'][PROPOSE]
