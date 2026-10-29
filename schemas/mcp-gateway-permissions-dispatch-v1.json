@@ -64,7 +64,8 @@
               "type": "string",
               "enum": [
                 "GRANTS",
-                "ROLES"
+                "ROLES",
+                "CAPABILITIES"
               ]
             }
           },
@@ -73,11 +74,6 @@
               "required": [
                 "view"
               ],
-              "properties": {
-                "view": {
-                  "const": "ROLES"
-                }
-              },
               "not": {
                 "anyOf": [
                   {
@@ -106,14 +102,53 @@
                     ]
                   }
                 ]
+              },
+              "properties": {
+                "view": {
+                  "const": "ROLES"
+                }
               }
             },
             {
+              "required": [
+                "view"
+              ],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "subjectId"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "externalRoleRef"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "limit"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "after"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "policyRef"
+                    ]
+                  }
+                ]
+              },
               "properties": {
                 "view": {
-                  "const": "GRANTS"
+                  "const": "CAPABILITIES"
                 }
-              },
+              }
+            },
+            {
               "oneOf": [
                 {
                   "required": [
@@ -135,7 +170,12 @@
                     ]
                   }
                 }
-              ]
+              ],
+              "properties": {
+                "view": {
+                  "const": "GRANTS"
+                }
+              }
             }
           ]
         },
@@ -622,11 +662,11 @@
                           "externalRoleRef"
                         ],
                         "properties": {
-                          "externalRoleRef": {
-                            "type": "string"
-                          },
                           "subjectId": {
                             "type": "null"
+                          },
+                          "externalRoleRef": {
+                            "type": "string"
                           }
                         }
                       }
@@ -641,6 +681,11 @@
               "required": [
                 "grantId"
               ],
+              "not": {
+                "required": [
+                  "roleCatalogue"
+                ]
+              },
               "properties": {
                 "operation": {
                   "enum": [
@@ -648,22 +693,12 @@
                     "REVOKE"
                   ]
                 }
-              },
-              "not": {
-                "required": [
-                  "roleCatalogue"
-                ]
               }
             },
             {
               "required": [
                 "roleCatalogue"
               ],
-              "properties": {
-                "operation": {
-                  "const": "REPLACE_ROLES"
-                }
-              },
               "not": {
                 "anyOf": [
                   {
@@ -677,6 +712,11 @@
                     ]
                   }
                 ]
+              },
+              "properties": {
+                "operation": {
+                  "const": "REPLACE_ROLES"
+                }
               }
             }
           ]
