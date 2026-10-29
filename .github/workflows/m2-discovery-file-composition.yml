@@ -18,6 +18,7 @@ jobs:
         run: >-
           python -m pytest -q --junitxml=target/m2-discovery-composition.xml
           tests/test_semantic_discovery_execute.py tests/test_m2_discovery_file_composition.py
+          tests/test_permission_role_contract.py tests/test_permission_proposals.py
           tests/test_execute_delegation.py tests/test_managed_file_mcp.py tests/test_managed_file_ths.py
           tests/test_managed_upload.py tests/test_semantic_proposals.py tests/test_semantic_read_execute.py
           tests/test_source_revision.py tests/test_file_loop_coherence.py tests/test_operational_execute_delegation.py
