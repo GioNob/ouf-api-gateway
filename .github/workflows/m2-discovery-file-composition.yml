@@ -1,0 +1,40 @@
+name: M2 discovery and retained file composition
+on:
+  push:
+    paths: ['tools/**', 'schemas/**', 'tests/**', 'scripts/export_semantic_discovery_pairwise.py', '.github/workflows/m2-discovery-file-composition.yml']
+  pull_request:
+    paths: ['tools/**', 'schemas/**', 'tests/**', 'scripts/export_semantic_discovery_pairwise.py', '.github/workflows/m2-discovery-file-composition.yml']
+permissions: {contents: read}
+jobs:
+  actual-lua-and-file-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python -m pip install -r requirements-dev.txt
+      - name: Qualify real Lua receipts and preserve retained file and HUMAN routes
+        run: >-
+          python -m pytest -q --junitxml=target/m2-discovery-composition.xml
+          tests/test_semantic_discovery_execute.py tests/test_m2_discovery_file_composition.py
+          tests/test_execute_delegation.py tests/test_managed_file_mcp.py tests/test_managed_file_ths.py
+          tests/test_managed_upload.py tests/test_semantic_proposals.py tests/test_semantic_read_execute.py
+          tests/test_source_revision.py tests/test_file_loop_coherence.py tests/test_operational_execute_delegation.py
+      - name: Require every selected test to run
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          suites=ET.parse('target/m2-discovery-composition.xml').getroot().iter('testsuite')
+          counts={key:0 for key in ('tests','failures','errors','skipped')}
+          for suite in suites:
+              for key in counts:counts[key]+=int(suite.get(key,0))
+          assert counts['tests']>0 and counts['failures']==counts['errors']==counts['skipped']==0,counts
+          print(counts)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m2-discovery-composition-${{ github.run_id }}
+          path: target/m2-discovery-composition.xml
+          if-no-files-found: warn
