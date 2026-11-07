@@ -53,6 +53,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
+            elif self.path.startswith('/api/internal/v1/onboarding/managed-file-mcp/'):
+                self.reply({'receipt':self.headers.get('X-OUF-Managed-File-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             elif self.path=='/api/udp/v1/objects/search':
                 self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
             else:self.send_error(404)
@@ -124,6 +126,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                 'postgres:17-alpine','psql','-h','127.0.0.1','-U',udp_env['OUF_UDP_DB_USER'],'-d','ouf_udp','-v','ON_ERROR_STOP=1','-c',sql],check=True,stdout=subprocess.DEVNULL)
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
+        from tools.materialize_managed_file_mcp import materialize as managed_routes
+        existing_ids={r['id'] for r in doc['routes']}
+        doc['routes'].extend(r for r in managed_routes(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')['routes'] if r['id'] not in existing_ids)
         for r in doc['routes']:
             oidc=r['plugins'].get('openid-connect')
             if oidc:oidc['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
@@ -160,6 +165,25 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
+            # Larger than normal nginx body buffers: exercise APISIX file-backed request bodies.
+            import hashlib
+            from tests.test_managed_file_mcp import request as managed_request
+            e=managed_request('create')
+            e['Arguments']['fields']=[{'fieldName':f'campo_{n}','extractionDecision':'INCLUDE','dataAccessLabel':'RESTRICTED','targetPropertyIri':f'urn:fixture:property:{n}'} for n in range(1024)]
+            assert len(json.dumps(e).encode())>128*1024
+            code,raw=post('/mcp',{},token(scope='mcp.connect '+e['CapabilityID']))
+            assert code==200,(code,raw)
+            wide_proof=json.loads(raw)['proof']
+            code,raw=post('/internal/capabilities/v1/execute/managed.file/create',e,token('SERVICE'),wide_proof)
+            assert code==200,(code,raw)
+            result=json.loads(raw);encoded=result['receipt'].split('.')[0]
+            receipt=json.loads(base64.urlsafe_b64decode(encoded+'='*((4-len(encoded)%4)%4)))
+            assert receipt['bodyHash']==hashlib.sha256(result['body'].encode()).hexdigest()
+            assert len(json.loads(result['body'])['Arguments']['fields'])==1024
+            assert not result['authorization']
+            e['Arguments']['fields'].append(e['Arguments']['fields'][0])
+            code,raw=post('/internal/capabilities/v1/execute/managed.file/create',e,token('SERVICE'),wide_proof)
+            assert code==400,(code,raw)
             from tests.test_permission_proposals import request as permission_request
             cap='authorization.permissions.propose'
             code,raw=post('/mcp',{},token(scope='mcp.connect '+cap,externalRoleRefs=['ente:staff']))

@@ -155,3 +155,34 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
     with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
         apply(routes,denied,anonymous_probe=anonymous_probe)
     assert denied.installed=={}
+
+@pytest.mark.parametrize('count', [300,400,1024])
+def test_wide_create_preserves_every_column_and_receipt_body_hash(count):
+    e=request('create')
+    e['Arguments']['fields']=[{'fieldName':f'campo_{n}','extractionDecision':'INCLUDE','dataAccessLabel':'RESTRICTED','targetPropertyIri':f'urn:fixture:property:{n}'} for n in range(count)]
+    doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+    route=next(r for r in doc['routes'] if r['id']=='mcp-managed-file-create')
+    validator=Draft202012Validator(route['plugins']['request-validation']['body_schema'])
+    assert validator.is_valid(e)
+    engine=execute('create',e)
+    encoded,_=engine.headers[b'x-ouf-managed-file-receipt'].split(b'.')
+    receipt=json.loads(base64.urlsafe_b64decode(encoded+b'='*((4-len(encoded)%4)%4)))
+    assert receipt['bodyHash']==hashlib.sha256(engine.body).hexdigest()
+    assert len(json.loads(engine.body)['Arguments']['fields'])==count
+    assert route['plugins']['request-validation']['max_req_body_size']==3*1024*1024
+    assert route['plugins']['client-control']['max_body_size']==3*1024*1024
+    assert route['upstream']['timeout']['read']==10
+    e['Arguments']['fields']*=4
+    assert not validator.is_valid(e)
+
+def test_immutable_column_page_schema_bounds_and_other_views_unchanged():
+    doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+    route=next(r for r in doc['routes'] if r['id']=='mcp-managed-file-preview')
+    validator=Draft202012Validator(route['plugins']['request-validation']['body_schema'])
+    e=request('preview');e['Arguments']={'view':'COLUMNS','assetId':ASSET,'profileId':OTHER,'offset':896,'limit':128}
+    assert validator.is_valid(e)
+    assert execute('preview',e).headers[b'x-ouf-managed-file-receipt']
+    for key,value in [('limit',129),('offset',1024),('assetId',None),('url','https://invalid/')]:
+        bad=json.loads(json.dumps(e));bad['Arguments'][key]=value
+        assert not validator.is_valid(bad)
+    assert route['plugins']['request-validation']['max_req_body_size']==65536

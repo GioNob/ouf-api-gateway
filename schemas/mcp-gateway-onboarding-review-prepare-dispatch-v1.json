@@ -300,7 +300,7 @@
                     "properties": {
                       "type": "array",
                       "minItems": 1,
-                      "maxItems": 32,
+                      "maxItems": 1024,
                       "items": {
                         "type": "object",
                         "additionalProperties": false,

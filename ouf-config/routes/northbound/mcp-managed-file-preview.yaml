@@ -13,4 +13,4 @@ spec:
     allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
     allowedActorTypes: [HUMAN]
     maxRequestBytes: 65536
-    timeoutSeconds: 3
+    timeoutSeconds: 10

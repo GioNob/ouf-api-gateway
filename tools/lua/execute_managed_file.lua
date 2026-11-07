@@ -22,9 +22,65 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-ngx.req.read_body()
-local body = ngx.req.get_body_data()
-if not body or #body > 65536 then return fail(413) end
+local name = ngx.var.uri:match('/([a-z-]+)
+local e = cjson.decode(body)
+-- request-validation enforces the closed permission envelope before this function.
+if type(e) ~= 'table' or type(e.Identity) ~= 'table' then return fail(400) end
+local i = e.Identity
+if i.PrincipalID ~= p.principal or i.TenantID ~= p.tenant or i.ActorType ~= p.actor
+    or i.AuthenticationContextRef ~= p.acr or i.ServicePrincipalID ~= p.client then return fail(403) end
+local operations = {
+    profile={'ouf.managed-source.file.profile','COMMAND'},
+    preview={'ouf.managed-source.preview','READ'},
+    create={'ouf.managed-source.onboarding.create','COMMAND'},
+    handoff={'ouf.managed-source.file.upload','COMMAND'},
+    ['review-prepare']={'ouf.managed-source.onboarding.review.prepare','COMMAND'},
+    ['review-read']={'ouf.managed-source.onboarding.read','READ'},
+}
+-- proxy-rewrite may already have changed ngx.var.uri in APISIX's rewrite phase.
+-- The exact route and request-validation schema bind the operation; both
+-- accepted URI forms have the same final segment.
+local operation = name and operations[name]
+if not operation or e.CapabilityID ~= operation[1]
+    or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'onboarding'
+    or e.OperationClass ~= operation[2] or not scope_has(p.scope, e.CapabilityID) then return fail(403) end
+if name == 'review-prepare' and (type(e.Arguments) ~= 'table'
+    or e.Arguments.commandKey ~= e.IdempotencyKey) then return fail(409) end
+local headers = ngx.req.get_headers()
+if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
+    or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end
+-- Do not pass arbitrary headers, workload bearer, or delegation proof to owner.
+local all, err = ngx.req.get_headers(0)
+if err then return fail(400) end
+for name, _ in pairs(all) do
+    local lower = name:lower()
+    if lower:sub(1,6) == 'x-ouf-' or lower == 'authorization' or lower == 'cookie'
+        or lower == 'x-access-token' or lower == 'x-id-token' or lower == 'x-userinfo' then
+        ngx.req.clear_header(name)
+    end
+end
+local owner_key = os.getenv(OWNER_KEY_ENV)
+if type(owner_key) ~= 'string' or #owner_key ~= 64 or owner_key:find('[^0-9a-fA-F]') then return fail(503) end
+-- Preserve the validated original JSON, including empty arrays and objects.
+local args = body
+local digest = require('resty.openssl.digest').new('sha256')
+local body_hash = require('resty.string').to_hex(digest:final(args))
+local receipt = {v=1,purpose='managed-file-owner',method='POST',
+    path='/api/internal/v1/onboarding/managed-file-mcp/'..name,bodyHash=body_hash,
+    capability=e.CapabilityID,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
+    workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,acr=p.acr,roles=roles,scope=p.scope,idempotencyKey=e.IdempotencyKey}
+local encoded = encode64(cjson.encode(receipt))
+local hmac = require('resty.openssl.hmac').new(owner_key,'sha256')
+local signed = hmac and hmac:final('ouf-managed-file-owner-v1.'..encoded)
+if not signed then return fail(503) end
+ngx.req.set_header('X-OUF-Managed-File-Receipt',encoded..'.'..encode64(signed))
+ngx.req.set_header('Content-Type','application/json')
+ngx.req.set_body_data(args)
+)
+local body_limit = (name == 'create' or name == 'review-prepare') and 3145728 or 65536
+-- APISIX reads both memory-buffered and temporary-file bodies with the same bound.
+local body = require("apisix.core").request.get_body(body_limit)
+if not body or #body > body_limit then return fail(413) end
 local e = cjson.decode(body)
 -- request-validation enforces the closed permission envelope before this function.
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' then return fail(400) end
