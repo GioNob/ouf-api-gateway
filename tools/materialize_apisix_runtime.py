@@ -146,6 +146,7 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
                 ]
             }
         },
+        "client-control": {"max_body_size": int(policy.get("maxRequestBytes", 1048576))},
         "proxy-rewrite": {"uri": "/mcp"},
         "serverless-pre-function": {
             "phase": "rewrite",
@@ -199,6 +200,8 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
             "type": "roundrobin",
             "scheme": "http",
             "nodes": {f"{service}:{port}": 1},
+            "retries": 0,
+            "timeout": {"connect": 3, "send": int(policy.get("timeoutSeconds", 30)), "read": int(policy.get("timeoutSeconds", 30))},
         },
     }
 

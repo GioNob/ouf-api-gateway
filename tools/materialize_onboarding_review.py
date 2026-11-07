@@ -30,6 +30,7 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
     installation = runtime['x-ouf-installation']
     for mode, (cap, operation) in MODES.items():
         timeout = 10 if mode == 'review-prepare' else 3
+        request_limit = 3145728 if mode == 'review-prepare' else 65536
         route_id = 'mcp-managed-file-'+mode
         matches = [r for r in runtime['routes'] if r.get('id') == route_id]
         if len(matches) != 1:
@@ -47,16 +48,17 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
             or policy['identity'] != 'M2M' or policy['requiredScope'] != cap
             or policy['allowedActorTypes'] != ['HUMAN']
             or policy['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
-            or policy['maxRequestBytes'] != 65536 or policy['timeoutSeconds'] != timeout):
+            or policy['maxRequestBytes'] != request_limit or policy['timeoutSeconds'] != timeout):
             raise ValueError('onboarding review binding mismatch')
         route = copy.deepcopy(templates[0])
         route.update(id=route_id, uri=uri, methods=['POST'])
         route['labels']['ouf-mediation'] = 'onboarding-review-v1'
-        route['plugins']['request-validation'] = {'max_req_body_size': 65536,
+        route['plugins']['request-validation'] = {'max_req_body_size': request_limit,
             'body_schema': json.loads((ROOT/f'schemas/mcp-gateway-onboarding-{mode}-dispatch-v1.json').read_text())}
         route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [
             function('execute_managed_file', installation, delegation_key_env, owner_key_env)]}
         route['plugins']['proxy-rewrite'] = {'uri': path}
+        route['plugins']['client-control'] = {'max_body_size': request_limit}
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-onboarding:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': timeout, 'read': timeout}}
         _append(result, route)

@@ -49,6 +49,7 @@ class Engine:
         self.headers[b'authorization']=b'Bearer e30.'+raw+b'.test'
         self.body=json.dumps(body if body is not None else envelope()).encode()
         self.modules={}
+        self.modules[b'apisix.core']=self.lua.table_from({b'request':self.lua.table_from({b'get_body':lambda limit:self.body if len(self.body)<=limit else None})})
         def primitive(v):
             if isinstance(v,bytes): return v.decode()
             if hasattr(v,'items'): return {primitive(k):primitive(val) for k,val in v.items()}

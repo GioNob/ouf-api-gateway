@@ -34,8 +34,8 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
             or c.get('humanRequired') or not c.get('toolEligible') or p['identity']!='M2M'
             or p['requiredScope']!=cap or p['allowedActorTypes']!=['HUMAN']
             or runtime['x-ouf-installation']['mcpServiceIdentity'] not in p['allowedServiceIdentities']
-            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 65536)
-            or p['timeoutSeconds']!=(30 if mode=='handoff' else 3)):
+            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 3145728 if mode=='create' else 65536)
+            or p['timeoutSeconds']!=(30 if mode=='handoff' else 10 if mode in ('create','preview') else 3)):
             raise ValueError('managed-file binding mismatch: '+mode)
         route=copy.deepcopy(template)
         route['id']=route_id
@@ -59,6 +59,11 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         route['plugins']['serverless-post-function']['functions']=[function('execute_managed_file',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
+        request_limit=3145728 if mode=='create' else 65536
+        timeout=10 if mode in ('create','preview') else 3
+        route['plugins']['request-validation']['max_req_body_size']=request_limit
+        route['plugins']['client-control']={'max_body_size':request_limit}
+        route['upstream']['timeout']={'connect':3,'send':timeout,'read':timeout}
         result['routes'].append(route)
     return result
 

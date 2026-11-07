@@ -22,9 +22,11 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-ngx.req.read_body()
-local body = ngx.req.get_body_data()
-if not body or #body > 65536 then return fail(413) end
+local name = ngx.var.uri:match('/([a-z-]+)$')
+local body_limit = (name == 'create' or name == 'review-prepare') and 3145728 or 65536
+-- APISIX reads both memory-buffered and temporary-file bodies with the same bound.
+local body = require("apisix.core").request.get_body(body_limit)
+if not body or #body > body_limit then return fail(413) end
 local e = cjson.decode(body)
 -- request-validation enforces the closed permission envelope before this function.
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' then return fail(400) end
@@ -42,7 +44,6 @@ local operations = {
 -- proxy-rewrite may already have changed ngx.var.uri in APISIX's rewrite phase.
 -- The exact route and request-validation schema bind the operation; both
 -- accepted URI forms have the same final segment.
-local name = ngx.var.uri:match('/([a-z-]+)$')
 local operation = name and operations[name]
 if not operation or e.CapabilityID ~= operation[1]
     or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'onboarding'

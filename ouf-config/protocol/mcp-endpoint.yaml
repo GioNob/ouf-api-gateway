@@ -11,7 +11,7 @@ spec:
     requiredAudience: installation://iam.gatewayAudience
     requiredScope: mcp.connect
     allowedActorTypes: [HUMAN, AI_AGENT, SERVICE]
-    maxRequestBytes: 1048576
+    maxRequestBytes: 4194304
     timeoutSeconds: 30
   trustedIdentity:
     stripClientHeaders:

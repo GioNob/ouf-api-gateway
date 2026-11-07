@@ -41,10 +41,13 @@ def test_materializes_oidc_protected_mcp_route_and_oauth_discovery():
         "type": "roundrobin",
         "scheme": "http",
         "nodes": {"ouf-mcp-server:8080": 1},
+        "retries": 0,
+        "timeout": {"connect": 3, "read": 30, "send": 30},
     }
 
     validation = route["plugins"]["request-validation"]
-    assert validation["max_req_body_size"] == 1048576
+    assert validation["max_req_body_size"] == 4194304
+    assert route["plugins"]["client-control"]["max_body_size"] == 4194304
     assert validation["body_schema"] == {
         "anyOf": [{"type": "object"}, {"type": "array"}]
     }
