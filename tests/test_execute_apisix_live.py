@@ -165,6 +165,10 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
+            # Public MCP JSON-RPC envelope can exceed the former 1 MiB boundary.
+            large_rpc={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'source.onboarding.create','arguments':{'fixture':'x'*(1048576+1024)}}}
+            code,raw=post('/mcp',large_rpc,token())
+            assert code==200,(code,raw)
             # Larger than normal nginx body buffers: exercise APISIX file-backed request bodies.
             import hashlib
             from tests.test_managed_file_mcp import request as managed_request
