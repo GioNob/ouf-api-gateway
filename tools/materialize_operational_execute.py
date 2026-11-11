@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import re
 from pathlib import Path
 
 from tools.delegation_functions import function
@@ -16,6 +17,31 @@ CAPABILITIES = {
     'ouf.gateway.operations.summary': ('gateway', 'ouf-gateway-control-plane', 8081, '/api/internal/v1/gateway/operations/summary', 'operations.status.read', 3),
     'ouf.gateway.operations.incidents': ('gateway', 'ouf-gateway-control-plane', 8081, '/api/internal/v1/gateway/operations/incidents', 'operations.incident.read', 3),
 }
+
+
+def operational_host(installation, binding, service):
+    bindings = installation.get('serviceBindings')
+    if not isinstance(bindings, dict):
+        raise ValueError('missing or invalid installation serviceBindings')
+    backend = binding.get('x-ouf-backend-binding')
+    if not isinstance(backend, dict):
+        raise ValueError('missing operational backend binding: ' + service)
+    # apply_projection leaves the logical backend service unchanged when a
+    # mapping is omitted. Preserve that existing identity default, but never
+    # silently accept an unresolved, renamed backend without its mapping.
+    if service not in bindings:
+        if backend.get('service') != service:
+            raise ValueError('missing installation service binding: ' + service)
+        host = backend['service']
+    else:
+        host = bindings[service]
+        if not isinstance(host, str) or not re.fullmatch(r'[A-Za-z0-9._-]+', host.strip()):
+            raise ValueError('invalid installation service binding: ' + service)
+        host = host.strip()
+        if backend.get('service') != host:
+            raise ValueError('operational backend service binding drift: ' + service)
+    return host
+
 
 def dispatch_schema(capability):
     owner, _, _, _, _, _ = CAPABILITIES[capability]
@@ -67,8 +93,11 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None
         candidates = [r for r in runtime['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId') == capability and r.get('labels', {}).get('exposure') == 'internal']
         if len(candidates) != 1: raise ValueError('exact operational binding required: ' + capability)
         binding = candidates[0]
+        host = operational_host(installation, binding, service)
         cap, policy = binding['x-ouf-capability'], binding['x-ouf-policy']
         actors = ['HUMAN_USER', 'MCP_SERVER'] if owner == 'mcp' else ['MCP_SERVER']
+        # service_id remains logical after projection; only backend.service is
+        # projected. Keep this contract check logical against logical.
         if (cap['owner'] != owner or cap['operationType'] != 'READ' or cap.get('humanRequired') or cap.get('toolEligible') != (owner == 'mcp')
             or binding['service_id'] != service or binding['plugins']['proxy-rewrite']['uri'] != path
             or policy['identity'] != 'M2M' or policy['allowedServiceIdentities'] != [workload]
@@ -83,7 +112,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None
         route['plugins']['serverless-post-function']['functions'] = [function('execute_operational', installation, delegation_key_env,
             operational_binding={'capability': capability, 'owner': owner, 'scope': scope})]
         route['plugins']['proxy-rewrite']['uri'] = path
-        route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {f'{service}:{port}': 1},
+        route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {f'{host}:{port}': 1},
             'retries': 0, 'timeout': {'connect': timeout, 'send': timeout, 'read': timeout}}
         result['routes'].append(route)
     result['operationalExecuteProfile'] = 'ouf.operational-execute.v1'
