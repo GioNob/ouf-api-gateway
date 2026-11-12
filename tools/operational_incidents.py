@@ -110,7 +110,7 @@ class SQLiteOperationalIncidentStore:
             raise ValueError("incident identity and safe impact summary are required")
         now = self._now()
         existing = self.db.execute(
-            "select incident_id,first_seen_at,occurrence_count from gateway_operational_incident where dedup_key=?",
+            "select incident_id,lifecycle_state,occurrence_count from gateway_operational_incident where dedup_key=?",
             (dedup_key,),
         ).fetchone()
         if existing is None:
@@ -125,9 +125,19 @@ class SQLiteOperationalIncidentStore:
                 (incident_id, dedup_key, event_type, severity, first_seen, now, correlation_id, endpoint_ref,
                  error_code, impact_summary, int(action_required), occurrences, visibility_class),
             )
+        elif existing["lifecycle_state"] == "RESOLVED":
+            # The update trigger records only the new episode; the old one's
+            # final RESOLVED projection remains untouched in transition history.
+            incident_id = str(uuid.uuid4())
+            self.db.execute(
+                """update gateway_operational_incident set incident_id=?,event_type=?,lifecycle_state='OPEN',
+                severity=?,first_seen_at=?,last_seen_at=?,resolved_at=null,correlation_id=?,endpoint_ref=?,error_code=?,
+                impact_summary=?,action_required=?,occurrence_count=1,visibility_class=? where dedup_key=?""",
+                (incident_id, event_type, severity, now, now, correlation_id, endpoint_ref, error_code,
+                 impact_summary, int(action_required), visibility_class, dedup_key),
+            )
         else:
             incident_id = existing["incident_id"]
-            first_seen = existing["first_seen_at"]
             occurrences = int(existing["occurrence_count"]) + 1
             self.db.execute(
                 """update gateway_operational_incident set event_type=?,lifecycle_state='OPEN',severity=?,last_seen_at=?,
@@ -140,8 +150,8 @@ class SQLiteOperationalIncidentStore:
         return self.get(incident_id)
 
     def recovering(self, dedup_key: str, impact_summary: str) -> OperationalIncident | None:
-        row = self.db.execute("select incident_id from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
-        if row is None:
+        row = self.db.execute("select incident_id,lifecycle_state from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
+        if row is None or row["lifecycle_state"] != "OPEN":
             return None
         self.db.execute(
             "update gateway_operational_incident set lifecycle_state='RECOVERING',last_seen_at=?,impact_summary=?,action_required=0 where dedup_key=?",
@@ -151,8 +161,8 @@ class SQLiteOperationalIncidentStore:
         return self.get(row["incident_id"])
 
     def resolve_incident(self, dedup_key: str, impact_summary: str) -> OperationalIncident | None:
-        row = self.db.execute("select incident_id from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
-        if row is None:
+        row = self.db.execute("select incident_id,lifecycle_state from gateway_operational_incident where dedup_key=?", (dedup_key,)).fetchone()
+        if row is None or row["lifecycle_state"] == "RESOLVED":
             return None
         now = self._now()
         self.db.execute(

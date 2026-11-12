@@ -52,4 +52,32 @@ class GatewayIncidentsTest {
  @Test void criticalFilterMustBeAccepted()throws Exception{
   assertThatCode(()->owner.page(json.readTree("{\"severity\":\"CRITICAL\"}"),"tenant:reader")).doesNotThrowAnyException();
  }
+ @Test void sameDedupKeyKeepsResolvedAndNewEpisodesDistinct()throws Exception{
+  var start=Instant.now().minusSeconds(120);
+  var closed=start.plusSeconds(30).toString();
+  var next=start.plusSeconds(60).toString();
+  var base=json.createObjectNode().put("module","GATEWAY").put("dedup_key","gateway:etcd:collector-health")
+   .put("event_type","GATEWAY_ETCD_DEGRADED").put("severity","CRITICAL").put("visibility_class","TENANT_OPERATIONAL");
+  var opened=base.deepCopy().put("incident_id","episode-1").put("lifecycle_state","OPEN")
+   .put("first_seen_at",start.toString()).put("last_seen_at",start.toString()).put("occurrence_count",2).put("action_required",true);
+  var resolved=opened.deepCopy().put("lifecycle_state","RESOLVED").put("last_seen_at",closed)
+   .put("resolved_at",closed).put("action_required",false);
+  var reopened=base.deepCopy().put("incident_id","episode-2").put("lifecycle_state","OPEN")
+   .put("first_seen_at",next).put("last_seen_at",next).put("occurrence_count",1).put("action_required",true);
+  try(var c=DriverManager.getConnection("jdbc:sqlite:"+db);var s=c.prepareStatement("insert into gateway_incident_transition(incident_id,projection) values(?,?)")){
+   for(var row:List.of(opened,resolved,reopened)){s.setString(1,row.get("incident_id").asText());s.setString(2,json.writeValueAsString(row));s.executeUpdate();}
+  }
+  var result=owner.page(json.readTree("{}"),"tenant:reader");
+  var items=json.valueToTree(result.get("items"));
+  assertThat(items.size()).isEqualTo(2);
+  assertThat(items.get(0).path("incident_id").asText()).isEqualTo("episode-2");
+  assertThat(items.get(0).path("lifecycle_state").asText()).isEqualTo("OPEN");
+  assertThat(items.get(0).path("first_seen_at").asText()).isEqualTo(next);
+  assertThat(items.get(0).path("occurrence_count").asLong()).isEqualTo(1);
+  assertThat(items.get(1).path("incident_id").asText()).isEqualTo("episode-1");
+  assertThat(items.get(1).path("lifecycle_state").asText()).isEqualTo("RESOLVED");
+  assertThat(items.get(1).path("resolved_at").asText()).isEqualTo(closed);
+  assertThat(items.get(1).path("occurrence_count").asLong()).isEqualTo(2);
+  assertThat(result.get("partial")).isEqualTo(false);assertThat(result.get("hasMore")).isEqualTo(false);
+ }
 }
