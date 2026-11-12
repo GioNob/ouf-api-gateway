@@ -31,6 +31,7 @@ Normative baseline: OUF Reality Baseline Package v1.7, Gateway PET v1.5 §34 and
 - Persistence survives store reopen.
 - Equivalent faults deduplicate and increment occurrence count within one episode. After RESOLVED, a new fault starts a new episode with a new incident_id; the previous episode remains in transition history.
 - Recovery resolves the current episode idempotently: repeated closure preserves resolved_at and last_seen_at without writing transitions. Repeated RECOVERING observations are also idempotent, and RESOLVED never returns to RECOVERING.
+- Current visibility applies by dedup_key to all episodes, including historical cursor pages, using the latest projection without a snapshot limit. Missing dedup_key fails closed: the item is excluded and partial=true.
 - etcd degradation and recovery are mapped without raw telemetry disclosure.
 - Owner API fails closed without verified Gateway/Authorization context and enforces bounded queries.
 - Producer route bindings remain private, Gateway-owned and non-tool-eligible.

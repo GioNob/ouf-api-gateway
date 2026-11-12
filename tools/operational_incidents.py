@@ -76,6 +76,7 @@ class SQLiteOperationalIncidentStore:
         )
         self.db.execute("create table if not exists gateway_incident_transition(sequence_id integer primary key autoincrement, incident_id text not null, projection text not null)")
         self.db.execute("create index if not exists gateway_incident_current on gateway_incident_transition(incident_id,sequence_id desc)")
+        self.db.execute("create index if not exists gateway_incident_transition_dedup on gateway_incident_transition(json_extract(projection,'$.dedup_key'), sequence_id desc)")
         fields=list(OperationalIncident.__dataclass_fields__)
         pairs=",".join("'%s',new.%s" % (k,k) for k in fields)
         for event in ("insert","update"):
@@ -234,7 +235,8 @@ class SQLiteOperationalIncidentStore:
              and julianday(json_extract(projection,'$.last_seen_at'))<=julianday(?) group by incident_id)
             select t.sequence_id,t.projection,
              (select json_extract(current.projection,'$.visibility_class') from gateway_incident_transition current
-              where current.incident_id=t.incident_id order by current.sequence_id desc limit 1) current_visibility
+              where json_extract(current.projection,'$.dedup_key')=json_extract(t.projection,'$.dedup_key')
+              order by current.sequence_id desc limit 1) current_visibility
             from gateway_incident_transition t join latest l using(sequence_id)
              where t.sequence_id<? and julianday(json_extract(projection,'$.last_seen_at'))>=julianday(?)
              and (? is null or json_extract(projection,'$.lifecycle_state')=?)

@@ -20,7 +20,11 @@ class GatewayIncidentsTest {
   try(var c=DriverManager.getConnection("jdbc:sqlite:"+db);var s=c.createStatement()){s.execute("create table gateway_incident_transition(sequence_id integer primary key autoincrement,incident_id text,projection text)");}
  }
  void emit(String id,String state,String visibility)throws Exception{
-  var row=Map.of("incident_id",id,"module","GATEWAY","lifecycle_state",state,"severity","ERROR","last_seen_at",Instant.now().toString(),"visibility_class",visibility,"raw_log","secret","action_required",true);
+  emit(id,id,state,visibility);
+ }
+ void emit(String id,String dedupKey,String state,String visibility)throws Exception{
+  var row=new LinkedHashMap<String,Object>(Map.of("incident_id",id,"module","GATEWAY","lifecycle_state",state,"severity","ERROR","last_seen_at",Instant.now().toString(),"visibility_class",visibility,"raw_log","secret","action_required",true));
+  if(dedupKey!=null)row.put("dedup_key",dedupKey);
   try(var c=DriverManager.getConnection("jdbc:sqlite:"+db);var s=c.prepareStatement("insert into gateway_incident_transition(incident_id,projection) values(?,?)")){s.setString(1,id);s.setString(2,json.writeValueAsString(row));s.executeUpdate();}
  }
  @Test void snapshotSurvivesNewOwnerAndRecoveryAndBindsPrincipal()throws Exception{
@@ -51,6 +55,51 @@ class GatewayIncidentsTest {
  }
  @Test void criticalFilterMustBeAccepted()throws Exception{
   assertThatCode(()->owner.page(json.readTree("{\"severity\":\"CRITICAL\"}"),"tenant:reader")).doesNotThrowAnyException();
+ }
+ @Test void newEpisodeVisibilityAppliesToAllEpisodesAndExistingCursor()throws Exception{
+  emit("episode-1","shared","OPEN","TENANT_OPERATIONAL");
+  emit("episode-1","shared","RESOLVED","TENANT_OPERATIONAL");
+  emit("other","OPEN","TENANT_OPERATIONAL");
+  var first=owner.page(json.readTree("{\"limit\":1}"),"tenant:reader");
+  assertThat(first.get("hasMore")).isEqualTo(true);
+  var query=json.createObjectNode().put("limit",1).put("cursor",(String)first.get("nextCursor"));
+  emit("episode-2","shared","OPEN","RESTRICTED_OPERATIONAL");
+  var hidden=owner.page(query,"tenant:reader");
+  assertThat(hidden.get("items")).isEqualTo(List.of());
+  assertThat(hidden.get("partial")).isEqualTo(true);
+  assertThat(hidden.get("authorization")).isEqualTo("REDACTED");
+  assertThat(hidden.get("hasMore")).isEqualTo(false);
+  var historical=owner.page(json.createObjectNode().put("until",(String)first.get("until")),"tenant:reader");
+  assertThat(json.valueToTree(historical.get("items")).size()).isEqualTo(1);
+  assertThat(historical.get("partial")).isEqualTo(true);
+
+  emit("episode-2","shared","OPEN","TENANT_OPERATIONAL");
+  var restored=owner.page(query,"tenant:reader");
+  var oldItems=json.valueToTree(restored.get("items"));
+  assertThat(oldItems.size()).isEqualTo(1);
+  assertThat(oldItems.get(0).path("incident_id").asText()).isEqualTo("episode-1");
+  assertThat(oldItems.get(0).path("lifecycle_state").asText()).isEqualTo("RESOLVED");
+  assertThat(restored.get("partial")).isEqualTo(false);
+  var current=owner.page(json.readTree("{}"),"tenant:reader");
+  var items=json.valueToTree(current.get("items"));
+  assertThat(items.size()).isEqualTo(3);
+  assertThat(items.get(0).path("incident_id").asText()).isEqualTo("episode-2");
+  assertThat(items.get(0).path("lifecycle_state").asText()).isEqualTo("OPEN");
+  assertThat(items.get(2).path("incident_id").asText()).isEqualTo("episode-1");
+  assertThat(items.get(2).path("lifecycle_state").asText()).isEqualTo("RESOLVED");
+  assertThat(current.get("partial")).isEqualTo(false);
+ }
+ @Test void historicalProjectionWithoutDedupKeyFailsClosed()throws Exception{
+  emit("legacy",null,"RESOLVED","TENANT_OPERATIONAL");
+  emit("other","OPEN","TENANT_OPERATIONAL");
+  var first=owner.page(json.readTree("{\"limit\":1}"),"tenant:reader");
+  emit("legacy","shared","RESOLVED","TENANT_OPERATIONAL");
+  var query=json.createObjectNode().put("limit",1).put("cursor",(String)first.get("nextCursor"));
+  var hidden=owner.page(query,"tenant:reader");
+  assertThat(hidden.get("items")).isEqualTo(List.of());
+  assertThat(hidden.get("partial")).isEqualTo(true);
+  assertThat(hidden.get("authorization")).isEqualTo("REDACTED");
+  assertThat(hidden.get("hasMore")).isEqualTo(false);
  }
  @Test void sameDedupKeyKeepsResolvedAndNewEpisodesDistinct()throws Exception{
   var start=Instant.now().minusSeconds(120);

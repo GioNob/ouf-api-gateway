@@ -284,7 +284,111 @@ def test_existing_schema_and_history_reopen_without_rewriting(tmp_path):
 
     store = SQLiteOperationalIncidentStore(path)
     assert store.db.total_changes == 0
-    assert list(store.db.iterdump()) == before
+    after = list(store.db.iterdump())
+    new_index = "CREATE INDEX gateway_incident_transition_dedup on gateway_incident_transition(json_extract(projection,'$.dedup_key'), sequence_id desc);"
+    assert new_index in after
+    assert [line for line in after if line != new_index] == before
     assert store.get("legacy-episode").lifecycle_state == "RESOLVED"
     assert len(transitions(store)) == 3
+    store.close()
+
+    reopened = SQLiteOperationalIncidentStore(path)
+    assert reopened.db.total_changes == 0
+    assert list(reopened.db.iterdump()) == after
+    reopened.close()
+
+
+def test_episode_visibility_applies_by_dedup_key_to_existing_cursor(tmp_path):
+    clock = Clock()
+    store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite", clock=clock)
+    first = open_fault(store)
+    clock.advance(1)
+    resolved = store.resolve_incident(first.dedup_key, "Recovered.")
+    open_fault(store, dedup_key="other")
+    page = store.incident_page({"limit": 1}, "tenant:reader")
+    assert page["hasMore"] is True
+    cursor_query = {"limit": 1, "cursor": page["nextCursor"]}
+    historical_until = clock().isoformat()
+
+    clock.advance(1)
+    second = open_fault(store, visibility_class="RESTRICTED_OPERATIONAL")
+    assert second.incident_id != first.incident_id
+    hidden = store.incident_page(cursor_query, "tenant:reader")
+    assert hidden["items"] == []
+    assert hidden["partial"] is True
+    assert hidden["authorization"] == "REDACTED"
+    assert hidden["hasMore"] is False
+    historical = store.incident_page({"until": historical_until}, "tenant:reader")
+    assert [item["dedup_key"] for item in historical["items"]] == ["other"]
+    assert historical["partial"] is True
+
+    clock.advance(1)
+    visible = open_fault(store)
+    assert visible.incident_id == second.incident_id
+    restored = store.incident_page(cursor_query, "tenant:reader")
+    assert [item["incident_id"] for item in restored["items"]] == [first.incident_id]
+    assert restored["items"][0]["resolved_at"] == resolved.resolved_at
+    assert restored["partial"] is False
+    current = store.incident_page({"limit": 100}, "tenant:reader")
+    assert {item["incident_id"]: item["lifecycle_state"] for item in current["items"]} == {
+        first.incident_id: "RESOLVED", second.incident_id: "OPEN",
+        page["items"][0]["incident_id"]: "OPEN",
+    }
+    assert current["partial"] is False
+    store.close()
+
+
+def test_historical_projection_without_dedup_key_fails_closed(tmp_path):
+    clock = Clock()
+    store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite", clock=clock)
+    incident = open_fault(store)
+    legacy = json.loads(transitions(store)[0][2])
+    del legacy["dedup_key"]
+    store.db.execute("delete from gateway_incident_transition")
+    store.db.execute("insert into gateway_incident_transition(incident_id,projection) values(?,?)",
+                     (incident.incident_id, json.dumps(legacy)))
+    store.db.commit()
+    open_fault(store, dedup_key="other")
+    page = store.incident_page({"limit": 1}, "tenant:reader")
+
+    # Even a later visible projection of the same incident must not make a
+    # historical projection without a dedup key visible through this cursor.
+    clock.advance(1)
+    open_fault(store)
+    hidden = store.incident_page({"limit": 1, "cursor": page["nextCursor"]}, "tenant:reader")
+    assert hidden["items"] == []
+    assert hidden["partial"] is True
+    assert hidden["authorization"] == "REDACTED"
+    assert hidden["hasMore"] is False
+    store.close()
+
+
+def test_incident_page_uses_dedup_index_with_redundant_history(tmp_path):
+    clock = Clock()
+    store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite", clock=clock)
+    first = open_fault(store)
+    store.resolve_incident(first.dedup_key, "Recovered.")
+    projection = transitions(store)[-1][2]
+    store.db.executemany("insert into gateway_incident_transition(incident_id,projection) values(?,?)",
+                         ((first.incident_id, projection) for _ in range(20_000)))
+    store.db.commit()
+    clock.advance(1)
+    second = open_fault(store)
+    others = [open_fault(store, dedup_key=f"other-{i}") for i in range(3)]
+    assert len(transitions(store)) >= 20_000
+
+    statements = []
+    store.db.set_trace_callback(statements.append)
+    page = store.incident_page({"limit": 100}, "tenant:reader")
+    store.db.set_trace_callback(None)
+    assert {item["incident_id"] for item in page["items"]} == {
+        first.incident_id, second.incident_id, *(item.incident_id for item in others),
+    }
+    assert page["partial"] is False
+    assert page["hasMore"] is False
+    # Explain the actual page SQL, including its correlated visibility lookup,
+    # so an accidental divergence from the indexed expression is detected.
+    page_sql = next(sql for sql in statements if "current_visibility" in sql)
+    plan = [row[3] for row in store.db.execute("explain query plan " + page_sql)]
+    assert any("SEARCH current USING INDEX gateway_incident_transition_dedup" in detail for detail in plan), plan
     store.close()

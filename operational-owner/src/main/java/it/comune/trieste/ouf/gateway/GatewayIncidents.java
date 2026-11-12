@@ -69,7 +69,8 @@ public class GatewayIncidents {
             where sequence_id<=? and julianday(json_extract(projection,'$.last_seen_at'))<=julianday(?) group by incident_id)
           select t.sequence_id,t.projection,
             (select json_extract(current.projection,'$.visibility_class') from gateway_incident_transition current
-              where current.incident_id=t.incident_id order by current.sequence_id desc limit 1) current_visibility
+              where json_extract(current.projection,'$.dedup_key')=json_extract(t.projection,'$.dedup_key')
+              order by current.sequence_id desc limit 1) current_visibility
           from gateway_incident_transition t join latest l on l.seq=t.sequence_id
           where t.sequence_id<? and julianday(json_extract(projection,'$.last_seen_at'))>=julianday(?)
           and (? is null or json_extract(projection,'$.lifecycle_state')=?)
