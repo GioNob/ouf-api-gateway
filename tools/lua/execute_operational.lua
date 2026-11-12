@@ -59,5 +59,29 @@ if OWNER == 'mcp' then
     ngx.req.set_header('X-OUF-Delegation', proof)
     ngx.req.set_header('X-OUF-Delegation-Verified', 'mcp-operational-aggregate-v1')
 end
-ngx.req.set_body_data(cjson.encode(e.Arguments))
+-- BEGIN PRODUCER RECEIPT
+local args = cjson.encode(e.Arguments)
+if RECEIPT_KEY_ENV then
+    local key = os.getenv(RECEIPT_KEY_ENV)
+    if type(key) ~= 'string' or #key ~= 64 or key:find('[^0-9a-fA-F]') then return fail(503) end
+    if not args then return fail(503) end
+    local digest = require('resty.openssl.digest').new('sha256')
+    local hash = digest and digest:final(args)
+    if not hash then return fail(503) end
+    local receipt = {v=1,purpose='operational-summary-owner',method='POST',
+        path='/api/internal/v1/'..OWNER..'/operations/'..CAPABILITY:match('%.([^.]+)$'),
+        capability=CAPABILITY,bodyHash=require('resty.string').to_hex(hash),
+        iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,workload=MCP_WORKLOAD,
+        subject=p.principal,tenant=p.tenant,client=p.client,acr=p.acr,roles=roles,scope=p.scope,
+        decisionRef=e.AuthorizationDecisionRef}
+    local json = cjson.encode(receipt)
+    if not json then return fail(503) end
+    local encoded = encode64(json)
+    local hmac = require('resty.openssl.hmac').new(key, 'sha256')
+    local signature = hmac and hmac:final('ouf-operational-owner-v1.'..encoded)
+    if not signature then return fail(503) end
+    ngx.req.set_header('X-OUF-Operational-Receipt',encoded..'.'..encode64(signature))
+end
+ngx.req.set_body_data(args)
+-- END PRODUCER RECEIPT
 ngx.req.set_header('Content-Type','application/json')

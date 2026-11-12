@@ -34,6 +34,23 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         if expected is None or operational_binding['owner'] != expected[0] or operational_binding['scope'] != expected[4]:
             raise ValueError('operational binding is not approved')
         values.update(CAPABILITY=cap,OWNER=expected[0],REQUIRED_SCOPE=expected[4])
+        if owner_key_env is not None:
+            if (expected[0] not in ('ingestion', 'gateway') or not isinstance(owner_key_env, str)
+                or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', owner_key_env)):
+                raise ValueError('invalid producer receipt key environment name or owner')
+            if owner_key_env == key_env:
+                raise ValueError('producer receipt key environment must differ from delegation key')
+            # Append after REQUIRED_SCOPE; preserve the order of all existing constants.
+            values['RECEIPT_KEY_ENV'] = owner_key_env
+        source = (ROOT / 'execute_operational.lua').read_text()
+        before, optional = source.split('-- BEGIN PRODUCER RECEIPT\n', 1)
+        receipt, after = optional.split('-- END PRODUCER RECEIPT\n', 1)
+        # Omitted opt-in must preserve even the original generated Lua bytes.
+        source = before + (receipt if owner_key_env is not None else
+                           'ngx.req.set_body_data(cjson.encode(e.Arguments))\n') + after
+        constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
+        return ('return function(conf, ctx)\n' + constants + '\n' +
+                (ROOT / 'delegation.lua').read_text() + '\n' + source + '\nend')
     constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
     if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read'):
         raise ValueError('invalid function')

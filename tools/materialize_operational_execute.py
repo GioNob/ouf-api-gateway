@@ -3,6 +3,7 @@ import argparse
 import copy
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from tools.delegation_functions import function
@@ -80,7 +81,34 @@ def dispatch_schema(capability):
         ]
     return schema
 
-def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None):
+def producer_receipt_keys(settings, delegation_key_env):
+    """Normalize a map (or owner/name pairs, preserving CLI duplicates)."""
+    if settings is None:
+        return {}
+    if isinstance(settings, Mapping):
+        settings = settings.items()
+    elif not isinstance(settings, (list, tuple)):
+        raise ValueError('producer receipt keys must be an owner/environment map')
+    result = {}
+    for entry in settings:
+        if not isinstance(entry, (tuple, list)) or len(entry) != 2:
+            raise ValueError('producer receipt key requires owner/environment pair')
+        owner, env = entry
+        if not isinstance(owner, str) or owner not in ('ingestion', 'gateway'):
+            raise ValueError('invalid producer receipt owner: ' + str(owner))
+        if owner in result:
+            raise ValueError('duplicate producer receipt owner: ' + owner)
+        if not isinstance(env, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', env):
+            raise ValueError('invalid producer receipt key environment name: ' + owner)
+        if env == delegation_key_env:
+            raise ValueError('producer receipt key environment must differ from delegation key')
+        result[owner] = env
+    return result
+
+
+def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None,
+                producer_receipt_key_envs=None):
+    receipt_keys = producer_receipt_keys(producer_receipt_key_envs, delegation_key_env)
     if owner_key_env is None:
         result = status_runtime(runtime, oidc_secret_ref, delegation_key_env)
     else:
@@ -110,6 +138,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None
         route['labels']['ouf-mediation'] = 'operational-execute-v1'
         route['plugins']['request-validation']['body_schema'] = dispatch_schema(capability)
         route['plugins']['serverless-post-function']['functions'] = [function('execute_operational', installation, delegation_key_env,
+            owner_key_env=receipt_keys.get(owner),
             operational_binding={'capability': capability, 'owner': owner, 'scope': scope})]
         route['plugins']['proxy-rewrite']['uri'] = path
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {f'{host}:{port}': 1},
@@ -124,7 +153,15 @@ if __name__ == '__main__':
     parser.add_argument('--oidc-client-secret-ref', required=True)
     parser.add_argument('--delegation-key-env', required=True)
     parser.add_argument('--owner-key-env')
+    parser.add_argument('--producer-receipt-key-env', action='append', default=[], metavar='OWNER=ENV',
+                        help='producer receipt key environment name; repeat for each producer')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    result = materialize(json.loads(args.runtime.read_text()), args.oidc_client_secret_ref, args.delegation_key_env, args.owner_key_env)
+    try:
+        receipt_keys = producer_receipt_keys(
+            [entry.split('=', 1) for entry in args.producer_receipt_key_env], args.delegation_key_env)
+        result = materialize(json.loads(args.runtime.read_text()), args.oidc_client_secret_ref,
+                             args.delegation_key_env, args.owner_key_env, receipt_keys)
+    except ValueError as exc:
+        parser.error(str(exc))
     args.output.write_text(json.dumps(result, indent=2) + '\n')

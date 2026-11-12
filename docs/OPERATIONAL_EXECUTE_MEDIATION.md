@@ -14,6 +14,16 @@ Qualification runs actual generated Lua with changed principal, tenant, workload
 
 This is a reviewed materialization profile, not a target deployment or a new authorization grant. The MCP HTTP client and aggregate owner must select these explicit routes and consume the verified context; runtime composition budgets, local Gateway host/SDK, network isolation, target custody, HA and operator delivery checkpoint still need their own evidence. No production keys, email, VPS restart/migration, R9/R10 replay or release acceptance is performed here.
 
+## Optional producer receipts
+
+`materialize(..., producer_receipt_key_envs={owner: environment_name})` opts producer owners into signed `X-OUF-Operational-Receipt` headers for both summary and incidents. The CLI equivalent is repeatable `--producer-receipt-key-env OWNER=ENV`. Only `ingestion` and `gateway` are allowed; duplicate owners (including CLI repetitions), invalid names (`[A-Z][A-Z0-9_]{0,127}`), and collision with the delegation key environment name fail generation. The API also accepts owner/name pairs to preserve and reject duplicates. Installation tooling supplies the names from its own producer key configuration and exposes the corresponding variables to APISIX; the materializer neither chooses installation names nor reads secrets.
+
+For selected routes, the renderer appends exactly one `RECEIPT_KEY_ENV` constant immediately after `REQUIRED_SCOPE`, preserving existing constant order. The marked producer receipt block in `execute_operational.lua` is included only with that constant; without opt-in the renderer emits the original body-forwarding line, preserving all six original route bytes. Other owners, route metadata, schemas, upstreams and plugins remain unchanged.
+
+The contract is `base64url(json).base64url(HMAC-SHA256(key, "ouf-operational-owner-v1." + base64url(json)))`, without base64 padding. The 64 hexadecimal characters are the ASCII key bytes, not hex-decoded bytes; missing/malformed keys return 503. Fields are `v=1`, `purpose="operational-summary-owner"`, `method="POST"`, fixed owner `path`, `capability`, `tenant`, `issuer`, `audience`, `workload`, `bodyHash`, `subject`, original `client`, `acr`, space-separated `roles` (possibly empty), `scope`, envelope `decisionRef`, `iat=now`, and `exp=min(delegation.exp, now+30)`. Identity comes from the verified delegation and `workload` from the configured MCP identity. Arguments are encoded once: those exact bytes are hashed and passed to `ngx.req.set_body_data`. The receipt is set after stripping client `X-OUF-*`; producers never receive the delegation proof.
+
+`81fdf7a:operational-owner/.../receipt/SummaryReceiptFilter.java` filters only summary. Its extension in `24eba09` filters summary and incidents: incidents retains the same purpose, domain and fields, but uses `/api/internal/v1/{owner}/operations/incidents`, `ouf.{owner}.operations.incidents` and required scope `operations.incident.read` (summary uses `operations.status.read`). No separate incident receipt purpose is defined. These opt-ins do not imply deployment changes or that every installed producer requires receipts. Tests execute actual generated Lua with synthetic environment keys and independently verify both historical contracts; real APISIX/owner deployment qualification remains separate.
+
 
 ## Global incident cursor opt-in
 
