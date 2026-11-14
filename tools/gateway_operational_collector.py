@@ -8,7 +8,10 @@ are never persisted in the operational incident store.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
+import stat
 import subprocess
 import threading
 import time
@@ -174,6 +177,146 @@ def etcd_probe(args) -> int:
         store.close()
 
 
+AUTHORITY_STATUS_SCHEMA = "ouf.semantic-mandate-renewal-status.v1"
+AUTHORITY_STATUS_FIELDS = {"schema", "checkedAt", "outcome", "reasonCode", "ledgers", "versionedBase", "openIncident"}
+AUTHORITY_PREFIX = "authority:mandates:"
+AUTHORITY_ENDPOINT = "authority://mandates/renewal"
+AUTHORITY_STATUS_LIMIT = 16384
+AUTHORITY_SILENT_SECONDS = 172800
+AUTHORITY_NEAR_EXPIRY_SECONDS = 1296000
+AUTHORITY_CLOCK_SKEW_SECONDS = 300
+PUBLIC_CODE = re.compile(r"[A-Z0-9_]{1,80}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
+AUTHORITY_RULES = {
+    "blocked": ("AUTHORITY_MANDATE_RENEWAL_BLOCKED", "CRITICAL",
+                "Automatic authority mandate renewal is blocked; mandates will expire without intervention.",
+                "Automatic authority mandate renewal is no longer blocked."),
+    "silent": ("AUTHORITY_MANDATE_RENEWAL_SILENT", "CRITICAL",
+               "The authority mandate renewal job has not reported recently.",
+               "The authority mandate renewal job is reporting again."),
+    "near-expiry": ("AUTHORITY_MANDATE_NEAR_EXPIRY", "CRITICAL",
+                    "An authority mandate expires soon and has not been renewed.",
+                    "Authority mandates are no longer close to expiry."),
+    "status-unavailable": ("AUTHORITY_MANDATE_STATUS_UNAVAILABLE", "ERROR",
+                           "The authority mandate renewal status cannot be verified.",
+                           "The authority mandate renewal status is verifiable again."),
+}
+
+
+class AuthorityStatusUnavailable(Exception):
+    """Carries only a public code; never status contents."""
+
+
+def _epoch(value) -> bool:
+    return type(value) is int and 0 <= value < 2 ** 62
+
+
+def read_authority_status(path: Path, *, owner: tuple[int, int] = (0, 0)) -> dict:
+    """Read the renewal job status with root custody and an exact closed schema."""
+    unreadable = "AUTHORITY_MANDATE_STATUS_UNREADABLE"
+
+    def require(condition):
+        if not condition:
+            raise AuthorityStatusUnavailable(unreadable)
+
+    path = Path(path)
+    require(path.is_absolute() and ".." not in path.parts)
+    try:
+        for parent in path.parents:
+            info = parent.lstat()
+            require(stat.S_ISDIR(info.st_mode) and (info.st_uid in (0, owner[0])) and not info.st_mode & 0o022)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            raise AuthorityStatusUnavailable("AUTHORITY_MANDATE_STATUS_MISSING") from None
+        try:
+            info = os.fstat(fd)
+            require(stat.S_ISREG(info.st_mode) and (info.st_uid, info.st_gid) == owner
+                    and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+                    and 0 < info.st_size <= AUTHORITY_STATUS_LIMIT)
+            raw = os.read(fd, AUTHORITY_STATUS_LIMIT + 1)
+            require(len(raw) == info.st_size)
+        finally:
+            os.close(fd)
+    except OSError:
+        raise AuthorityStatusUnavailable(unreadable) from None
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result)
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(raw.decode("ascii"), object_pairs_hook=unique,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+    except (ValueError, UnicodeError, RecursionError):
+        raise AuthorityStatusUnavailable(unreadable) from None
+    require(type(value) is dict and set(value) == AUTHORITY_STATUS_FIELDS
+            and value["schema"] == AUTHORITY_STATUS_SCHEMA and _epoch(value["checkedAt"])
+            and value["outcome"] in ("NOOP", "RENEWED", "BLOCKED")
+            and (value["reasonCode"] is None or type(value["reasonCode"]) is str
+                 and PUBLIC_CODE.fullmatch(value["reasonCode"]) is not None)
+            and type(value["openIncident"]) is bool)
+    ledgers = value["ledgers"]
+    require(type(ledgers) is dict and set(ledgers) == {"b1b2", "base"})
+    for ledger in ledgers.values():
+        require(type(ledger) is dict and set(ledger) == {"generation", "headSha256", "earliestExpiresAt"}
+                and type(ledger["generation"]) is int and 0 <= ledger["generation"] <= 512
+                and (ledger["headSha256"] is None if ledger["generation"] == 0 else
+                     type(ledger["headSha256"]) is str and SHA256.fullmatch(ledger["headSha256"]) is not None)
+                and _epoch(ledger["earliestExpiresAt"]))
+    versioned = value["versionedBase"]
+    require(versioned is None or type(versioned) is dict and set(versioned) == {"generation", "sha256"}
+            and type(versioned["generation"]) is int and 1 <= versioned["generation"] <= 512
+            and type(versioned["sha256"]) is str and SHA256.fullmatch(versioned["sha256"]) is not None)
+    require((value["outcome"] == "BLOCKED") == (value["reasonCode"] is not None))
+    return value
+
+
+def authority_mandates_probe(args, *, now: float | None = None, owner: tuple[int, int] = (0, 0)) -> int:
+    """Mirror the renewal job status into Gateway incidents; 0 only when none is open."""
+    store = SQLiteOperationalIncidentStore(args.store)
+    now = time.time() if now is None else now
+
+    def raise_rule(rule, code):
+        event_type, severity, summary, _ = AUTHORITY_RULES[rule]
+        store.open_incident(dedup_key=AUTHORITY_PREFIX + rule, event_type=event_type, severity=severity,
+                            error_code=code, impact_summary=summary, endpoint_ref=AUTHORITY_ENDPOINT,
+                            action_required=True, visibility_class="TENANT_OPERATIONAL")
+
+    def clear_rule(rule):
+        store.resolve_incident(AUTHORITY_PREFIX + rule, AUTHORITY_RULES[rule][3])
+
+    try:
+        try:
+            status = read_authority_status(args.status, owner=owner)
+            if status["checkedAt"] > now + AUTHORITY_CLOCK_SKEW_SECONDS:
+                raise AuthorityStatusUnavailable("AUTHORITY_MANDATE_STATUS_UNREADABLE")
+        except AuthorityStatusUnavailable as error:
+            # Without a verifiable status the other rules are unknown: keep their state.
+            raise_rule("status-unavailable", str(error))
+        else:
+            clear_rule("status-unavailable")
+            if status["outcome"] == "BLOCKED":
+                raise_rule("blocked", status["reasonCode"])
+            else:
+                clear_rule("blocked")
+            if now - status["checkedAt"] > AUTHORITY_SILENT_SECONDS:
+                raise_rule("silent", "STATUS_STALE")
+            else:
+                clear_rule("silent")
+            earliest = min(ledger["earliestExpiresAt"] for ledger in status["ledgers"].values())
+            if earliest - now < AUTHORITY_NEAR_EXPIRY_SECONDS:
+                raise_rule("near-expiry", "MANDATE_NEAR_EXPIRY")
+            else:
+                clear_rule("near-expiry")
+        return 2 if store.active_incident_keys(AUTHORITY_PREFIX) else 0
+    finally:
+        store.close()
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="mode", required=True)
@@ -192,6 +335,11 @@ def parser() -> argparse.ArgumentParser:
     e.add_argument("--container", default="ouf-etcd")
     e.add_argument("--timeout-seconds", type=int, default=8)
     e.set_defaults(run=etcd_probe)
+
+    m = sub.add_parser("authority-mandates")
+    m.add_argument("--store", type=Path, required=True)
+    m.add_argument("--status", type=Path, required=True)
+    m.set_defaults(run=authority_mandates_probe)
     return p
 
 

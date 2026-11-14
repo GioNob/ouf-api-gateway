@@ -194,3 +194,198 @@ def test_etcd_failure_success_failure_produces_two_episodes(probe):
     assert json.loads(after[1][2])["resolved_at"] == resolved.resolved_at
     assert after[-1][1] == second.incident_id
     store.close()
+
+
+# --- authority-mandates (sprint-01 task-31, D-030) ---------------------------
+
+import os
+import shutil
+import sys
+import uuid
+from pathlib import Path
+
+from tools.gateway_operational_collector import authority_mandates_probe, read_authority_status
+
+NOW = 1795000000
+DAY = 86400
+LINUX = sys.platform.startswith("linux")
+needs_posix = pytest.mark.skipif(not LINUX, reason="POSIX custody semantics")
+SECRET = "SECRET-STATUS-CONTENT"
+
+
+def mandate_status(**changes):
+    value = {"schema": "ouf.semantic-mandate-renewal-status.v1", "checkedAt": NOW - 60, "outcome": "NOOP",
+             "reasonCode": None, "openIncident": False, "versionedBase": {"generation": 1, "sha256": "a" * 64},
+             "ledgers": {"b1b2": {"generation": 1, "headSha256": "b" * 64, "earliestExpiresAt": NOW + 60 * DAY},
+                         "base": {"generation": 1, "headSha256": "c" * 64, "earliestExpiresAt": NOW + 60 * DAY}}}
+    value.update(changes)
+    return value
+
+
+@pytest.fixture
+def authority(tmp_path):
+    # Not under /tmp: a world-writable ancestor is rightly refused.
+    root = Path.home() / ("ouf-authority-status-" + uuid.uuid4().hex)
+    root.mkdir(mode=0o700)
+    status = root / "status.json"
+    owner = (os.getuid(), os.getgid()) if LINUX else (0, 0)
+
+    def write(value, mode=0o600):
+        raw = value if isinstance(value, bytes) else json.dumps(value, sort_keys=True).encode()
+        status.write_bytes(raw)
+        status.chmod(mode)
+
+    def run(now=NOW):
+        args = SimpleNamespace(store=tmp_path / "gateway.sqlite", status=status)
+        return authority_mandates_probe(args, now=now, owner=owner)
+
+    def open_incidents():
+        store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite")
+        try:
+            return {i.dedup_key: i for i in store.list_incidents(lifecycle_state="OPEN")}
+        finally:
+            store.close()
+
+    yield SimpleNamespace(root=root, status=status, write=write, run=run, open=open_incidents, owner=owner)
+    root.chmod(0o700)
+    shutil.rmtree(root, ignore_errors=True)
+
+
+@needs_posix
+def test_authority_noop_and_renewed_open_nothing(authority):
+    for outcome in ("NOOP", "RENEWED"):
+        authority.write(mandate_status(outcome=outcome))
+        assert authority.run() == 0
+    assert authority.open() == {}
+
+
+@needs_posix
+def test_authority_blocked_opens_with_reason_and_noop_resolves(authority):
+    authority.write(mandate_status(outcome="BLOCKED", reasonCode="MANDATE_TEMPORARY_ENTRY_PRESENT", openIncident=True))
+    assert authority.run() == 2
+    incident = authority.open()["authority:mandates:blocked"]
+    assert (incident.event_type, incident.severity, incident.error_code) == (
+        "AUTHORITY_MANDATE_RENEWAL_BLOCKED", "CRITICAL", "MANDATE_TEMPORARY_ENTRY_PRESENT")
+    assert (incident.endpoint_ref, incident.visibility_class, incident.action_required) == (
+        "authority://mandates/renewal", "TENANT_OPERATIONAL", True)
+    assert authority.run() == 2
+    assert authority.open()["authority:mandates:blocked"].occurrence_count == 2
+    authority.write(mandate_status())
+    assert authority.run() == 0
+    assert authority.open() == {}
+
+
+@needs_posix
+def test_authority_stale_status_is_silent(authority):
+    authority.write(mandate_status(checkedAt=NOW - 2 * DAY - 1))
+    assert authority.run() == 2
+    assert authority.open()["authority:mandates:silent"].error_code == "STATUS_STALE"
+    authority.write(mandate_status(checkedAt=NOW - 2 * DAY))
+    assert authority.run() == 0
+
+
+@needs_posix
+def test_authority_near_expiry(authority):
+    ledgers = mandate_status()["ledgers"]
+    ledgers["base"]["earliestExpiresAt"] = NOW + 15 * DAY - 1
+    authority.write(mandate_status(ledgers=ledgers))
+    assert authority.run() == 2
+    assert authority.open()["authority:mandates:near-expiry"].error_code == "MANDATE_NEAR_EXPIRY"
+    ledgers["base"]["earliestExpiresAt"] = NOW + 15 * DAY
+    authority.write(mandate_status(ledgers=ledgers))
+    assert authority.run() == 0
+
+
+@needs_posix
+def test_authority_missing_status(authority):
+    assert authority.run() == 2
+    incident = authority.open()["authority:mandates:status-unavailable"]
+    assert (incident.severity, incident.error_code) == ("ERROR", "AUTHORITY_MANDATE_STATUS_MISSING")
+
+
+@needs_posix
+def test_authority_unavailable_keeps_other_rules_and_recovers(authority):
+    authority.write(mandate_status(outcome="BLOCKED", reasonCode="PRECONDITION_CUSTODY_INTACT_UNMET"))
+    assert authority.run() == 2
+    authority.status.unlink()
+    assert authority.run() == 2
+    assert set(authority.open()) == {"authority:mandates:blocked", "authority:mandates:status-unavailable"}
+    authority.write(mandate_status())
+    assert authority.run() == 0
+    assert authority.open() == {}
+
+
+def malformed():
+    good = mandate_status()
+    ledgers = good["ledgers"]
+    cases = [json.dumps(good).encode()[:-1], b'{"schema":"a","schema":"a"}', b"[]", b'{"a":NaN}',
+             json.dumps(good | {"extra": 1}).encode(), json.dumps(good | {"schema": SECRET}).encode(),
+             json.dumps(good | {"outcome": "UNKNOWN"}).encode(),
+             json.dumps(good | {"outcome": "BLOCKED", "reasonCode": SECRET.lower()}).encode(),
+             json.dumps(good | {"outcome": "BLOCKED"}).encode(),
+             json.dumps(good | {"reasonCode": "X"}).encode(),
+             json.dumps(good | {"checkedAt": True}).encode(),
+             json.dumps(good | {"checkedAt": NOW + 301}).encode(),
+             json.dumps(good | {"openIncident": 0}).encode(),
+             json.dumps(good | {"versionedBase": {"generation": 0, "sha256": "a" * 64}}).encode(),
+             json.dumps(good | {"ledgers": {"b1b2": ledgers["b1b2"]}}).encode(),
+             json.dumps(good | {"ledgers": {**ledgers, "b1b2": {**ledgers["b1b2"], "headSha256": None}}}).encode(),
+             b"x" * 16385]
+    for key in good:
+        value = dict(good)
+        del value[key]
+        cases.append(json.dumps(value).encode())
+    return cases
+
+
+@needs_posix
+@pytest.mark.parametrize("raw", malformed())
+def test_authority_malformed_status_is_unreadable_and_never_echoed(authority, raw, capsys):
+    authority.write(raw)
+    assert authority.run() == 2
+    incident = authority.open()["authority:mandates:status-unavailable"]
+    assert incident.error_code == "AUTHORITY_MANDATE_STATUS_UNREADABLE"
+    for text in (incident.impact_summary, incident.error_code, *capsys.readouterr()):
+        assert SECRET not in text and SECRET.lower() not in text
+
+
+@needs_posix
+@pytest.mark.parametrize("defect", ["mode", "symlink", "hardlink", "directory", "owner", "ancestor"])
+def test_authority_status_custody_defects(authority, defect):
+    authority.write(mandate_status())
+    owner = authority.owner
+    if defect == "mode":
+        authority.status.chmod(0o644)
+    elif defect == "symlink":
+        target = authority.root / "real.json"
+        authority.status.rename(target)
+        authority.status.symlink_to(target)
+    elif defect == "hardlink":
+        os.link(authority.status, authority.root / "second.json")
+    elif defect == "directory":
+        authority.status.unlink()
+        authority.status.mkdir(mode=0o700)
+    elif defect == "owner":
+        owner = (owner[0] + 1, owner[1])
+    else:
+        authority.root.chmod(0o777)
+    with pytest.raises(gateway_operational_collector.AuthorityStatusUnavailable) as caught:
+        read_authority_status(authority.status, owner=owner)
+    assert str(caught.value) == "AUTHORITY_MANDATE_STATUS_UNREADABLE"
+
+
+@needs_posix
+def test_authority_default_owner_is_root(authority):
+    authority.write(mandate_status())
+    if os.getuid() != 0:
+        with pytest.raises(gateway_operational_collector.AuthorityStatusUnavailable):
+            read_authority_status(authority.status)
+    else:
+        assert read_authority_status(authority.status)["outcome"] == "NOOP"
+
+
+def test_authority_cli_mode_is_registered():
+    args = gateway_operational_collector.parser().parse_args(
+        ["authority-mandates", "--store", "/var/lib/x.sqlite", "--status", "/var/lib/y/status.json"])
+    assert args.run is authority_mandates_probe
+    assert args.status == Path("/var/lib/y/status.json")
