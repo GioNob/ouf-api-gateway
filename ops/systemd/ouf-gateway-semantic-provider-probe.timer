@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OUF Gateway semantic provider R3 health probe
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Unit=ouf-gateway-semantic-provider-probe.service
+
+[Install]
+WantedBy=timers.target

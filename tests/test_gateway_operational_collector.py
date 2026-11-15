@@ -223,35 +223,12 @@ def mandate_status(**changes):
 
 
 @pytest.fixture
-def authority(tmp_path):
-    # Not under /tmp: a world-writable ancestor is rightly refused.
-    root = Path.home() / ("ouf-authority-status-" + uuid.uuid4().hex)
-    root.mkdir(mode=0o700)
-    status = root / "status.json"
-    owner = (os.getuid(), os.getgid()) if LINUX else (0, 0)
-
-    def write(value, mode=0o600):
-        raw = value if isinstance(value, bytes) else json.dumps(value, sort_keys=True).encode()
-        status.write_bytes(raw)
-        status.chmod(mode)
-
-    def run(now=NOW):
-        args = SimpleNamespace(store=tmp_path / "gateway.sqlite", status=status)
-        return authority_mandates_probe(args, now=now, owner=owner)
-
-    def open_incidents():
-        store = SQLiteOperationalIncidentStore(tmp_path / "gateway.sqlite")
-        try:
-            return {i.dedup_key: i for i in store.list_incidents(lifecycle_state="OPEN")}
-        finally:
-            store.close()
-
-    yield SimpleNamespace(root=root, status=status, write=write, run=run, open=open_incidents, owner=owner)
-    root.chmod(0o700)
-    shutil.rmtree(root, ignore_errors=True)
+def authority(snapshots):
+    return SimpleNamespace(root=snapshots.root, status=snapshots.status, write=snapshots.write,
+                           run=lambda now=NOW: snapshots.run("authority", now),
+                           open=snapshots.items, owner=snapshots.owner)
 
 
-@needs_posix
 def test_authority_noop_and_renewed_open_nothing(authority):
     for outcome in ("NOOP", "RENEWED"):
         authority.write(mandate_status(outcome=outcome))
@@ -259,7 +236,6 @@ def test_authority_noop_and_renewed_open_nothing(authority):
     assert authority.open() == {}
 
 
-@needs_posix
 def test_authority_blocked_opens_with_reason_and_noop_resolves(authority):
     authority.write(mandate_status(outcome="BLOCKED", reasonCode="MANDATE_TEMPORARY_ENTRY_PRESENT", openIncident=True))
     assert authority.run() == 2
@@ -275,7 +251,6 @@ def test_authority_blocked_opens_with_reason_and_noop_resolves(authority):
     assert authority.open() == {}
 
 
-@needs_posix
 def test_authority_stale_status_is_silent(authority):
     authority.write(mandate_status(checkedAt=NOW - 2 * DAY - 1))
     assert authority.run() == 2
@@ -284,7 +259,6 @@ def test_authority_stale_status_is_silent(authority):
     assert authority.run() == 0
 
 
-@needs_posix
 def test_authority_near_expiry(authority):
     ledgers = mandate_status()["ledgers"]
     ledgers["base"]["earliestExpiresAt"] = NOW + 15 * DAY - 1
@@ -293,17 +267,16 @@ def test_authority_near_expiry(authority):
     assert authority.open()["authority:mandates:near-expiry"].error_code == "MANDATE_NEAR_EXPIRY"
     ledgers["base"]["earliestExpiresAt"] = NOW + 15 * DAY
     authority.write(mandate_status(ledgers=ledgers))
-    assert authority.run() == 0
+    assert authority.run() == 2
+    assert set(authority.open()) == {"authority:mandates:overdue"}
 
 
-@needs_posix
 def test_authority_missing_status(authority):
     assert authority.run() == 2
     incident = authority.open()["authority:mandates:status-unavailable"]
     assert (incident.severity, incident.error_code) == ("ERROR", "AUTHORITY_MANDATE_STATUS_MISSING")
 
 
-@needs_posix
 def test_authority_unavailable_keeps_other_rules_and_recovers(authority):
     authority.write(mandate_status(outcome="BLOCKED", reasonCode="PRECONDITION_CUSTODY_INTACT_UNMET"))
     assert authority.run() == 2
@@ -338,7 +311,6 @@ def malformed():
     return cases
 
 
-@needs_posix
 @pytest.mark.parametrize("raw", malformed())
 def test_authority_malformed_status_is_unreadable_and_never_echoed(authority, raw, capsys):
     authority.write(raw)
@@ -389,3 +361,688 @@ def test_authority_cli_mode_is_registered():
         ["authority-mandates", "--store", "/var/lib/x.sqlite", "--status", "/var/lib/y/status.json"])
     assert args.run is authority_mandates_probe
     assert args.status == Path("/var/lib/y/status.json")
+
+
+# --- semantic-provider / trust-windows (sprint-01 task-47, D-039) -----------
+
+import stat
+
+
+def semantic_status():
+    def role():
+        return dict(epoch=3, state="READY", failure=None, live=True, previousState="CREATED",
+                    dockerRunning=True, denials=[])
+
+    return {"schema": "ouf.semantic-provider-r3-health.v1", "checkedAt": NOW,
+            "head": {"decision": "OPERATE", "sequence": 5},
+            "supervisor": {"unitActive": True, "state": "ACTIVE", "reason": None,
+                           "updatedAt": NOW, "activationsLastHour": 1},
+            "lease": {"state": "LEASE_READY", "leaseAuthorized": True},
+            "roles": {"adapter": role(), "southbound": role()}, "readError": None}
+
+
+def trust_status():
+    return {"schema": "ouf.trust-window-status.v1", "checkedAt": NOW,
+            "windows": [{"ref": "policy-a", "policySha256": "a" * 64,
+                         "expiresAt": NOW + 60 * DAY, "liveConsumers": ["consumer-a"]}]}
+
+
+def denial(reason="COHORT_NOT_READY", mode="prepare", at=NOW):
+    return {"mode": mode, "reason": reason, "at": at}
+
+
+@pytest.fixture
+def snapshots(tmp_path, monkeypatch):
+    """Real files/SQLite; Windows emulates only metadata/flags missing from POSIX.
+
+    On Linux the same cases exercise the complete native custody reader.
+    Separate needs_posix cases below verify real filesystem custody defects.
+    """
+    root = Path.cwd() / (".ouf-status-" + uuid.uuid4().hex)
+    root.mkdir(mode=0o700)
+    status = root / "status.json"
+    owner = (os.getuid(), os.getgid()) if LINUX else (0, 0)
+    args = SimpleNamespace(store=tmp_path / "gateway.sqlite", status=status)
+    clock = Clock()
+    clock.now = datetime.fromtimestamp(NOW, timezone.utc)
+    monkeypatch.setattr(gateway_operational_collector, "SQLiteOperationalIncidentStore",
+                        lambda path: SQLiteOperationalIncidentStore(path, clock=clock))
+    if not LINUX:
+        # Do not replace JSON parsing, reads, SQLite or any rule evaluation.
+        original_lstat = Path.lstat
+        parents = set(status.parents)
+
+        def lstat(path, *a, **kw):
+            if path in parents:
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0)
+            return original_lstat(path, *a, **kw)
+
+        def fstat(fd):
+            info = os.fstat(fd)
+            return SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=0, st_gid=0,
+                                   st_nlink=1, st_size=info.st_size)
+
+        monkeypatch.setattr(Path, "lstat", lstat)
+        monkeypatch.setattr(gateway_operational_collector, "os", SimpleNamespace(
+            O_RDONLY=os.O_RDONLY | os.O_BINARY, O_NOFOLLOW=0, O_NONBLOCK=0,
+            open=os.open, fstat=fstat, read=os.read, close=os.close))
+
+    def write(value):
+        status.write_bytes(value if isinstance(value, bytes) else json.dumps(value).encode("ascii"))
+        status.chmod(0o600)
+
+    def run(mode="semantic", now=NOW):
+        clock.now = datetime.fromtimestamp(now, timezone.utc)
+        probe = {"semantic": gateway_operational_collector.semantic_provider_probe,
+                 "trust": gateway_operational_collector.trust_windows_probe,
+                 "authority": authority_mandates_probe}[mode]
+        return probe(args, now=now, owner=owner)
+
+    def items(active=True):
+        store = SQLiteOperationalIncidentStore(args.store)
+        try:
+            return {item.dedup_key: item for item in store.list_incidents(
+                lifecycle_state="OPEN" if active else None, limit=200)}
+        finally:
+            store.close()
+
+    yield SimpleNamespace(root=root, status=status, owner=owner, write=write, run=run, items=items, args=args)
+    root.chmod(0o700)
+    shutil.rmtree(root)
+
+
+def test_semantic_healthy_and_nullable_schema(snapshots):
+    value = semantic_status()
+    snapshots.write(value)
+    assert snapshots.run() == 0
+    value["head"]["sequence"] = None
+    value["lease"]["leaseAuthorized"] = None
+    for field in ("reason", "updatedAt", "activationsLastHour"):
+        value["supervisor"][field] = None
+    for role in value["roles"].values():
+        for field in ("epoch", "state", "failure", "previousState", "dockerRunning"):
+            role[field] = None
+    snapshots.write(value)
+    assert snapshots.run() == 0
+
+
+@pytest.mark.parametrize("cause", ["lease", "supervisor", "adapter", "southbound"])
+def test_semantic_down_each_cause_and_recovery(snapshots, cause):
+    value = semantic_status()
+    if cause == "lease":
+        value["lease"]["state"] = None
+    elif cause == "supervisor":
+        value["supervisor"]["state"] = None
+    else:
+        value["roles"][cause]["live"] = False
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    item = snapshots.items()["semantic:r3:down"]
+    assert (item.event_type, item.severity, item.error_code) == ("SEMANTIC_PROVIDER_R3_DOWN", "WARNING", "R3_NOT_READY")
+    assert (item.endpoint_ref, item.visibility_class, item.action_required) == (
+        "semantic://provider/r3", "TENANT_OPERATIONAL", True)
+    snapshots.write(semantic_status())
+    assert snapshots.run() == 0
+    assert snapshots.items(False)[item.dedup_key].lifecycle_state == "RESOLVED"
+
+
+def test_semantic_down_escalation_uses_persisted_episode_and_resets(snapshots):
+    value = semantic_status()
+    value["roles"]["adapter"]["live"] = False
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    first = snapshots.items()["semantic:r3:down"]
+    for elapsed, severity in ((900, "WARNING"), (901, "CRITICAL"), (902, "CRITICAL")):
+        value["checkedAt"] = value["supervisor"]["updatedAt"] = NOW + elapsed
+        snapshots.write(value)
+        assert snapshots.run(now=NOW + elapsed) == 2
+        item = snapshots.items()[first.dedup_key]
+        assert (item.incident_id, item.first_seen_at, item.severity) == (first.incident_id, first.first_seen_at, severity)
+    snapshots.write(semantic_status())
+    assert snapshots.run(now=NOW + 903) == 2  # supervisor timestamp is now stale
+    value = semantic_status()
+    value["checkedAt"] = value["supervisor"]["updatedAt"] = NOW + 904
+    snapshots.write(value)
+    assert snapshots.run(now=NOW + 904) == 0
+    value["roles"]["adapter"]["live"] = False
+    snapshots.write(value)
+    assert snapshots.run(now=NOW + 905) == 2
+    second = snapshots.items()[first.dedup_key]
+    assert second.incident_id != first.incident_id
+    assert second.first_seen_at != first.first_seen_at
+    assert second.severity == "WARNING"
+
+
+def test_semantic_down_error_code_priority_and_current_epoch(snapshots):
+    value = semantic_status()
+    value["roles"]["adapter"].update(live=False, failure="ADAPTER_FAILURE", denials=[denial(), denial("SECOND_DENIAL")])
+    value["roles"]["southbound"].update(failure="SOUTHBOUND_FAILURE", denials=[denial("SOUTHBOUND_DENIAL")])
+    value["supervisor"]["reason"] = "SUPERVISOR_REASON"
+    for expected in ("COHORT_NOT_READY", "SOUTHBOUND_DENIAL", "ADAPTER_FAILURE", "SOUTHBOUND_FAILURE",
+                     "SUPERVISOR_REASON", "R3_NOT_READY"):
+        snapshots.write(value)
+        assert snapshots.run() == 2
+        assert snapshots.items()["semantic:r3:down"].error_code == expected
+        if expected == "COHORT_NOT_READY":
+            value["roles"]["adapter"]["epoch"] = None
+        elif expected == "SOUTHBOUND_DENIAL":
+            value["roles"]["southbound"]["denials"] = []
+        elif expected == "ADAPTER_FAILURE":
+            value["roles"]["adapter"]["failure"] = None
+        elif expected == "SOUTHBOUND_FAILURE":
+            value["roles"]["southbound"]["failure"] = None
+        else:
+            value["supervisor"]["reason"] = None
+
+
+def test_semantic_stopped_fixed_warning_and_denial_prevents_it(snapshots):
+    value = semantic_status()
+    for role in value["roles"].values():
+        role.update(state="DELETED", dockerRunning=False, live=False)
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    assert set(snapshots.items()) == {"semantic:r3:stopped"}
+    value["checkedAt"] = value["supervisor"]["updatedAt"] = NOW + 901
+    snapshots.write(value)
+    assert snapshots.run(now=NOW + 901) == 2
+    assert snapshots.items()["semantic:r3:stopped"].severity == "WARNING"
+    value["roles"]["southbound"]["denials"] = [denial()]
+    snapshots.write(value)
+    assert snapshots.run(now=NOW + 901) == 2
+    assert set(snapshots.items()) == {"semantic:r3:down", "semantic:r3:denial"}
+    snapshots.write(semantic_status())
+    assert snapshots.run() == 0
+
+
+@pytest.mark.parametrize("defect", ["epoch", "state", "dockerRunning"])
+def test_semantic_stopped_requires_terminal_epoch_and_absent_container(snapshots, defect):
+    value = semantic_status()
+    for role in value["roles"].values():
+        role.update(state="DELETED", dockerRunning=False, live=False)
+    value["roles"]["adapter"][defect] = None
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    assert set(snapshots.items()) == {"semantic:r3:down"}
+
+
+@pytest.mark.parametrize("cause", ["adapter", "southbound", "rate-limit"])
+def test_semantic_denial_and_recovery(snapshots, cause):
+    value = semantic_status()
+    if cause == "rate-limit":
+        value["supervisor"]["state"] = "PARKED_RATE_LIMITED"
+    else:
+        value["roles"][cause]["denials"] = [denial()]
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    item = snapshots.items()["semantic:r3:denial"]
+    assert (item.event_type, item.severity) == ("SEMANTIC_PROVIDER_R3_DENIAL_PERSISTENT", "CRITICAL")
+    snapshots.write(semantic_status())
+    assert snapshots.run() == 0
+
+
+@pytest.mark.parametrize("cause", ["unit", "FAILED", "STOPPED", "old"])
+def test_semantic_supervisor_each_cause_and_recovery(snapshots, cause):
+    value = semantic_status()
+    if cause == "unit":
+        value["supervisor"]["unitActive"] = False
+    elif cause == "old":
+        value["supervisor"]["updatedAt"] = NOW - 601
+    else:
+        value["supervisor"]["state"] = cause
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    item = snapshots.items()["semantic:r3:supervisor"]
+    assert (item.event_type, item.severity) == ("SEMANTIC_PROVIDER_R3_SUPERVISOR_DOWN", "CRITICAL")
+    value = semantic_status()
+    value["supervisor"]["updatedAt"] = NOW - 600
+    snapshots.write(value)
+    assert snapshots.run() == 0
+
+
+@pytest.mark.parametrize("head", ["OPERATE", "STOP", "UNPROVEN"])
+@pytest.mark.parametrize("reason", ["AUTHORITY_REVOKED", "CONFIGURATION_DRIFT", "INTEGRITY_UNPROVEN", None])
+def test_semantic_integrity_in_every_head_state(snapshots, head, reason):
+    value = semantic_status()
+    value["head"]["decision"] = head
+    value["supervisor"]["reason"] = reason
+    snapshots.write(value)
+    active = head == "UNPROVEN" or reason is not None
+    assert snapshots.run() == (2 if active else 0)
+    if active:
+        item = snapshots.items()["semantic:r3:integrity"]
+        assert (item.event_type, item.severity) == ("SEMANTIC_PROVIDER_R3_INTEGRITY_UNPROVEN", "CRITICAL")
+    snapshots.write(semantic_status())
+    assert snapshots.run() == 0
+
+
+def test_semantic_stop_closes_all_four_rules_and_unproven_preserves(snapshots):
+    value = semantic_status()
+    value["supervisor"].update(state="FAILED", unitActive=False)
+    value["roles"]["adapter"]["denials"] = [denial()]
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    before = snapshots.items()
+    assert set(before) == {"semantic:r3:down", "semantic:r3:denial", "semantic:r3:supervisor"}
+    value["head"]["decision"] = "UNPROVEN"
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    for key, item in before.items():
+        assert snapshots.items()[key] == item
+    value["head"]["decision"] = "STOP"
+    value["supervisor"]["reason"] = "AUTHORITY_REVOKED"
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    assert set(snapshots.items()) == {"semantic:r3:integrity"}
+    value["supervisor"]["reason"] = None
+    snapshots.write(value)
+    assert snapshots.run() == 0
+    value = semantic_status()
+    for role in value["roles"].values():
+        role.update(state="DELETED", dockerRunning=False, live=False)
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    value["head"]["decision"] = "STOP"
+    snapshots.write(value)
+    assert snapshots.run() == 0
+
+
+@pytest.mark.parametrize("mode,factory,limit,prefix", [
+    ("semantic", semantic_status, 1200, "semantic:r3:"),
+    ("trust", trust_status, 172800, "trust:windows:")])
+def test_new_status_silent_boundaries_and_recovery(snapshots, mode, factory, limit, prefix):
+    value = factory()
+    value["checkedAt"] = NOW - limit - 1
+    snapshots.write(value)
+    assert snapshots.run(mode) == 2
+    assert snapshots.items()[prefix + "silent"].severity == "CRITICAL"
+    value["checkedAt"] += 1
+    snapshots.write(value)
+    assert snapshots.run(mode) == 0
+
+
+@pytest.mark.parametrize("mode,factory,prefix,cause", [
+    (mode, factory, prefix, cause)
+    for mode, factory, prefix in (("semantic", semantic_status, "semantic:r3:"),
+                                 ("trust", trust_status, "trust:windows:"))
+    for cause in ("missing", "malformed", "future", "readError")
+    if mode == "semantic" or cause != "readError"])
+def test_new_status_unavailable_preserves_all_other_incidents(snapshots, mode, factory, prefix, cause):
+    value = factory()
+    value["checkedAt"] = NOW - 3 * DAY
+    if mode == "semantic":
+        value["roles"]["adapter"].update(live=False, denials=[denial()])
+        value["supervisor"].update(state="FAILED", reason="AUTHORITY_REVOKED")
+    else:
+        value["windows"][0]["expiresAt"] = NOW - 1
+    snapshots.write(value)
+    assert snapshots.run(mode) == 2
+    before = snapshots.items()
+    if cause == "missing":
+        snapshots.status.unlink()
+    elif cause == "malformed":
+        snapshots.write(b"{")
+    else:
+        value["checkedAt"] = NOW + 301
+        if cause == "readError":
+            value.update(checkedAt=NOW, readError="READ_FAILED")
+        snapshots.write(value)
+    assert snapshots.run(mode) == 2
+    after = snapshots.items()
+    assert after[prefix + "status-unavailable"].severity == "ERROR"
+    for key, item in before.items():
+        assert after[key] == item
+    value = factory()
+    value["checkedAt"] = NOW + 300
+    snapshots.write(value)
+    assert snapshots.run(mode) == 0
+
+
+@pytest.mark.parametrize("seconds,event,severity", [
+    (45 * DAY, None, None), (45 * DAY - 1, "NEAR_EXPIRY", "WARNING"),
+    (21 * DAY, "NEAR_EXPIRY", "WARNING"), (21 * DAY - 1, "NEAR_EXPIRY", "ERROR"),
+    (7 * DAY, "NEAR_EXPIRY", "ERROR"), (7 * DAY - 1, "NEAR_EXPIRY", "CRITICAL"),
+    (1, "NEAR_EXPIRY", "CRITICAL"), (0, "EXPIRED", "CRITICAL"), (-1, "EXPIRED", "CRITICAL")])
+def test_trust_window_exact_thresholds(snapshots, seconds, event, severity):
+    value = trust_status()
+    value["windows"][0]["expiresAt"] = NOW + seconds
+    snapshots.write(value)
+    assert snapshots.run("trust") == (2 if event else 0)
+    if event:
+        item = snapshots.items()["trust:window:policy-a"]
+        assert (item.event_type, item.severity) == ("TRUST_POLICY_" + event, severity)
+        assert (item.endpoint_ref, item.visibility_class, item.action_required) == (
+            "authority://trust-policy/policy-a", "TENANT_OPERATIONAL", True)
+
+
+def test_trust_escalation_and_closure_for_inactive_removed_and_renewed_windows(snapshots):
+    value = trust_status()
+    first = None
+    for remaining, severity in ((44 * DAY, "WARNING"), (20 * DAY, "ERROR"), (6 * DAY, "CRITICAL"), (-1, "CRITICAL")):
+        value["windows"][0]["expiresAt"] = NOW + remaining
+        snapshots.write(value)
+        assert snapshots.run("trust") == 2
+        item = snapshots.items()["trust:window:policy-a"]
+        first = first or item
+        assert (item.incident_id, item.first_seen_at, item.severity) == (first.incident_id, first.first_seen_at, severity)
+    value["windows"][0]["liveConsumers"] = []
+    snapshots.write(value)
+    assert snapshots.run("trust") == 0
+    value["windows"][0]["liveConsumers"] = ["consumer-a"]
+    snapshots.write(value)
+    assert snapshots.run("trust") == 2
+    assert snapshots.items()[first.dedup_key].incident_id != first.incident_id
+    value["windows"] = []
+    snapshots.write(value)
+    assert snapshots.run("trust") == 0
+    value = trust_status()
+    value["windows"][0]["expiresAt"] = NOW - 1
+    snapshots.write(value)
+    assert snapshots.run("trust") == 2
+    snapshots.write(trust_status())
+    assert snapshots.run("trust") == 0
+
+
+def test_trust_windows_are_independent_and_accept_maximum_consumers(snapshots):
+    value = trust_status()
+    value["windows"] = [dict(value["windows"][0], ref="policy-" + str(i), expiresAt=NOW - 1,
+                             liveConsumers=["consumer-" + str(j) for j in range(16)]) for i in range(16)]
+    snapshots.write(value)
+    assert snapshots.run("trust") == 2
+    assert len(snapshots.items()) == 16
+    value["windows"][0]["liveConsumers"] = []
+    value["windows"].pop()
+    snapshots.write(value)
+    assert snapshots.run("trust") == 2
+    assert len(snapshots.items()) == 14
+    snapshots.write(trust_status())
+    assert snapshots.run("trust") == 0
+
+
+@pytest.mark.parametrize("outcome", ["NOOP", "RENEWED", "BLOCKED"])
+def test_authority_overdue_threshold_and_blocked_exclusion(snapshots, outcome):
+    value = mandate_status(outcome=outcome, reasonCode="RENEWAL_BLOCKED" if outcome == "BLOCKED" else None)
+    value["ledgers"]["base"]["earliestExpiresAt"] = NOW + 28 * DAY - 1
+    snapshots.write(value)
+    assert snapshots.run("authority") == 2
+    items = snapshots.items()
+    if outcome == "BLOCKED":
+        assert set(items) == {"authority:mandates:blocked"}
+    else:
+        item = items["authority:mandates:overdue"]
+        assert (item.event_type, item.severity) == ("AUTHORITY_MANDATE_RENEWAL_OVERDUE", "ERROR")
+    value["ledgers"]["base"]["earliestExpiresAt"] += 1
+    snapshots.write(value)
+    assert snapshots.run("authority") == (2 if outcome == "BLOCKED" else 0)
+
+
+def test_authority_overdue_preserved_when_unavailable_and_closed_when_blocked(snapshots):
+    value = mandate_status()
+    value["ledgers"]["b1b2"]["earliestExpiresAt"] = NOW - 1
+    snapshots.write(value)
+    assert snapshots.run("authority") == 2
+    item = snapshots.items()["authority:mandates:overdue"]
+    snapshots.status.unlink()
+    assert snapshots.run("authority") == 2
+    assert snapshots.items()[item.dedup_key] == item
+    value.update(outcome="BLOCKED", reasonCode="RENEWAL_BLOCKED")
+    snapshots.write(value)
+    assert snapshots.run("authority") == 2
+    assert item.dedup_key not in snapshots.items()
+
+
+@pytest.mark.parametrize("mode,probe", [("semantic-provider", gateway_operational_collector.semantic_provider_probe),
+                                        ("trust-windows", gateway_operational_collector.trust_windows_probe)])
+def test_new_cli_modes(mode, probe):
+    args = gateway_operational_collector.parser().parse_args([mode, "--store", "x.sqlite", "--status", "status.json"])
+    assert args.run is probe
+    assert args.status == Path("status.json")
+
+
+def status_schema_cases(factory):
+    """Check exact fields at every object level, including denial/window objects."""
+    import copy
+    value = factory()
+    if factory is semantic_status:
+        value["roles"]["adapter"]["denials"] = [denial()]
+
+    def objects(node, path=()):
+        if type(node) is dict:
+            yield path, node
+            for key, child in node.items():
+                yield from objects(child, (*path, key))
+        elif type(node) is list:
+            for i, child in enumerate(node):
+                yield from objects(child, (*path, i))
+
+    cases = []
+    for path, node in objects(value):
+        for key in (*node, "extra"):
+            changed = copy.deepcopy(value)
+            target = changed
+            for part in path:
+                target = target[part]
+            if key == "extra":
+                target[key] = SECRET
+            else:
+                del target[key]
+            cases.append(json.dumps(changed).encode())
+    bad_values = {
+        ("schema",): [SECRET, None, []], ("checkedAt",): [True, 1.5, None, "1"],
+    }
+    if factory is semantic_status:
+        bad_values.update({
+            ("head", "decision"): ["RUN", None, {}], ("head", "sequence"): [True, 1.5, "1"],
+            ("supervisor", "unitActive"): [0, None, "true"],
+            ("supervisor", "state"): ["UNKNOWN", {}, "active"],
+            ("supervisor", "reason"): [SECRET, "a" * 81, "PRIVATE.CODE", 1],
+            ("supervisor", "updatedAt"): [True, "1"],
+            ("supervisor", "activationsLastHour"): [True, "1"],
+            ("lease", "state"): [SECRET, "", "A" * 81],
+            ("lease", "leaseAuthorized"): [1, "false"],
+            ("roles", "adapter", "epoch"): [True, "1"],
+            ("roles", "adapter", "state"): [SECRET, "NON_ASCII_\u00e9", "A" * 81],
+            ("roles", "adapter", "failure"): [SECRET, "PRIVATE.CODE", ""],
+            ("roles", "adapter", "previousState"): [SECRET, 0],
+            ("roles", "adapter", "live"): [1, None],
+            ("roles", "adapter", "dockerRunning"): [0, "true"],
+            ("roles", "adapter", "denials"): [None, {}, [denial()] * 5],
+            ("roles", "adapter", "denials", 0, "mode"): ["authorize", "Prepare", SECRET, None],
+            ("roles", "adapter", "denials", 0, "reason"): [SECRET, None, "A" * 81, ""],
+            ("roles", "adapter", "denials", 0, "at"): [True, None, "1"],
+            ("readError",): [SECRET, "private_code", 0, "A" * 81],
+        })
+    else:
+        bad_values.update({
+            ("windows",): [None, {}, value["windows"] * 17, value["windows"] * 2],
+            ("windows", 0, "ref"): [SECRET, "", "a" * 65, "A", "with/slash", 1],
+            ("windows", 0, "policySha256"): ["g" * 64, "a" * 63, None],
+            ("windows", 0, "expiresAt"): [True, None, "1"],
+            ("windows", 0, "liveConsumers"): [None, {}, ["consumer"] * 17, [SECRET], [1], ["a" * 65]],
+        })
+    for path, invalid_values in bad_values.items():
+        for invalid in invalid_values:
+            changed = copy.deepcopy(value)
+            target = changed
+            for part in path[:-1]:
+                target = target[part]
+            target[path[-1]] = invalid
+            cases.append(json.dumps(changed).encode())
+    raw = json.dumps(value).encode()
+    cases.extend([b"[]", b"null", b"{", b"x" * 16385, raw.replace(b'"checkedAt":', b'"checkedAt":0,"checkedAt":', 1),
+                  raw.replace(str(NOW).encode(), b"NaN", 1), raw.replace(str(NOW).encode(), b"Infinity", 1),
+                  raw.replace(str(NOW).encode(), b"-Infinity", 1), b"[" * 1500 + b"]" * 1500,
+                  raw.replace(b'"schema"', b'"\xffschema"', 1)])
+    return cases
+
+
+@pytest.mark.parametrize("mode,raw", [(mode, raw) for mode, factory in
+                                     (("semantic", semantic_status), ("trust", trust_status))
+                                     for raw in status_schema_cases(factory)])
+def test_new_status_schema_rejection_and_no_content_disclosure(snapshots, mode, raw, capsys):
+    snapshots.write(raw)
+    assert snapshots.run(mode) == 2
+    prefix = "semantic:r3:" if mode == "semantic" else "trust:windows:"
+    item = snapshots.items()[prefix + "status-unavailable"]
+    assert item.error_code == "STATUS_UNREADABLE"
+    assert len(snapshots.items()) == 1
+    assert SECRET not in item.impact_summary
+    assert SECRET not in "".join(capsys.readouterr())
+
+
+@pytest.mark.parametrize("mode,reader,factory", [
+    ("semantic", gateway_operational_collector.read_semantic_status, semantic_status),
+    ("trust", gateway_operational_collector.read_trust_status, trust_status)])
+@needs_posix
+@pytest.mark.parametrize("defect", ["mode", "symlink", "hardlink", "directory", "owner", "group", "ancestor"])
+def test_new_status_real_posix_custody(snapshots, mode, reader, factory, defect):
+    snapshots.write(factory())
+    owner = snapshots.owner
+    if defect == "mode":
+        snapshots.status.chmod(0o640)
+    elif defect == "symlink":
+        target = snapshots.root / "target.json"
+        snapshots.status.rename(target)
+        snapshots.status.symlink_to(target)
+    elif defect == "hardlink":
+        os.link(snapshots.status, snapshots.root / "other.json")
+    elif defect == "directory":
+        snapshots.status.unlink()
+        snapshots.status.mkdir()
+    elif defect in ("owner", "group"):
+        owner = (owner[0] + (defect == "owner"), owner[1] + (defect == "group"))
+    else:
+        snapshots.root.chmod(0o777)
+    with pytest.raises(gateway_operational_collector.StatusUnavailable) as caught:
+        reader(snapshots.status, owner=owner)
+    assert str(caught.value) == "STATUS_UNREADABLE"
+
+
+@needs_posix
+def test_new_status_real_posix_default_owner_and_symlink_ancestor(snapshots):
+    snapshots.write(semantic_status())
+    reader = gateway_operational_collector.read_semantic_status
+    if os.getuid() == os.getgid() == 0:
+        assert reader(snapshots.status)["schema"] == "ouf.semantic-provider-r3-health.v1"
+    else:
+        with pytest.raises(gateway_operational_collector.StatusUnavailable):
+            reader(snapshots.status)
+    link = snapshots.root / "link"
+    link.symlink_to(snapshots.root, target_is_directory=True)
+    with pytest.raises(gateway_operational_collector.StatusUnavailable):
+        reader(link / "status.json", owner=snapshots.owner)
+
+
+def test_new_status_summaries_are_fixed_and_public_codes_are_bounded(snapshots):
+    value = semantic_status()
+    value["roles"]["adapter"].update(live=False, denials=[denial("PUBLIC_REASON_1")])
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    summaries = {key: item.impact_summary for key, item in snapshots.items().items()}
+    value["roles"]["adapter"]["denials"] = [denial("PUBLIC_REASON_2")]
+    snapshots.write(value)
+    assert snapshots.run() == 2
+    for key, item in snapshots.items().items():
+        assert item.impact_summary == summaries[key]
+        assert "PUBLIC_REASON" not in item.impact_summary
+        assert gateway_operational_collector.PUBLIC_CODE.fullmatch(item.error_code)
+
+
+def test_semantic_all_broker_modes_and_denial_limit_are_accepted(snapshots):
+    for mode in gateway_operational_collector.BROKER_MODES:
+        value = semantic_status()
+        value["roles"]["adapter"]["denials"] = [denial(mode=mode)] * 4
+        snapshots.write(value)
+        assert snapshots.run() == 2
+        assert "semantic:r3:status-unavailable" not in snapshots.items()
+
+
+def test_systemd_probe_examples():
+    for mode, period, directory in (("semantic-provider", "5min", "ouf-semantic-provider-health"),
+                                     ("trust-windows", "1h", "ouf-trust-windows")):
+        base = Path("ops/systemd") / ("ouf-gateway-" + mode + "-probe")
+        service = base.with_suffix(".service").read_text()
+        timer = base.with_suffix(".timer").read_text()
+        for setting in ("Type=oneshot", "ProtectSystem=strict", "NoNewPrivileges=true",
+                        "ReadOnlyPaths=/opt/ouf/gateway -/var/lib/" + directory,
+                        "ReadWritePaths=/var/lib/ouf-gateway-operations", "SuccessExitStatus=2"):
+            assert setting in service
+        assert " " + mode + " --store " in service
+        assert "--status /var/lib/" + directory + "/status.json" in service
+        assert "OnUnitActiveSec=" + period in timer
+
+
+@pytest.mark.parametrize("reader,factory", [
+    (gateway_operational_collector.read_semantic_status, semantic_status),
+    (gateway_operational_collector.read_trust_status, trust_status)])
+@pytest.mark.parametrize("defect", ["uid", "gid", "permissions", "hardlink", "directory", "size", "empty",
+                                   "read-error", "short-read", "ancestor-mode", "ancestor-owner", "ancestor-symlink"])
+def test_new_status_custody_checks_with_syscall_faults(snapshots, monkeypatch, reader, factory, defect):
+    """Exercise custody branches on Windows too; native POSIX tests remain separate."""
+    snapshots.write(factory())
+    original_os = gateway_operational_collector.os
+    original_lstat = Path.lstat
+
+    def fstat(fd):
+        info = original_os.fstat(fd)
+        changes = dict(st_mode=info.st_mode, st_uid=info.st_uid, st_gid=info.st_gid,
+                       st_nlink=info.st_nlink, st_size=info.st_size)
+        changes.update({
+            "uid": {"st_uid": snapshots.owner[0] + 1},
+            "gid": {"st_gid": snapshots.owner[1] + 1},
+            "permissions": {"st_mode": stat.S_IFREG | 0o640},
+            "hardlink": {"st_nlink": 2}, "directory": {"st_mode": stat.S_IFDIR | 0o600},
+            "size": {"st_size": 16385}, "empty": {"st_size": 0},
+        }.get(defect, {}))
+        return SimpleNamespace(**changes)
+
+    def read(fd, size):
+        if defect == "read-error":
+            raise OSError(SECRET)
+        raw = original_os.read(fd, size)
+        return raw[:-1] if defect == "short-read" else raw
+
+    def lstat(path, *args, **kwargs):
+        info = original_lstat(path, *args, **kwargs)
+        if path == snapshots.root:
+            if defect == "ancestor-mode":
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o777, st_uid=snapshots.owner[0])
+            if defect == "ancestor-owner":
+                return SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=snapshots.owner[0] + 1)
+            if defect == "ancestor-symlink":
+                return SimpleNamespace(st_mode=stat.S_IFLNK | 0o700, st_uid=snapshots.owner[0])
+        return info
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+    monkeypatch.setattr(gateway_operational_collector, "os", SimpleNamespace(
+        O_RDONLY=original_os.O_RDONLY, O_NOFOLLOW=original_os.O_NOFOLLOW, O_NONBLOCK=original_os.O_NONBLOCK,
+        open=original_os.open, fstat=fstat, read=read, close=original_os.close))
+    with pytest.raises(gateway_operational_collector.StatusUnavailable) as caught:
+        reader(snapshots.status, owner=snapshots.owner)
+    assert str(caught.value) == "STATUS_UNREADABLE"
+
+
+def test_new_status_schema_accepts_integers_without_adding_bounds(snapshots):
+    value = semantic_status()
+    value["head"]["sequence"] = -(2 ** 64)
+    value["roles"]["adapter"]["epoch"] = 2 ** 64
+    snapshots.write(value)
+    assert gateway_operational_collector.read_semantic_status(snapshots.status, owner=snapshots.owner) == value
+    value = trust_status()
+    value["windows"][0].update(policySha256="A" * 64, expiresAt=-1)
+    snapshots.write(value)
+    assert snapshots.run("trust") == 2
+    assert snapshots.items()["trust:window:policy-a"].event_type == "TRUST_POLICY_EXPIRED"
+
+
+@pytest.mark.parametrize("mode,factory", [("semantic", semantic_status), ("trust", trust_status)])
+def test_new_status_exact_size_limit_and_nested_duplicate_rejection(snapshots, mode, factory):
+    raw = json.dumps(factory()).encode()
+    snapshots.write(raw + b" " * (16384 - len(raw)))
+    assert snapshots.run(mode) == 0
+    if mode == "semantic":
+        raw = raw.replace(b'"unitActive": true', b'"unitActive": true, "unitActive": true')
+    else:
+        raw = raw.replace(b'"ref": "policy-a"', b'"ref": "policy-a", "ref": "policy-a"')
+    snapshots.write(raw)
+    assert snapshots.run(mode) == 2
+    assert next(iter(snapshots.items().values())).error_code == "STATUS_UNREADABLE"

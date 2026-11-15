@@ -26,11 +26,12 @@ Exit code: 0 se nessun incidente `authority:mandates:*` è aperto, 2 altrimenti 
 | dedup_key | Condizione | event_type | severity | error_code |
 |---|---|---|---|---|
 | `authority:mandates:blocked` | `outcome == BLOCKED` | `AUTHORITY_MANDATE_RENEWAL_BLOCKED` | CRITICAL | `reasonCode` |
+| `authority:mandates:overdue` | min(`earliestExpiresAt`) − now < 28 giorni e `outcome != BLOCKED` | `AUTHORITY_MANDATE_RENEWAL_OVERDUE` | ERROR | `MANDATE_RENEWAL_OVERDUE` |
 | `authority:mandates:silent` | `now − checkedAt > 2 giorni` | `AUTHORITY_MANDATE_RENEWAL_SILENT` | CRITICAL | `STATUS_STALE` |
 | `authority:mandates:near-expiry` | min(`earliestExpiresAt`) − now < 15 giorni | `AUTHORITY_MANDATE_NEAR_EXPIRY` | CRITICAL | `MANDATE_NEAR_EXPIRY` |
 | `authority:mandates:status-unavailable` | stato assente o illeggibile | `AUTHORITY_MANDATE_STATUS_UNAVAILABLE` | ERROR | `AUTHORITY_MANDATE_STATUS_MISSING` / `…_UNREADABLE` |
 
-Una regola che non vale più risolve il proprio incidente. Se lo stato non è verificabile, le altre tre regole conservano lo stato precedente, perché non sono valutabili.
+Una regola che non vale più risolve il proprio incidente. Se lo stato non è verificabile, le altre regole conservano lo stato precedente, perché non sono valutabili. `overdue` (aggiunta nel task-47, D-039) può coesistere con `near-expiry`; l'esito `BLOCKED` chiude `overdue`.
 
 ## Unità
 `ops/systemd/ouf-gateway-authority-mandates-probe.{service,timer}`:

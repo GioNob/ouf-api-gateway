@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OUF Gateway trust policy windows probe
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Unit=ouf-gateway-trust-windows-probe.service
+
+[Install]
+WantedBy=timers.target
