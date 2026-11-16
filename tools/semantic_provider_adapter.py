@@ -5,6 +5,7 @@ This is a Gateway transport component, not semantic discovery orchestration.
 """
 import argparse
 from dataclasses import dataclass
+import errno
 import json
 import os
 from pathlib import Path
@@ -199,18 +200,45 @@ def load_configuration(path):
     return cfg, binding, context
 
 
+def denial_reason(error):
+    """Return only a bounded code; never format exception messages or values."""
+    if isinstance(error, (AdapterDenied, AdmissionDenied, relay.RelayDenied,
+                          ProviderRequestDenied, SouthboundDenied)):
+        if error.args and isinstance(error.args[0], str) \
+                and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', error.args[0]):
+            return error.args[0]
+        return 'DENIED_'+type(error).__name__
+    if isinstance(error, ssl.SSLError):
+        reason = getattr(error, 'reason', None)
+        if isinstance(reason, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,63}', reason):
+            return 'SSLERROR_'+reason
+        return 'SSLERROR_UNKNOWN'
+    if isinstance(error, OSError):
+        return 'OSERROR_'+errno.errorcode.get(error.errno, 'UNKNOWN')
+    name = type(error).__name__
+    if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}', name):
+        return 'EXCEPTION_'+name
+    return 'EXCEPTION_UNKNOWN'
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--configuration', required=True)
     args = parser.parse_args()
+    stage = 'NON_ROOT'
     try:
         if os.geteuid() == 0:
             raise AdapterDenied('NON_ROOT_REQUIRED')
+        stage = 'CONFIGURATION'
         cfg, binding, context = load_configuration(args.configuration)
+        stage = 'LISTENER'
         with BoundedTLSServer((cfg['listenAddress'], cfg['listenPort']), binding, context, cfg['maxWorkers']) as server:
+            print('SEMANTIC_PROVIDER_ADAPTER=LISTENING NO_SECRETS_PRINTED=true', flush=True)
+            stage = 'SERVE'
             server.serve_forever()
-    except Exception:
-        print('SEMANTIC_PROVIDER_ADAPTER=BLOCKED NO_SECRETS_PRINTED=true')
+    except Exception as error:
+        print('SEMANTIC_PROVIDER_ADAPTER=BLOCKED STAGE='+stage+' REASON='+denial_reason(error)
+              +' NO_SECRETS_PRINTED=true', flush=True)
         raise SystemExit(1) from None
 
 
