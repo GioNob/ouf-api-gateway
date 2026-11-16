@@ -16,7 +16,7 @@ import urllib.request
 from urllib.parse import urlsplit
 
 # Hashes cover the entire minimal build context, not the downloaded helper.
-PAYLOAD_HASHES = {"Dockerfile.semantic-provider":"b2cc4828a2cc9424c2a3b31793d9094dbade41d8d7485ca43b32d2dcd80873e7","tools/semantic_provider_adapter.py":"718f031cd4116d233c3075ee74da2f28170b5ed4efcac1a77deef154f7fd320c","tools/semantic_provider_admission.py":"dca670d1f0ced678db6af9810199da07419901a21523385e0ebea623b608bbfc","tools/semantic_provider_boundary.py":"cae2b1d5970349ce1ebc95fb44ca4dd1bd67d93e43900ad4cbeabb3d5fbd6e69","tools/semantic_provider_relay.py":"04b33da9b3d599872c19ea20d3775141ef99c5989c7fb7175be6926b74cc7f6f","tools/southbound_security.py":"5953e6143fb7141b62a2d5cc26d8cf85ee74147d9eefaa923460f8e1706eb0ec"}
+PAYLOAD_HASHES = {"Dockerfile.semantic-provider":"b2cc4828a2cc9424c2a3b31793d9094dbade41d8d7485ca43b32d2dcd80873e7","tools/semantic_provider_adapter.py":"7e12f4def24a92e1d63f1c247f60eea471706dafe0e9a001b67faa00e9a52a35","tools/semantic_provider_admission.py":"dca670d1f0ced678db6af9810199da07419901a21523385e0ebea623b608bbfc","tools/semantic_provider_boundary.py":"cae2b1d5970349ce1ebc95fb44ca4dd1bd67d93e43900ad4cbeabb3d5fbd6e69","tools/semantic_provider_relay.py":"04b33da9b3d599872c19ea20d3775141ef99c5989c7fb7175be6926b74cc7f6f","tools/southbound_security.py":"5953e6143fb7141b62a2d5cc26d8cf85ee74147d9eefaa923460f8e1706eb0ec"}
 ENTRYPOINT = ['python3', '-B', '-m', 'tools.semantic_provider_adapter']
 
 

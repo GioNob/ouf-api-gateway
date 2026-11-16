@@ -18,6 +18,31 @@ Exact routes, one Content-Length, bounded body/target and supported media are en
 
 The materializer requires a single explicit HTTPS adapter host/port, explicit upstream hostname, an explicit dedicated-southbound NGINX `proxy_ssl_verify on` trust profile, fixed finite timeouts and no upstream retries. APISIX 3.18 defines `upstream.tls.verify` as Kafka-only, so that route flag alone does not enforce HTTPS verification. The plan requires `tlsProfile` and emits `providerTLSRequirement` (`installed=false`): explicit `apisix.ssl.ssl_trusted_certificate` and a safe `nginx_config.http_configuration_snippet` containing `proxy_ssl_verify on` and bounded verification depth. Apply this only on the separately governed southbound role, with actual template/readback and a negative certificate hostname test. Do not infer compatibility from latest documentation or install a global TLS change silently on the existing northbound role. Source: https://github.com/apache/apisix/blob/3.18.0/apisix/schema_def.lua and https://github.com/apache/apisix/blob/3.18.0/apisix/cli/ngx_tpl.lua. Real fixture validation uses APISIX 3.18.0; live image compatibility remains a separate gate.
 
+## Startup diagnostics
+
+After successful listener creation and before `serve_forever`, stdout receives exactly once, with flush:
+
+```text
+SEMANTIC_PROVIDER_ADAPTER=LISTENING NO_SECRETS_PRINTED=true
+```
+
+Any `Exception` caught by `main()` emits one failure line on stdout, with flush, then exits with status 1 without a traceback:
+
+```text
+SEMANTIC_PROVIDER_ADAPTER=BLOCKED STAGE=<stage> REASON=<code> NO_SECRETS_PRINTED=true
+```
+
+The stage is `NON_ROOT` during the euid check, `CONFIGURATION` during `load_configuration` (including private files and TLS context), `LISTENER` during `BoundedTLSServer` creation (socket, bind and listen), and `SERVE` during `serve_forever`. A serve failure follows the earlier `LISTENING` line. CLI argument parsing is unchanged.
+
+Reason codes are selected in this order:
+
+- `AdapterDenied`, `AdmissionDenied`, `RelayDenied`, `ProviderRequestDenied` and `SouthboundDenied`: use only `args[0]` when it is a string matching `^[A-Z][A-Z0-9_]{0,63}$`; otherwise use `DENIED_<ClassName>`.
+- `ssl.SSLError`, checked before `OSError`: `SSLERROR_<reason>` when `reason` is a string matching the same uppercase pattern; otherwise `SSLERROR_UNKNOWN`.
+- Other `OSError` instances, including subclasses: `OSERROR_<errno name>` from `errno.errorcode`, or `OSERROR_UNKNOWN` for absent/unknown errno.
+- Every other exception, including JSON decoding, value, key and type errors: `EXCEPTION_<ClassName>` when the name matches `^[A-Za-z][A-Za-z0-9_]{0,63}$`; otherwise `EXCEPTION_UNKNOWN`.
+
+These lines contain no exception message or representation, other exception arguments, configuration values/paths, key/certificate contents, hostnames, addresses or ports. `LISTENING` confirms that the configured listener was created; it does not prove provider connectivity or release acceptance. Request handling and existing validation/denial codes are unchanged.
+
 ## Configuration contract
 
 Adapter JSON has exactly: `listenAddress`, `listenPort`, `maxWorkers`, `requestTimeoutSeconds`, `searchPath`, `fetchPath`, `provider`, `admission`, `receiptKeyFile`, `tlsCertificateFile`, `tlsPrivateKeyFile`. `provider` uses `ProviderBinding` field names (`endpoint`, `namespace_prefixes`, optional governed `allowed_cidrs`/`ca_file` and technical bounds); `admission` uses `AdmissionBinding` field names (`installation`, `issuer`, `audience`, `workload`, `scope`, `tenants`). TLS trust for the external provider and the internal adapter is explicit. No credential from a human/model is an authority header.
