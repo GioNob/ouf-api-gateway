@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 from owner_authorization_fixture import fixture_owner_authorize
 
 

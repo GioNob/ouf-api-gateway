@@ -1,0 +1,26 @@
+[Unit]
+Description=OUF Gateway operational APISIX collector
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=10001
+WorkingDirectory=/opt/ouf/gateway
+StateDirectory=ouf-gateway-operations
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/usr/bin/python3 -m tools.gateway_operational_collector apisix --store /var/lib/ouf-gateway-operations/gateway-operations.sqlite --container ouf-apisix --failure-threshold 3 --failure-window-seconds 60 --heartbeat-seconds 15
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/ouf/gateway
+ReadWritePaths=/var/lib/ouf-gateway-operations
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

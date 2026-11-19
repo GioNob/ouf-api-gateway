@@ -1,0 +1,19 @@
+[Unit]
+Description=OUF Gateway authority mandate renewal probe
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=10001
+WorkingDirectory=/opt/ouf/gateway
+StateDirectory=ouf-gateway-operations
+StateDirectoryMode=0750
+UMask=0027
+ExecStart=/usr/bin/python3 -m tools.gateway_operational_collector authority-mandates --store /var/lib/ouf-gateway-operations/gateway-operations.sqlite --status /var/lib/ouf-authority-mandate-renewal/status.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/ouf/gateway -/var/lib/ouf-authority-mandate-renewal
+ReadWritePaths=/var/lib/ouf-gateway-operations

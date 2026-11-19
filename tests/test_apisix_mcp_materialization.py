@@ -44,7 +44,8 @@ def test_materializes_oidc_protected_mcp_route_and_oauth_discovery():
     }
 
     validation = route["plugins"]["request-validation"]
-    assert validation["max_req_body_size"] == 1048576
+    assert validation["max_req_body_size"] == 4194304
+    assert route["plugins"]["client-control"]["max_body_size"] == 4194304
     assert validation["body_schema"] == {
         "anyOf": [{"type": "object"}, {"type": "array"}]
     }
