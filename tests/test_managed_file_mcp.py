@@ -7,6 +7,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.test_execute_delegation import Engine, Denied, human, workload, envelope, proof, runtime, INSTALL, KEY
 from tools.delegation_functions import function
+from tools.managed_discovery_functions import owner_function
 from tools.materialize_managed_file_mcp import materialize
 from ops.apisix.deploy_managed_file_mcp import anonymous_probe, select
 from ops.apisix.deploy_internal_m2m_routes import apply
@@ -38,7 +39,9 @@ def execute(mode='profile',body=None,delegation=None,uri=None):
     engine=Engine(workload(),headers,e,uri=uri or '/internal/capabilities/v1/execute/managed.file/'+mode)
     engine.modules[b'resty.openssl.digest']=engine.lua.table_from({b'new':lambda algorithm:engine.lua.table_from({b'final':lambda _,data:hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string']=engine.lua.table_from({b'to_hex':lambda data:data.hex().encode()})
-    engine.lua.execute(function('execute_managed_file',INSTALL,'TEST_KEY','OWNER_KEY').encode())(None,None)
+    source = (owner_function('execute_managed_file_retained', INSTALL, 'TEST_KEY', 'OWNER_KEY')
+              if mode in ('handoff', 'review-read') else function('execute_managed_file', INSTALL, 'TEST_KEY', 'OWNER_KEY'))
+    engine.lua.execute(source.encode())(None,None)
     return engine
 
 def test_signed_managed_file_receipt_is_domain_and_owner_bound():
@@ -155,3 +158,34 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
     with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
         apply(routes,denied,anonymous_probe=anonymous_probe)
     assert denied.installed=={}
+
+@pytest.mark.parametrize('count', [300,400,1024])
+def test_wide_create_preserves_every_column_and_receipt_body_hash(count):
+    e=request('create')
+    e['Arguments']['fields']=[{'fieldName':f'campo_{n}','extractionDecision':'INCLUDE','dataAccessLabel':'RESTRICTED','targetPropertyIri':f'urn:fixture:property:{n}'} for n in range(count)]
+    doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+    route=next(r for r in doc['routes'] if r['id']=='mcp-managed-file-create')
+    validator=Draft202012Validator(route['plugins']['request-validation']['body_schema'])
+    assert validator.is_valid(e)
+    engine=execute('create',e)
+    encoded,_=engine.headers[b'x-ouf-managed-file-receipt'].split(b'.')
+    receipt=json.loads(base64.urlsafe_b64decode(encoded+b'='*((4-len(encoded)%4)%4)))
+    assert receipt['bodyHash']==hashlib.sha256(engine.body).hexdigest()
+    assert len(json.loads(engine.body)['Arguments']['fields'])==count
+    assert route['plugins']['request-validation']['max_req_body_size']==3*1024*1024
+    assert route['plugins']['client-control']['max_body_size']==3*1024*1024
+    assert route['upstream']['timeout']['read']==10
+    e['Arguments']['fields']*=4
+    assert not validator.is_valid(e)
+
+def test_immutable_column_page_schema_bounds_and_other_views_unchanged():
+    doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
+    route=next(r for r in doc['routes'] if r['id']=='mcp-managed-file-preview')
+    validator=Draft202012Validator(route['plugins']['request-validation']['body_schema'])
+    e=request('preview');e['Arguments']={'view':'COLUMNS','assetId':ASSET,'profileId':OTHER,'offset':896,'limit':128}
+    assert validator.is_valid(e)
+    assert execute('preview',e).headers[b'x-ouf-managed-file-receipt']
+    for key,value in [('limit',129),('offset',1024),('assetId',None),('url','https://invalid/')]:
+        bad=json.loads(json.dumps(e));bad['Arguments'][key]=value
+        assert not validator.is_valid(bad)
+    assert route['plugins']['request-validation']['max_req_body_size']==65536

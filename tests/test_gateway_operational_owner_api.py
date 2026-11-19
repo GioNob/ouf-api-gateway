@@ -1,6 +1,8 @@
+from tools.operational_incidents import SQLiteOperationalIncidentStore as CollectorStore
+from tests.tenant_operational_api import GatewayOperationalOwnerAPI as TenantAPI
 from owner_authorization_fixture import fixture_owner_authorize
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 
 
 def trusted_headers():
@@ -56,3 +58,42 @@ def test_owner_api_is_bounded(tmp_path):
     assert status == 400
     assert body["code"] == "OPERATIONAL_LIMIT_INVALID"
     store.close()
+
+
+def test_tenant_owner_api_returns_safe_persisted_incident_projection(tmp_path):
+    store = CollectorStore(tmp_path / "gateway.sqlite")
+    incident = store.open_incident(
+        dedup_key="gateway:publication:blocked",
+        event_type="GATEWAY_PUBLICATION_BLOCKED",
+        severity="ERROR",
+        error_code="PUBLICATION_STAGE_FAILED",
+        impact_summary="Gateway configuration publication is blocked.",
+        correlation_id="publication-1",
+        endpoint_ref="gateway://control-plane/publication",
+        visibility_class="TENANT_OPERATIONAL",
+    )
+    api = TenantAPI(store, tenant_id="tenant-a", summary_authorizer=lambda *args: True)
+    status, body = api.handle(api.INCIDENTS_PATH, {**trusted_headers(), "X-OUF-Tenant-ID": "tenant-a"}, '{"limit":10}')
+    assert status == 200
+    assert body["partial"] is False
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["incident_id"] == incident.incident_id
+    assert item["module"] == "GATEWAY"
+    assert item["endpoint_ref"].startswith("gateway://")
+    assert "hostname" not in str(item).lower()
+    assert "token" not in str(item).lower()
+    store.close()
+
+
+def test_tenant_owner_requires_verified_headers_and_bounds(tmp_path):
+    store = CollectorStore(tmp_path / "gateway.sqlite")
+    try:
+        api = TenantAPI(store)
+        assert api.handle(api.SUMMARY_PATH, {}) == (401, {"code": "TRUSTED_GATEWAY_CONTEXT_REQUIRED"})
+        assert api.handle(api.SUMMARY_PATH, {"X-OUF-Gateway-Verified": "true"}) == (
+            403, {"code": "VERIFIED_AUTHORIZATION_CONTEXT_REQUIRED"})
+        assert api.handle(api.INCIDENTS_PATH, trusted_headers(), '{"limit":101}') == (
+            400, {"code": "OPERATIONAL_LIMIT_INVALID"})
+    finally:
+        store.close()

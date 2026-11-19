@@ -7,7 +7,7 @@ from dataclasses import asdict
 
 from tools.operational_bookmarks import PublicationBookmarks
 from tools.operational_cursor import CursorRejected, MAX_BYTES
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 
 
 class GatewayOperationalOwnerAPI:

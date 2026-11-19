@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 from tools.operational_alert_outbox import AlertOutbox,AlertDestination,AlertOutcome,AlertBlocked
 
 

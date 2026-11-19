@@ -2,7 +2,7 @@ from owner_authorization_fixture import fixture_owner_authorize
 from datetime import datetime, timedelta, timezone
 import pytest
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 
 HEADERS = {"X-OUF-Tenant-ID":"tenant", "X-OUF-Gateway-Verified":"true", "X-OUF-Principal-ID":"operator", "X-OUF-Authorization-Decision-Ref":"decision"}
 def add(store, key, severity="ERROR", action=True):

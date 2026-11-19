@@ -1,0 +1,11 @@
+[Unit]
+Description=Run OUF Gateway authority mandate renewal probe
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=ouf-gateway-authority-mandates-probe.service
+
+[Install]
+WantedBy=timers.target

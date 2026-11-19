@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from tools.gateway_operational_api import GatewayOperationalOwnerAPI
-from tools.operational_incidents import SQLiteOperationalIncidentStore
+from tools.reference_operational_incidents import SQLiteOperationalIncidentStore
 
 class OwnerBookmarkHTTPTest(unittest.TestCase):
     def setUp(self):

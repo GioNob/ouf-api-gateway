@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from tools.delegation_functions import function
+from tools.managed_discovery_functions import owner_function
 from tools.materialize_permission_proposals import materialize as permission_runtime
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -34,8 +35,8 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
             or c.get('humanRequired') or not c.get('toolEligible') or p['identity']!='M2M'
             or p['requiredScope']!=cap or p['allowedActorTypes']!=['HUMAN']
             or runtime['x-ouf-installation']['mcpServiceIdentity'] not in p['allowedServiceIdentities']
-            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 65536)
-            or p['timeoutSeconds']!=(30 if mode=='handoff' else 3)):
+            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 3145728 if mode=='create' else 65536)
+            or p['timeoutSeconds']!=(30 if mode=='handoff' else 10 if mode in ('create','preview') else 3)):
             raise ValueError('managed-file binding mismatch: '+mode)
         route=copy.deepcopy(template)
         route['id']=route_id
@@ -56,9 +57,20 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         else:
             route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
-        route['plugins']['serverless-post-function']['functions']=[function('execute_managed_file',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
+        # The November 8 apply left this route's installed function intact.
+        if mode == 'handoff':
+            post = owner_function('execute_managed_file_retained', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
+        else:
+            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
+        route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
+        if mode != 'handoff':
+            request_limit=3145728 if mode=='create' else 65536
+            timeout=10 if mode in ('create','preview') else 3
+            route['plugins']['request-validation']['max_req_body_size']=request_limit
+            route['plugins']['client-control']={'max_body_size':request_limit}
+            route['upstream']['timeout']={'connect':3,'send':timeout,'read':timeout}
         result['routes'].append(route)
     return result
 

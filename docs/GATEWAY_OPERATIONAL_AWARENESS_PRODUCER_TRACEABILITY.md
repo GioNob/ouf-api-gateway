@@ -13,11 +13,18 @@ Normative baseline: OUF Reality Baseline Package v1.7, Gateway PET v1.5 §34 and
 
 ## Implementation evidence
 
-- `tools/operational_incidents.py`: durable SQLite reference adapter with OPEN/RECOVERING/RESOLVED lifecycle, stable dedup key, occurrence aggregation and bounded projections.
+- `tools/reference_operational_incidents.py`: durable SQLite reference adapter with OPEN/RECOVERING/RESOLVED lifecycle, stable dedup key, occurrence aggregation and bounded projections.
 - `tools/publication.py`: publication failures produce one governed `GATEWAY_PUBLICATION_BLOCKED` incident and successful activation resolves it.
 - `tools/etcd_resilience.py`: quorum, slow-storage and proposal-backpressure failures update one `GATEWAY_ETCD_DEGRADED` incident; healthy safety state resolves it.
 - `tools/gateway_operational_api.py`: private owner projection requiring verified Gateway and Authorization context.
 - `ouf.gateway.operations.incidents` / `ouf.gateway.operations.summary`: internal, non-MCP-tool producer capabilities for MCP aggregation.
+
+The collector and etcd probe at `d6900983` use `tools/operational_incidents.py`.
+The Java owner reads the collector database. Its transition history identifies
+entries by `sequence_id`. The reference API, outbox and bookmark tests use a
+separate SQLite database with a `revision` column. These schemas require
+separate database files. The host module digests and active units still need
+comparison with the installation.
 
 ## Test evidence
 

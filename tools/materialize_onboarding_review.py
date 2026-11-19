@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from tools.delegation_functions import function
+from tools.managed_discovery_functions import owner_function
 from tools.materialize_managed_file_ths import materialize as human_picker
 from tools.materialize_trusted_human_onboarding_runtime import materialize_route as human_route
 from tools.materialize_apisix_internal_m2m_routes import materialize as service_routes
@@ -17,6 +18,29 @@ MODES = {
     'review-prepare': ('ouf.managed-source.onboarding.review.prepare', 'COMMAND'),
     'review-read': ('ouf.managed-source.onboarding.read', 'READ'),
 }
+
+
+def review_schema(mode):
+    schema = json.loads((ROOT / f'schemas/mcp-gateway-onboarding-{mode}-dispatch-v1.json').read_text())
+    if mode == 'review-prepare':
+        # The deployed APISIX projection removes this metadata from an inline schema.
+        # A reference anywhere in the schema could depend on its base URI.
+        def check_references(node):
+            if isinstance(node, dict):
+                if {'$ref', '$dynamicRef', '$recursiveRef'} & node.keys():
+                    raise ValueError('schema reference prevents managed review projection')
+                for child in node.values():
+                    check_references(child)
+            elif isinstance(node, list):
+                for child in node:
+                    check_references(child)
+
+        check_references(schema)
+        proposal = schema['properties']['Arguments']['properties']['executionProposal']
+        if proposal.get('$id') != 'urn:ouf:managed-file-execution-proposal:typed-csv:v2':
+            raise ValueError('unexpected managed review schema identifier')
+        del proposal['$id']
+    return schema
 
 
 def materialize(existing, runtime, delegation_key_env, owner_key_env):
@@ -30,6 +54,7 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
     installation = runtime['x-ouf-installation']
     for mode, (cap, operation) in MODES.items():
         timeout = 10 if mode == 'review-prepare' else 3
+        request_limit = 3145728 if mode == 'review-prepare' else 65536
         route_id = 'mcp-managed-file-'+mode
         matches = [r for r in runtime['routes'] if r.get('id') == route_id]
         if len(matches) != 1:
@@ -47,16 +72,22 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
             or policy['identity'] != 'M2M' or policy['requiredScope'] != cap
             or policy['allowedActorTypes'] != ['HUMAN']
             or policy['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
-            or policy['maxRequestBytes'] != 65536 or policy['timeoutSeconds'] != timeout):
+            or policy['maxRequestBytes'] != request_limit or policy['timeoutSeconds'] != timeout):
             raise ValueError('onboarding review binding mismatch')
         route = copy.deepcopy(templates[0])
         route.update(id=route_id, uri=uri, methods=['POST'])
         route['labels']['ouf-mediation'] = 'onboarding-review-v1'
-        route['plugins']['request-validation'] = {'max_req_body_size': 65536,
-            'body_schema': json.loads((ROOT/f'schemas/mcp-gateway-onboarding-{mode}-dispatch-v1.json').read_text())}
-        route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [
-            function('execute_managed_file', installation, delegation_key_env, owner_key_env)]}
+        route['plugins']['request-validation'] = {'max_req_body_size': request_limit,
+            'body_schema': review_schema(mode)}
+        # The November 8 apply left this route's installed function intact.
+        if mode == 'review-read':
+            post = owner_function('execute_managed_file_retained', installation, delegation_key_env, owner_key_env)
+        else:
+            post = function('execute_managed_file', installation, delegation_key_env, owner_key_env)
+        route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [post]}
         route['plugins']['proxy-rewrite'] = {'uri': path}
+        if mode == 'review-prepare':
+            route['plugins']['client-control'] = {'max_body_size': request_limit}
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-onboarding:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': timeout, 'read': timeout}}
         _append(result, route)
