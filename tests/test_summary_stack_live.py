@@ -1,6 +1,7 @@
 """Real MCP + APISIX + both Java producers. Synthetic IAM/policy, real PostgreSQL/SQLite."""
 import base64
 import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -22,6 +23,22 @@ from tests.summary_java_owner import java_owner
 from tools.materialize_operational_execute import materialize
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_SUMMARY_STACK_TEST')!='1',reason='requires complete summary stack')
+
+def summary_stack_routes(rt):
+    doc = materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY',
+                      producer_receipt_key_envs={'gateway': 'GATEWAY_SUMMARY_RECEIPT_KEY',
+                                                 'ingestion': 'INGESTION_SUMMARY_RECEIPT_KEY'})
+    # The MCP and Ingestion pins in summary-stack use the d6900983 catch-up
+    # contract. Its three incident routes shared this exact Arguments schema.
+    fixture = Path(__file__).parent / 'fixtures' / 'summary-stack-incident-arguments.json'
+    arguments = json.loads(fixture.read_text())
+    routes_by_uri = {route['uri']: route for route in doc['routes'] if 'uri' in route}
+    for capability in ('ouf.operations.incidents', 'ouf.ingestion.operations.incidents',
+                       'ouf.gateway.operations.incidents'):
+        route = routes_by_uri['/internal/capabilities/v1/execute/' + capability]
+        schema = route['plugins']['request-validation']['body_schema']
+        schema['properties']['Arguments'] = copy.deepcopy(arguments)
+    return doc['routes']
 
 def free_port():
     with socket.socket() as s:s.bind(('127.0.0.1',0));return s.getsockname()[1]
@@ -84,17 +101,15 @@ def test_summary_through_real_stack(tmp_path):
             env=dict(os.environ,MCP_DATABASE_URL=os.environ['SUMMARY_PG_URL'],MCP_WORKLOAD_TOKEN=workload_token,MCP_FINGERPRINT_KEY='ci-only-fingerprint-key-material-32-bytes',MCP_AUTHORIZATION_BUNDLE_ENDPOINT=f'http://127.0.0.1:{server.server_port}/active',MCP_GATEWAY_ENDPOINT=f'http://127.0.0.1:{api_port}/internal/capabilities/v1/execute')
             subprocess.run([os.environ['OUF_MCP_BINARY'],'migrate'],env=env,check=True,capture_output=True,timeout=30)
             stack.enter_context(process([os.environ['OUF_MCP_BINARY'],'server','--http',f'127.0.0.1:{mcp_port}'],tmp_path/'mcp.log',mcp_port,env))
-            doc = materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY',
-                              producer_receipt_key_envs={'gateway': 'GATEWAY_SUMMARY_RECEIPT_KEY',
-                                                         'ingestion': 'INGESTION_SUMMARY_RECEIPT_KEY'})
-            for route in doc['routes']:
+            routes = summary_stack_routes(rt)
+            for route in routes:
                 if 'openid-connect' in route['plugins']:route['plugins']['openid-connect']['discovery']=f'http://127.0.0.1:{server.server_port}/discovery'
                 if 'upstream' in route:
                     uri=route.get('uri','')
                     port=ing_port if uri.endswith(('/execute/ouf.ingestion.operations.summary','/execute/ouf.ingestion.operations.incidents')) else owner_port if uri.endswith(('/execute/ouf.gateway.operations.summary','/execute/ouf.gateway.operations.incidents')) else mcp_port
                     route['upstream']['nodes']={f'127.0.0.1:{port}':1}
             config={'apisix':{'node_listen':api_port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','INGESTION_SUMMARY_RECEIPT_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
-            os.chmod(tmp_path,0o755);(tmp_path/'config.yaml').write_text(yaml.safe_dump(config));(tmp_path/'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
+            os.chmod(tmp_path,0o755);(tmp_path/'config.yaml').write_text(yaml.safe_dump(config));(tmp_path/'apisix.yaml').write_text(yaml.safe_dump({'routes':routes})+'\n#END\n')
             subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','INGESTION_SUMMARY_RECEIPT_KEY='+'ef'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',str(tmp_path/'config.yaml')+':/usr/local/apisix/conf/config.yaml:ro','-v',str(tmp_path/'apisix.yaml')+':/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,capture_output=True)
             def invoke(roles,tool="ouf.operations.summary",arguments=None):
                 meta={'io.modelcontextprotocol/clientCapabilities':{},'io.modelcontextprotocol/clientInfo':{'name':'summary-stack','version':'1'},'io.modelcontextprotocol/protocolVersion':'2026-07-28'}
