@@ -28,16 +28,22 @@ def test_new_proposals_preserve_complete_retained_file_loop_and_security():
     before = copy.deepcopy(existing)
     result = add_to_existing(existing, rt, 'DELEGATION_KEY', 'SEMANTIC_PROPOSAL_KEY')
     assert existing == before
-    assert result['routes'][:-4] == before['routes']
+    assert result['routes'][:-5] == before['routes']
     paths = {r['uri'] for r in result['routes'] if 'uri' in r}
     assert {'/internal/capabilities/v1/execute/managed.file/'+mode
             for mode in ('upload', 'handoff', 'profile', 'preview', 'create')} <= paths
     assert {'/internal/capabilities/v1/execute/semantic/'+mode
-            for mode in ('search', 'get', 'create', 'validate', 'review', 'read')} <= paths
+            for mode in ('search', 'get', 'create', 'validate', 'review', 'read', 'discovery/adopt')} <= paths
     assert '/internal/capabilities/v1/execute/urban.object.search' in paths
     assert '/internal/capabilities/v1/execute/ouf.operations.incidents' in paths
     assert '/mcp' in paths
-    for route in result['routes'][-4:]:
+    previous = copy.deepcopy(result)
+    previous['routes'].pop()
+    assert add_to_existing(previous, rt, 'DELEGATION_KEY', 'SEMANTIC_PROPOSAL_KEY',
+                           adoption_only=True) == result
+    with pytest.raises(ValueError, match='retained proposal key'):
+        add_to_existing(previous, rt, 'DELEGATION_KEY', 'OTHER_KEY', adoption_only=True)
+    for route in result['routes'][-5:]:
         assert route['upstream']['retries'] == 0
         assert set(('openid-connect', 'limit-count', 'request-validation', 'serverless-pre-function')) <= route['plugins'].keys()
         assert not any(word in route['uri'] for word in ('approve', 'publish', 'confirm'))
