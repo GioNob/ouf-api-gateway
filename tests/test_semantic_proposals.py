@@ -5,10 +5,12 @@ import hmac
 import json
 from pathlib import Path
 import pytest
-from jsonschema import Draft7Validator, FormatChecker
+from jsonschema import Draft7Validator, Draft202012Validator, FormatChecker
 from tests.test_execute_delegation import Engine, Denied, human, workload, envelope, proof, runtime, INSTALL, KEY
 from tools.delegation_functions import function
-from tools.materialize_semantic_proposals import materialize, CAPABILITIES
+from tools.materialize_semantic_proposals import materialize, CAPABILITIES, CAPTURE_ENVELOPE
+
+ADOPT = 'ouf.semantic.discovery.adopt'
 
 def request(cap='ouf.semantic.propose', actor='HUMAN'):
     mode, operation, _ = CAPABILITIES[cap]
@@ -19,43 +21,59 @@ def request(cap='ouf.semantic.propose', actor='HUMAN'):
             'validate': {'revisionId': '22222222-2222-4222-8222-222222222222', 'expectedRowVersion': 0, 'commandKey': 'intent-1'},
             'review': {'revisionId': '22222222-2222-4222-8222-222222222222', 'expectedRowVersion': 0,
                        'validationRunId': '33333333-3333-4333-8333-333333333333', 'commandKey': 'intent-1'},
-            'read': {'commandKey': 'intent-1'}}[mode]
+            'read': {'commandKey': 'intent-1'},
+            'adopt': {'requestId': '11111111-1111-4111-8111-111111111111',
+                      'candidateId': '22222222-2222-4222-8222-222222222222',
+                      'commandKey': 'intent-1'}}[mode]
     e.update(CapabilityID=cap, GatewayBindingRef='capability://'+cap, Owner='semantic', OperationClass=operation,
              Arguments=args, IdempotencyKey='intent-1' if operation == 'COMMAND' else 'read-1')
     e['Identity']['ActorType'] = actor
     return e
 
-def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, delegation=None, key=KEY):
+def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, delegation=None, key=KEY,
+            omit_delegation=False):
     e = request(cap, actor) if body is None else body
     if delegation is None:
         delegation = proof(dict(human(), ouf_actor_type=actor, scope='mcp.connect '+CAPABILITIES[cap][2], externalRoleRefs=['ente:staff']))
     h = {'X-OUF-Delegation': delegation, 'X-Correlation-ID': e['CorrelationID'],
          'Idempotency-Key': e['IdempotencyKey'], 'X-Tool-Attempt-ID': e['AttemptID'],
          'X-OUF-Principal-ID': 'forged', 'Cookie': 'forged'}
+    if omit_delegation:
+        del h['X-OUF-Delegation']
     engine = Engine(workload() if claims is None else claims, h, e, key=key)
+    ctx = engine.lua.table()
+    engine.lua.execute(CAPTURE_ENVELOPE.encode())(None, ctx)
+    # Model the real gate's JSON rewrite between the two plugin phases.
+    engine.body = json.dumps(e, sort_keys=True, separators=(',', ':')).encode()
     engine.modules[b'resty.openssl.digest'] = engine.lua.table_from({b'new': lambda _: engine.lua.table_from({b'final': lambda _, data: hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string'] = engine.lua.table_from({b'to_hex': lambda data: data.hex().encode()})
     engine.lua.execute(function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'OWNER_KEY',
-        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, None)
+        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, ctx)
     return engine
+
+def verify_owner_receipt(proof, key, body):
+    encoded, signature = proof.split(b'.')
+    pad = lambda x: x+b'='*(-len(x)%4)
+    assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),
+        hmac.new(key, b'ouf-semantic-proposal-owner-v1.'+encoded, hashlib.sha256).digest())
+    receipt = json.loads(base64.urlsafe_b64decode(pad(encoded)))
+    assert receipt['bodyHash'] == hashlib.sha256(body).hexdigest()
+    return receipt
 
 @pytest.mark.parametrize('cap', CAPABILITIES)
 @pytest.mark.parametrize('actor', ['HUMAN', 'AI_AGENT', 'SERVICE'])
 def test_actual_lua_signs_exact_identity_path_body_and_owner_permission(cap, actor):
-    if cap == 'ouf.semantic.proposal.read' and actor != 'HUMAN':
+    if cap in ('ouf.semantic.proposal.read', ADOPT) and actor != 'HUMAN':
         with pytest.raises(Denied):
             execute(cap, actor=actor)
         return
     engine = execute(cap, actor=actor)
-    encoded, signature = engine.headers[b'x-ouf-semantic-proposal-receipt'].split(b'.')
-    pad = lambda x: x+b'='*((4-len(x)%4)%4)
-    assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),
-        hmac.new(KEY.encode(), b'ouf-semantic-proposal-owner-v1.'+encoded, hashlib.sha256).digest())
-    r = json.loads(base64.urlsafe_b64decode(pad(encoded)))
+    r = verify_owner_receipt(engine.headers[b'x-ouf-semantic-proposal-receipt'], KEY.encode(), engine.body)
     assert r['purpose'] == 'semantic-proposal-owner' and r['path'] == '/api/semantic/v1/proposal-commands/'+CAPABILITIES[cap][0]
-    assert r['capability'] == CAPABILITIES[cap][2] and r['actor'] == actor and r['subject'] == 'human-a'
-    assert r['bodyHash'] == hashlib.sha256(engine.body).hexdigest() and r['exp']-r['iat'] == 30
-    assert json.loads(engine.body) == request(cap, actor)
+    assert r['capability'] == cap and r['actor'] == actor and r['subject'] == 'human-a'
+    assert CAPABILITIES[cap][2] in r['scope'].split()
+    assert r['exp']-r['iat'] == 30
+    assert engine.body == json.dumps(request(cap, actor)).encode()
     assert not {'authorization', 'cookie', 'x-ouf-delegation', 'x-ouf-principal-id'} & {k.decode() for k in engine.headers}
 
 def test_receipt_read_does_not_reuse_service_semantic_scope():
@@ -88,24 +106,82 @@ def test_actual_lua_blocks_unknown_authority_and_drift(kind):
 def test_materializer_closed_routes_schemas_and_no_automatic_retry():
     doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
     routes = [r for r in doc['routes'] if '/execute/semantic/' in r.get('uri', '')]
-    assert len(routes) == 4
+    assert len(routes) == 5
     assert len([r for r in doc['routes'] if r['id'].startswith('authorization-ths-')]) == 3
     assert len([r for r in doc['routes'] if '/execute/authorization/' in r.get('uri', '')]) == 3
     with pytest.raises(ValueError, match='preserve THS'):
         materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
     for route in routes:
-        assert route['upstream']['nodes'] == {'ouf-semantic-registry:8080': 1} and route['upstream']['retries'] == 0
+        pre = route['plugins']['serverless-pre-function']
+        assert pre['phase'] == 'rewrite' and CAPTURE_ENVELOPE in pre['functions']
+        assert route['upstream']['nodes'] == {'ouf-semantic:8080': 1} and route['upstream']['retries'] == 0
         schema = route['plugins']['request-validation']['body_schema'];cap = schema['properties']['CapabilityID']['const']
         validator = Draft7Validator(schema, format_checker=FormatChecker());validator.validate(request(cap))
         bad = request(cap);bad['Arguments']['approvedBy'] = 'agent';assert not validator.is_valid(bad)
         bad = request(cap);bad['Arguments']['commandKey'] = '';assert not validator.is_valid(bad)
-        if cap == 'ouf.semantic.proposal.read':
+        if cap in ('ouf.semantic.proposal.read', ADOPT):
             for actor in ('AI_AGENT', 'SERVICE'):
                 assert not validator.is_valid(request(cap, actor))
         assert '/api/trusted-human/' not in route['plugins']['proxy-rewrite']['uri']
     rt = runtime();route = next(r for r in rt['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId') == 'ouf.semantic.propose')
     route['plugins']['proxy-rewrite']['uri'] = '/api/trusted-human/v1/semantic-approval-challenges'
     with pytest.raises(ValueError): materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
+
+def test_adoption_matches_owner_pr49_and_only_accepts_bounded_human_intent():
+    root = Path(__file__).resolve().parents[1]
+    vector = (root/'tests/fixtures/discovery-adoption-owner-8c0b1a2.json').read_bytes().replace(b'\r\n', b'\n')
+    assert hashlib.sha256(vector).hexdigest() == '7d48d80559f820185ab46f97625f38e86ead17fd3cdcfa533485b622c54152c1'
+    owner_schema = json.loads(vector)
+    owner = Draft202012Validator(owner_schema, format_checker=FormatChecker())
+    owner.validate(request(ADOPT)['Arguments'])
+    owner.validate(json.loads((root/'tests/fixtures/discovery-adoption-receipt.json').read_bytes()))
+    definitions = owner_schema['$defs']
+    expected = definitions['arguments']
+    for field in ('requestId', 'candidateId'):
+        assert expected['properties'][field] == {'$ref': '#/$defs/uuid'}
+        expected['properties'][field] = definitions['uuid']
+    rt = runtime()
+    binding = next(r for r in rt['routes'] if r['id'] == 'mcp-semantic-discovery-adopt')
+    backend = binding['x-ouf-backend-binding']
+    backend['port'] = 9443
+    doc = materialize(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
+    route = next(r for r in doc['routes'] if r['id'] == binding['id'])
+    assert route['upstream']['nodes'] == {f"{backend['service']}:9443": 1}
+    assert route['plugins']['client-control']['max_body_size'] == 65536
+    schema = route['plugins']['request-validation']['body_schema']
+    assert schema['properties']['Arguments'] == expected
+    validator = Draft7Validator(schema, format_checker=FormatChecker())
+    for field in ('requestId', 'candidateId', 'commandKey'):
+        body = request(ADOPT)
+        del body['Arguments'][field]
+        assert not validator.is_valid(body)
+        body['Arguments'][field] = 'invalid value'
+        assert not validator.is_valid(body)
+
+def test_adoption_denies_absent_invalid_and_wrong_scope_delegation():
+    signed = proof(dict(human(), scope='ouf.semantic.discovery'))
+    payload, signature = signed.split('.')
+    forged = payload + '.' + ('A' if signature[0] != 'A' else 'B') + signature[1:]
+    for kwargs in ({'omit_delegation': True}, {'delegation': 'invalid'}, {'delegation': forged},
+                   {'delegation': proof(dict(human(), scope=ADOPT))}):
+        with pytest.raises(Denied, match='403'):
+            execute(ADOPT, **kwargs)
+    body = request(ADOPT)
+    body['AuthorizationDecisionRef'] = 'x' * 65536
+    with pytest.raises(Denied, match='413'):
+        execute(ADOPT, body=body)
+
+def test_adoption_reconciliation_signs_read_and_preserves_both_owner_scopes():
+    read = 'ouf.semantic.proposal.read'
+    body = request(read)
+    body['Arguments']['commandKey'] = request(ADOPT)['IdempotencyKey']
+    scope = 'mcp.connect ouf.semantic.proposal.read ouf.semantic.discovery'
+    engine = execute(read, body=body, delegation=proof(dict(human(), scope=scope)))
+    encoded, _ = engine.headers[b'x-ouf-semantic-proposal-receipt'].split(b'.')
+    receipt = json.loads(base64.urlsafe_b64decode(encoded + b'=' * (-len(encoded) % 4)))
+    assert receipt['capability'] == read and receipt['scope'] == scope
+    assert receipt['path'] == '/api/semantic/v1/proposal-commands/read'
+    assert json.loads(engine.body)['Arguments'] == body['Arguments']
 
 def test_ths_and_owner_signing_keys_are_not_tool_inputs():
     doc = materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY', 'AUTHORIZATION_OWNER_KEY')
@@ -133,7 +209,8 @@ def test_import_rdf_is_a_bounded_ontology_draft_under_the_same_receipt():
 
 def write_owner_vectors(path):
     vectors=[]
-    for cap in CAPABILITIES:
+    # The existing owner conformance file has five ordered vectors (RDF import last).
+    for cap in ('ouf.semantic.propose', 'ouf.semantic.review.prepare', 'ouf.semantic.approval.request', 'ouf.semantic.proposal.read'):
         e=execute(cap,actor='HUMAN' if cap == 'ouf.semantic.proposal.read' else 'AI_AGENT')
         vectors.append({'path':'/api/semantic/v1/proposal-commands/'+CAPABILITIES[cap][0],
                         'proof':e.headers[b'x-ouf-semantic-proposal-receipt'].decode(), 'body':e.body.decode()})
