@@ -140,6 +140,10 @@ def exercise_release_function(route):
                'X-Tool-Attempt-ID': dispatch['AttemptID']}
     engine = Engine(workload(), headers, dispatch, uri=route['uri'])
     ctx = engine.modules[b'cjson.safe'][b'decode'](json.dumps({'matched_route': {'value': route}}).encode())
+    # Task-25d: semantic routes capture the original envelope in the rewrite phase.
+    for capture in plugins.get('serverless-pre-function', {}).get('functions', []):
+        if 'ouf_semantic_envelope' in capture:
+            engine.lua.execute(capture.encode())(None, ctx)
     source, = plugins['serverless-post-function']['functions']
     engine.lua.execute(source.encode())(None, ctx)
     assert engine.headers[receipt] and b'authorization' not in engine.headers
