@@ -24,14 +24,61 @@ import yaml
 from tools.materialize_object_search import materialize
 from tests.test_execute_delegation import runtime, envelope
 
-pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
-
-def test_real_apisix_oidc_delegation_and_execute():
+def fixture_issuer(installation):
     import jwt
     from cryptography.hazmat.primitives.asymmetric import rsa
-    key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
-    jwk=json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()));jwk.update(kid='fixture',use='sig',alg='RS256')
+
+    signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(signing_key.public_key()))
+    jwk.update(kid='fixture', use='sig', alg='RS256')
+
+    def token(actor='HUMAN', **updates):
+        now = int(time.time())
+        claims = dict(iss=installation['issuerUrl'], aud=installation['gatewayAudience'],
+                      iat=now, exp=now+300, sub='human-a', tenant_id='tenant-a', acr='1',
+                      azp='chatgpt', scope='mcp.connect operations.status.read', ouf_actor_type=actor)
+        if actor == 'SERVICE':
+            claims.update(azp=installation['mcpServiceIdentity'], sub='service', scope='authorization.bundle.read')
+        claims.update(updates)
+        return jwt.encode(claims, signing_key, algorithm='RS256', headers={'kid': 'fixture'})
+
+    return jwk, token
+
+
+def signed_semantic_requests(token):
+    from tests.test_semantic_proposals import ADOPT, request
+
+    for mode, capability, idempotency_key in (
+        ('discovery/adopt', ADOPT, 'intent-1'),
+        ('read', 'ouf.semantic.proposal.read', 'read-1'),
+        ('discovery/adopt', ADOPT, 'expired'),
+    ):
+        dispatch = request(capability)
+        dispatch['IdempotencyKey'] = idempotency_key
+        if capability == ADOPT:
+            dispatch['Arguments']['commandKey'] = idempotency_key
+        yield mode, dispatch, token('SERVICE')
+
+
+def test_semantic_requests_verify_with_the_advertised_issuer_key():
+    import jwt
+
+    installation = runtime()['x-ouf-installation']
+    jwk, token = fixture_issuer(installation)
+    public_key = jwt.algorithms.RSAAlgorithm.from_jwk(jwk)
+    intents = []
+    for _, dispatch, bearer in signed_semantic_requests(token):
+        claims = jwt.decode(bearer, public_key, algorithms=['RS256'],
+                            audience=installation['gatewayAudience'], issuer=installation['issuerUrl'])
+        assert claims['ouf_actor_type'] == 'SERVICE' and claims['azp'] == installation['mcpServiceIdentity']
+        intents.append((dispatch['IdempotencyKey'], dispatch['Arguments']['commandKey']))
+    assert intents == [('intent-1', 'intent-1'), ('read-1', 'intent-1'), ('expired', 'expired')]
+
+
+@pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
+def test_real_apisix_oidc_delegation_and_execute():
     rt=runtime();installation=rt['x-ouf-installation'];issuer=installation['issuerUrl'];aud=installation['gatewayAudience'];workload=installation['mcpServiceIdentity']
+    jwk, token = fixture_issuer(installation)
     calls=[]
     semantic_calls = []
     adoption_receipt = (Path(__file__).parent/'fixtures/discovery-adoption-receipt.json').read_bytes()
@@ -78,10 +125,6 @@ def test_real_apisix_oidc_delegation_and_execute():
     server=ThreadingHTTPServer(('127.0.0.1',0),Fixture)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
-    def token(actor='HUMAN',**updates):
-        now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
-        if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
-        c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
     def post(path,body,bearer=None,proof=None,*,idempotency_key='idem'):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':idempotency_key,'X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin'}
         if bearer:headers['Authorization']='Bearer '+bearer
@@ -201,17 +244,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                 assert post(adopt_path, adopt, token('SERVICE'), invalid_proof,
                             idempotency_key=adopt['IdempotencyKey'])[0] == 403
             assert not semantic_calls
-            for mode, cap, key, expected in (
-                ('discovery/adopt', ADOPT, 'intent-1', (200, adoption_receipt)),
-                ('read', 'ouf.semantic.proposal.read', 'read-1', (200, historical_read)),
-                ('discovery/adopt', ADOPT, 'expired', (409, adoption_conflict)),
-            ):
-                dispatch = proposal_request(cap)
-                dispatch['IdempotencyKey'] = key
-                if cap == ADOPT:
-                    dispatch['Arguments']['commandKey'] = key
-                assert post('/internal/capabilities/v1/execute/semantic/'+mode, dispatch, token('SERVICE'),
-                            semantic_proof, idempotency_key=key) == expected
+            responses = [(200, adoption_receipt), (200, historical_read), (409, adoption_conflict)]
+            for (mode, dispatch, bearer), expected in zip(signed_semantic_requests(token), responses, strict=True):
+                assert post('/internal/capabilities/v1/execute/semantic/'+mode, dispatch, bearer,
+                            semantic_proof, idempotency_key=dispatch['IdempotencyKey']) == expected
                 owner_path, headers, forwarded = semantic_calls[-1]
                 assert owner_path.endswith('/'+mode.split('/')[-1])
                 assert forwarded == json.dumps(dispatch).encode()
