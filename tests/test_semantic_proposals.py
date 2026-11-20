@@ -8,7 +8,7 @@ import pytest
 from jsonschema import Draft7Validator, Draft202012Validator, FormatChecker
 from tests.test_execute_delegation import Engine, Denied, human, workload, envelope, proof, runtime, INSTALL, KEY
 from tools.delegation_functions import function
-from tools.materialize_semantic_proposals import materialize, CAPABILITIES
+from tools.materialize_semantic_proposals import materialize, CAPABILITIES, CAPTURE_ENVELOPE
 
 ADOPT = 'ouf.semantic.discovery.adopt'
 
@@ -41,11 +41,24 @@ def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, d
     if omit_delegation:
         del h['X-OUF-Delegation']
     engine = Engine(workload() if claims is None else claims, h, e, key=key)
+    ctx = engine.lua.table()
+    engine.lua.execute(CAPTURE_ENVELOPE.encode())(None, ctx)
+    # Model the real gate's JSON rewrite between the two plugin phases.
+    engine.body = json.dumps(e, sort_keys=True, separators=(',', ':')).encode()
     engine.modules[b'resty.openssl.digest'] = engine.lua.table_from({b'new': lambda _: engine.lua.table_from({b'final': lambda _, data: hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string'] = engine.lua.table_from({b'to_hex': lambda data: data.hex().encode()})
     engine.lua.execute(function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'OWNER_KEY',
-        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, None)
+        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, ctx)
     return engine
+
+def verify_owner_receipt(proof, key, body):
+    encoded, signature = proof.split(b'.')
+    pad = lambda x: x+b'='*(-len(x)%4)
+    assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),
+        hmac.new(key, b'ouf-semantic-proposal-owner-v1.'+encoded, hashlib.sha256).digest())
+    receipt = json.loads(base64.urlsafe_b64decode(pad(encoded)))
+    assert receipt['bodyHash'] == hashlib.sha256(body).hexdigest()
+    return receipt
 
 @pytest.mark.parametrize('cap', CAPABILITIES)
 @pytest.mark.parametrize('actor', ['HUMAN', 'AI_AGENT', 'SERVICE'])
@@ -55,15 +68,11 @@ def test_actual_lua_signs_exact_identity_path_body_and_owner_permission(cap, act
             execute(cap, actor=actor)
         return
     engine = execute(cap, actor=actor)
-    encoded, signature = engine.headers[b'x-ouf-semantic-proposal-receipt'].split(b'.')
-    pad = lambda x: x+b'='*((4-len(x)%4)%4)
-    assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),
-        hmac.new(KEY.encode(), b'ouf-semantic-proposal-owner-v1.'+encoded, hashlib.sha256).digest())
-    r = json.loads(base64.urlsafe_b64decode(pad(encoded)))
+    r = verify_owner_receipt(engine.headers[b'x-ouf-semantic-proposal-receipt'], KEY.encode(), engine.body)
     assert r['purpose'] == 'semantic-proposal-owner' and r['path'] == '/api/semantic/v1/proposal-commands/'+CAPABILITIES[cap][0]
     assert r['capability'] == cap and r['actor'] == actor and r['subject'] == 'human-a'
     assert CAPABILITIES[cap][2] in r['scope'].split()
-    assert r['bodyHash'] == hashlib.sha256(engine.body).hexdigest() and r['exp']-r['iat'] == 30
+    assert r['exp']-r['iat'] == 30
     assert engine.body == json.dumps(request(cap, actor)).encode()
     assert not {'authorization', 'cookie', 'x-ouf-delegation', 'x-ouf-principal-id'} & {k.decode() for k in engine.headers}
 
@@ -103,6 +112,8 @@ def test_materializer_closed_routes_schemas_and_no_automatic_retry():
     with pytest.raises(ValueError, match='preserve THS'):
         materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
     for route in routes:
+        pre = route['plugins']['serverless-pre-function']
+        assert pre['phase'] == 'rewrite' and CAPTURE_ENVELOPE in pre['functions']
         assert route['upstream']['nodes'] == {'ouf-semantic:8080': 1} and route['upstream']['retries'] == 0
         schema = route['plugins']['request-validation']['body_schema'];cap = schema['properties']['CapabilityID']['const']
         validator = Draft7Validator(schema, format_checker=FormatChecker());validator.validate(request(cap))

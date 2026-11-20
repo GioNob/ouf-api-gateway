@@ -25,7 +25,7 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-local body = require('apisix.core').request.get_body(65536)
+local body = ctx.ouf_semantic_envelope
 if not body or #body > 65536 then return fail(413) end
 local e = cjson.decode(body)
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' or type(e.Arguments) ~= 'table' then return fail(400) end

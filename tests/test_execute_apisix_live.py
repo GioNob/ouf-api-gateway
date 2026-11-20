@@ -6,6 +6,8 @@ materialization keeps HTTPS discovery with certificate verification enabled.
 import base64
 import copy
 import contextlib
+import hashlib
+import hmac
 import json
 import os
 import socket
@@ -57,6 +59,8 @@ def signed_semantic_requests(token):
         dispatch['IdempotencyKey'] = idempotency_key
         if capability == ADOPT:
             dispatch['Arguments']['commandKey'] = idempotency_key
+        arguments = json.dumps(dispatch['Arguments'], sort_keys=True, separators=(',', ':')).encode()
+        dispatch['RequestHash'] = hashlib.sha256(arguments).hexdigest()
         yield mode, dispatch, token('SERVICE')
 
 
@@ -140,7 +144,6 @@ def test_real_apisix_oidc_delegation_and_execute():
             owner_port, owner_db = owners.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'], folder, installation))
         udp_port=None
         if os.environ.get('OUF_UDP_JAR'):
-            import hashlib
             from datetime import datetime, timedelta, timezone
             with socket.socket() as sock:sock.bind(('127.0.0.1',0));udp_port=sock.getsockname()[1]
             now=datetime.now(timezone.utc)
@@ -234,7 +237,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
-            from tests.test_semantic_proposals import ADOPT, request as proposal_request
+            from tests.test_semantic_proposals import ADOPT, request as proposal_request, verify_owner_receipt
             code, raw = post('/mcp', {}, token(scope='mcp.connect ouf.semantic.discovery ouf.semantic.proposal.read'))
             assert code == 200, (code, raw)
             semantic_proof = json.loads(raw)['proof']
@@ -251,9 +254,11 @@ def test_real_apisix_oidc_delegation_and_execute():
                 owner_path, headers, forwarded = semantic_calls[-1]
                 assert owner_path.endswith('/'+mode.split('/')[-1])
                 assert forwarded == json.dumps(dispatch).encode()
-                header_names = {name.lower() for name in headers}
-                assert 'x-ouf-semantic-proposal-receipt' in header_names
-                assert not {'authorization', 'x-ouf-delegation', 'cookie'} & header_names
+                headers = {name.lower(): value for name, value in headers.items()}
+                receipt = verify_owner_receipt(headers['x-ouf-semantic-proposal-receipt'].encode(),
+                                               b'56'*32, forwarded)
+                assert receipt['path'] == owner_path and receipt['capability'] == dispatch['CapabilityID']
+                assert not {'authorization', 'x-ouf-delegation', 'cookie'} & headers.keys()
             assert len(semantic_calls) == 3
             from tests.test_permission_proposals import request as permission_request
             cap='authorization.permissions.propose'
@@ -262,7 +267,6 @@ def test_real_apisix_oidc_delegation_and_execute():
             delegated=json.loads(raw)['proof']
             code,raw=post('/internal/capabilities/v1/execute/authorization/propose',permission_request(),token('SERVICE'),delegated)
             assert code==200,(code,raw)
-            import hashlib,hmac
             data=json.loads(raw);encoded,signature=data['receipt'].split('.');pad=lambda s:s+'='*((4-len(s)%4)%4)
             assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('cd'*32).encode(),('ouf-authorization-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
             receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
