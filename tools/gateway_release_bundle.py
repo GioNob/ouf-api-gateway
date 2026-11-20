@@ -57,6 +57,8 @@ def placeholder_names(value):
 
 
 def placeholder_type(name):
+    if name.startswith('services.ports.'):
+        return 'integer'
     # References and environment bindings for signing keys are sensitive too.
     if 'Secret' in name or 'Key' in name:
         return 'secret'

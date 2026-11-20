@@ -42,10 +42,12 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert isinstance(resources, list)
     assert bundle['resourcesSha256'] == manifest['resourcesSha256'] == sha256(canonical_json(resources))
     assert isinstance(bundle['placeholders'], list)
+    placeholder_types = {}
     for entry in bundle['placeholders']:
         assert set(entry) == {'name', 'type'}
         assert re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,127}', entry['name'])
-        assert entry['type'] in {'string', 'url', 'secret'}
+        assert entry['type'] in {'string', 'url', 'secret', 'integer'}
+        placeholder_types[entry['name']] = entry['type']
     used = set()
 
     def resolve(value):
@@ -56,8 +58,14 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
                 assert set(value) == {'$installation'}
                 name = value['$installation']
                 assert re.fullmatch(r'[A-Za-z][A-Za-z0-9_.-]{0,127}', name)
+                expected_type = placeholder_types[name]
+                replacement = profile[name]
+                if expected_type == 'integer':
+                    assert type(replacement) is int, f'{name}: expected integer'
+                else:
+                    assert isinstance(replacement, str), f'{name}: expected string'
                 used.add(name)
-                return profile[name]
+                return replacement
             return {key: resolve(item) for key, item in value.items()}
         return value
 

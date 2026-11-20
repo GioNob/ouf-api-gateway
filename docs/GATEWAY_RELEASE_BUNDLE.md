@@ -27,7 +27,7 @@ I due JSON sono UTF-8 senza BOM, con soli caratteri ASCII, chiavi ordinate, sepa
 
 Un segnaposto occupa un intero valore JSON, per esempio `{"$installation":"services.ports.ouf-onboarding"}`. Ogni nome rispetta `^[A-Za-z][A-Za-z0-9_.-]{0,127}$`, identifica una voce del registro D-065 e compare sia nella configurazione da risolvere sia negli elenchi del bundle e del manifest. L'esecutore risolve il nome esatto nel profilo privato e sostituisce l'intero oggetto. La CI usa un profilo sintetico in memoria.
 
-I nomi con `Secret` o `Key` sono classificati `secret`, compresi i riferimenti ai segreti e i nomi delle variabili che espongono le chiavi. Issuer e discovery sono `url`. Gli altri nomi sono classificati `string`. Le porte ricadono in quest'ultima classificazione e il corpo APISIX nel gate CI riceve le porte come interi dal profilo sintetico.
+Il contratto rev. 2 classifica `services.ports.*` come `integer`. L'esecutore e il loader del gate CI richiedono un intero JSON ed escludono stringhe, booleani e valori in virgola mobile. I nomi con `Secret` o `Key` sono classificati `secret`, compresi i riferimenti ai segreti e i nomi delle variabili che espongono le chiavi. Issuer e discovery sono `url`. Gli altri nomi sono classificati `string`. I tipi `string`, `url` e `secret` richiedono una stringa JSON.
 
 | Nome | Valore da fornire |
 | --- | --- |
@@ -45,6 +45,6 @@ I nodi upstream usano la forma APISIX con `host`, `port` e `weight`. Il codice L
 ## Qualificazione CI e verifica prima dell'applicazione
 
 1. Su `pull_request` il job `config-contract` verifica il checkout del commit di testa della PR e genera il pacchetto da quel commit. Il workflow passa al generatore `workflowPath` e `runId`.
-2. Il gate **Real APISIX OIDC and delegation** verifica formato, hash, provenienza attesa ed elenco dei segnaposto. Risolve le rotte in memoria e le carica nel provider YAML dell'immagine APISIX 3.18.0. Verifica il rifiuto delle richieste anonime su ogni rotta, attraversa entrambe le rotte di revisione e prova adozione e lettura contro gli owner di test.
+2. Il gate **Real APISIX OIDC and delegation** verifica formato, hash, provenienza attesa ed elenco dei segnaposto. Risolve le rotte in memoria verificando i tipi dichiarati e le carica nel provider YAML dell'immagine APISIX 3.18.0 con le porte dei nodi upstream come interi. Verifica il rifiuto delle richieste anonime su ogni rotta, attraversa entrambe le rotte di revisione e prova adozione e lettura contro gli owner di test.
 3. Dopo il successo del gate, Actions carica esattamente i tre file alla radice dell'artefatto `gateway-release-bundle-<runId>`. Questo caricamento è riservato all'evento `pull_request`. Una riesecuzione può produrre un nuovo ID e digest dell'artefatto.
 4. Per il rilascio, verificare tramite GitHub repository, workflow, run riuscito, evento, PR, SHA di testa e appartenenza dell'artefatto al run. Confrontare il digest ZIP con quello restituito da Actions, poi verificare i tre file alla radice, `SHA256SUMS`, lo schema esatto, i campi incrociati, il digest canonico delle risorse e la corrispondenza dei segnaposto. Dopo questi controlli l'esecutore di `ouf-deploy` può risolvere i valori dal profilo privato.

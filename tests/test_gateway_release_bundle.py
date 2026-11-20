@@ -36,7 +36,8 @@ def test_release_artifact(tmp_path, monkeypatch):
 
     bundle_file = first / 'bundle.json'
     bundle = json.loads(bundle_file.read_bytes())
-    assert {entry['name']: entry['type'] for entry in bundle['placeholders']} == {
+    placeholder_types = {entry['name']: entry['type'] for entry in bundle['placeholders']}
+    assert placeholder_types == {
         'caddy.oidcDiscoveryUrl': 'url',
         'gateway.delegationKeyEnv': 'secret',
         'gateway.issuerUrl': 'url',
@@ -49,8 +50,8 @@ def test_release_artifact(tmp_path, monkeypatch):
         'revision': 'string',
         'services.bindings.ouf-onboarding': 'string',
         'services.bindings.ouf-semantic-registry': 'string',
-        'services.ports.ouf-onboarding': 'string',
-        'services.ports.ouf-semantic-registry': 'string',
+        'services.ports.ouf-onboarding': 'integer',
+        'services.ports.ouf-semantic-registry': 'integer',
     }
     for item in bundle['resources']:
         route = item['body']
@@ -62,6 +63,9 @@ def test_release_artifact(tmp_path, monkeypatch):
         assert set(route['labels']['ouf-owner-key-env']) == {'$installation'}
         node, = route['upstream']['nodes']
         assert set(node['host']) == set(node['port']) == {'$installation'}
+        assert [name for name in producer.placeholder_names(route) if placeholder_types[name] == 'integer'] == [
+            node['port']['$installation'],
+        ]
 
     profile = ci_profile(dict(INSTALL, installationId='portable', revision=2), 18888)
     commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
@@ -84,6 +88,17 @@ def test_release_artifact(tmp_path, monkeypatch):
         load_release_routes(first, commit, WORKFLOW_PATH, '0', profile)
     with pytest.raises(KeyError):
         load_release_routes(first, commit, WORKFLOW_PATH, RUN_ID, {})
+    for name, invalid, expected_type in (
+        ('services.ports.ouf-onboarding', '18888', 'integer'),
+        ('services.ports.ouf-semantic-registry', True, 'integer'),
+        ('services.ports.ouf-onboarding', 18888.0, 'integer'),
+        ('revision', 2, 'string'),
+        ('gateway.issuerUrl', 42, 'string'),
+        ('gateway.oidcClientSecretRef', False, 'string'),
+    ):
+        with pytest.raises(AssertionError) as error:
+            load_release_routes(first, commit, WORKFLOW_PATH, RUN_ID, {**profile, name: invalid})
+        assert str(error.value) == f'{name}: expected {expected_type}'
     manifest_file = first / 'manifest.json'
     manifest_file.write_bytes(manifest_file.read_bytes() + b' ')
     with pytest.raises(AssertionError):
