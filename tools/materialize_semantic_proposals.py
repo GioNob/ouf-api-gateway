@@ -7,6 +7,12 @@ from tools.materialize_operational_execute import materialize as operational_run
 from tools.delegation_functions import function
 
 ROOT = Path(__file__).resolve().parents[1]
+# request-validation can rewrite the JSON body between rewrite and access.
+CAPTURE_ENVELOPE = """return function(conf, ctx)
+    local body = require('apisix.core').request.get_body(65536)
+    if not body or #body > 65536 then return ngx.exit(413) end
+    ctx.ouf_semantic_envelope = body
+end"""
 CAPABILITIES = {
     'ouf.semantic.propose': ('create', 'COMMAND', 'ouf.semantic.propose'),
     'ouf.semantic.review.prepare': ('validate', 'COMMAND', 'ouf.semantic.review.prepare'),
@@ -43,6 +49,9 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
     if any(name not in template.get('plugins', {}) for name in
            ('openid-connect', 'limit-count', 'request-validation', 'serverless-pre-function', 'serverless-post-function')):
         raise ValueError('authenticated bounded execute template required')
+    if (template['plugins']['serverless-pre-function']['phase'] != 'rewrite'
+        or template['plugins']['serverless-post-function']['phase'] != 'access'):
+        raise ValueError('semantic envelope capture requires rewrite before access')
     ids = [r.get('id') for r in result['routes']]
     if len(ids) != len(set(ids)):
         raise ValueError('existing route IDs must be unique')
@@ -75,7 +84,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
         route['id'] = 'semantic-proposal-'+mode
         route['uri'] = '/internal/capabilities/v1/execute/semantic/'+mode
         if mode == 'adopt':
-            if template.get('methods') != ['POST'] or template['plugins']['serverless-post-function']['phase'] != 'access':
+            if template.get('methods') != ['POST']:
                 raise ValueError('authenticated POST execute template required')
             route['id'] = binding['id']
             route['uri'] = binding['uri']
@@ -87,6 +96,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
                 for uri in ([r['uri']] if 'uri' in r else r.get('uris', []))) for r in result['routes']):
             raise ValueError('semantic proposal route already exists; reconcile before materialization')
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
+        route['plugins']['serverless-pre-function']['functions'].append(CAPTURE_ENVELOPE)
         route['plugins']['request-validation']['body_schema'] = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
             delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
