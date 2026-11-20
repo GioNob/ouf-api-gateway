@@ -6,25 +6,28 @@ Il generatore compila `ouf-config/`, applica la proiezione D-058 con valori simb
 
 ## Generazione e formato
 
-Da un checkout con le dipendenze di `requirements-dev.txt`, indicare la directory di destinazione.
+Da un checkout con le dipendenze di `requirements-dev.txt`, indicare una directory dedicata e i valori di provenienza. L'ID del run nell'esempio è fittizio.
 
 ```sh
-python -m tools.gateway_release_bundle --output generated/gateway-release-bundle
+python -m tools.gateway_release_bundle --output generated/gateway-release-bundle --workflow-path .github/workflows/ci.yml --run-id 123456789
 python -m pytest -q tests/test_gateway_release_bundle.py
 ```
 
 | File | Contenuto |
 | --- | --- |
-| `bundle.json` | `schema` uguale a `ouf.gateway-release-bundle.v1`, `sourceCommit` uguale al SHA completo di `HEAD`, `resources` e `resourcesSha256`. |
-| `manifest.json` | `schema` uguale a `ouf.gateway-release-manifest.v1`, lo stesso `sourceCommit`, `files` come mappa da nome file a SHA-256 e `installationPlaceholders` come elenco ordinato dei nomi distinti. |
+| `bundle.json` | `schema` uguale a `ouf.gateway-release-bundle.v1`, `sourceRepository` uguale a `GioNob/ouf-api-gateway`, `sourceCommit` uguale allo SHA completo di `HEAD`, `resources`, `resourcesSha256` e `placeholders` come elenco di oggetti `{name, type}` ordinato per nome. |
+| `manifest.json` | `schema` uguale a `ouf.gateway-release-manifest.v1`, `sourceRepository` e `sourceCommit` uguali al bundle, `workflowPath`, `runId` come stringa di cifre, `bundleSha256`, `resourcesSha256` e `placeholders` come elenco ordinato dei soli nomi. |
+| `SHA256SUMS` | Due righe in ordine di nome, prima `bundle.json` e poi `manifest.json`. Ogni riga contiene il digest, due spazi, il nome del file e LF. |
 
-Ogni risorsa ha esattamente `kind`, `id` e `body`. L'ID è la chiave della risorsa in `/apisix/admin/{kind}/{id}`. Il corpo contiene la configurazione APISIX. Le risorse sono ordinate lessicograficamente per `(kind, id)`. L'esecutore applica solo gli ID dichiarati.
+Ogni risorsa ha esattamente `kind`, `id` e `body`. L'ID è la chiave della risorsa in `/apisix/admin/{kind}/{id}`, rispetta `^[A-Za-z0-9._-]{1,64}$` ed è univoco per collezione. Il corpo PUT esclude `id`, `create_time` e `update_time`. L'ordine di applicazione delle collezioni è `upstreams`, `services`, `plugin_configs`, `plugin_metadata`, `global_rules`, `routes`. All'interno di ogni collezione le risorse sono ordinate per ID. Il generatore di questo delta gestisce le rotte e interrompe la generazione se la materializzazione introduce altre collezioni.
 
-Gli hash sono SHA-256 esadecimali minuscoli. I file usano UTF-8 senza BOM e terminano con un singolo LF. `files["bundle.json"]` copre tutti i byte del file, LF compreso. Il manifest è coperto dal digest dell'artefatto Actions. `resourcesSha256` copre i byte UTF-8 del solo array `resources`, prima della sostituzione, con chiavi ordinate ricorsivamente, senza spazi o LF finale. La serializzazione di riferimento è `json.dumps(resources, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)`.
+I due JSON sono UTF-8 senza BOM, con soli caratteri ASCII, chiavi ordinate, separatori senza spazi, valori numerici finiti e nessun LF finale. La serializzazione di riferimento è `json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)`. Gli hash sono SHA-256 esadecimali minuscoli. `bundleSha256` copre i byte di `bundle.json` e `resourcesSha256` quelli del solo array canonico `resources` prima della sostituzione.
 
 ## Profilo di installazione
 
-Un segnaposto è un intero valore JSON, ad esempio `{"$installation":"services.ports.ouf-onboarding"}`. L'esecutore risolve il nome esatto nel profilo privato di root e sostituisce l'oggetto con il valore del tipo indicato. Un nome assente, un tipo errato o un oggetto segnaposto con campi aggiuntivi impedisce l'applicazione. La CI usa un profilo sintetico in memoria.
+Un segnaposto occupa un intero valore JSON, per esempio `{"$installation":"services.ports.ouf-onboarding"}`. Ogni nome rispetta `^[A-Za-z][A-Za-z0-9_.-]{0,127}$`, identifica una voce del registro D-065 e compare sia nella configurazione da risolvere sia negli elenchi del bundle e del manifest. L'esecutore risolve il nome esatto nel profilo privato e sostituisce l'intero oggetto. La CI usa un profilo sintetico in memoria.
+
+I nomi con `Secret` o `Key` sono classificati `secret`, compresi i riferimenti ai segreti e i nomi delle variabili che espongono le chiavi. Issuer e discovery sono `url`. Gli altri nomi sono classificati `string`. Le porte ricadono in quest'ultima classificazione e il corpo APISIX nel gate CI riceve le porte come interi dal profilo sintetico.
 
 | Nome | Valore da fornire |
 | --- | --- |
@@ -41,7 +44,7 @@ I nodi upstream usano la forma APISIX con `host`, `port` e `weight`. Il codice L
 
 ## Qualificazione CI e verifica prima dell'applicazione
 
-1. Su `pull_request` il job `config-contract` genera i due file dal checkout effettivo. Nella configurazione Actions attuale è il merge commit di prova della PR.
-2. Il gate **Real APISIX OIDC and delegation** apre quei file, controlla hash, commit ed elenco dei segnaposto. Risolve le rotte in memoria e le carica nel provider YAML dell'immagine APISIX 3.18.0. Verifica il rifiuto delle richieste anonime su ogni rotta, attraversa entrambe le rotte di revisione e prova adozione e lettura contro gli owner di test.
-3. Dopo il successo del gate, Actions carica i due JSON originali come `gateway-release-bundle-<runId>`. Una riesecuzione può produrre un nuovo ID e digest dell'artefatto. Per il rilascio, vincolare repository, workflow e run/tentativo riusciti, commit autorizzato, ID immutabile e digest SHA-256 dell'archivio restituiti da Actions. Un checksum presente nel pacchetto da solo non prova la provenienza.
-4. Verificare il digest dell'archivio scaricato e il suo contenuto atteso. Verificare schema, `sourceCommit` di entrambi i file, hash del payload, hash canonico delle risorse, unicità delle coppie `(kind,id)` e corrispondenza esatta dei segnaposto con il manifest. Solo dopo risolvere i valori dal profilo privato e consegnare i corpi all'esecutore privilegiato di `ouf-deploy`.
+1. Su `pull_request` il job `config-contract` verifica il checkout del commit di testa della PR e genera il pacchetto da quel commit. Il workflow passa al generatore `workflowPath` e `runId`.
+2. Il gate **Real APISIX OIDC and delegation** verifica formato, hash, provenienza attesa ed elenco dei segnaposto. Risolve le rotte in memoria e le carica nel provider YAML dell'immagine APISIX 3.18.0. Verifica il rifiuto delle richieste anonime su ogni rotta, attraversa entrambe le rotte di revisione e prova adozione e lettura contro gli owner di test.
+3. Dopo il successo del gate, Actions carica esattamente i tre file alla radice dell'artefatto `gateway-release-bundle-<runId>`. Questo caricamento è riservato all'evento `pull_request`. Una riesecuzione può produrre un nuovo ID e digest dell'artefatto.
+4. Per il rilascio, verificare tramite GitHub repository, workflow, run riuscito, evento, PR, SHA di testa e appartenenza dell'artefatto al run. Confrontare il digest ZIP con quello restituito da Actions, poi verificare i tre file alla radice, `SHA256SUMS`, lo schema esatto, i campi incrociati, il digest canonico delle risorse e la corrispondenza dei segnaposto. Dopo questi controlli l'esecutore di `ouf-deploy` può risolvere i valori dal profilo privato.

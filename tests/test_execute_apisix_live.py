@@ -211,7 +211,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             if udp_port and r.get('uri','').endswith('/execute/urban.object.search'):
                 r['upstream']['nodes']={f'127.0.0.1:{udp_port}':1}
         if bundle_dir:
-            release = load_release_routes(Path(bundle_dir), os.environ['GITHUB_SHA'],
+            release = load_release_routes(Path(bundle_dir), os.environ['OUF_GATEWAY_RELEASE_COMMIT'],
+                                          '.github/workflows/ci.yml', os.environ['GITHUB_RUN_ID'],
                                           ci_profile(installation, server.server_port))
             doc['routes'].extend(release)
         config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','SEMANTIC_KEY','REVISION_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
