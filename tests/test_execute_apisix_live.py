@@ -33,6 +33,10 @@ def test_real_apisix_oidc_delegation_and_execute():
     jwk=json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()));jwk.update(kid='fixture',use='sig',alg='RS256')
     rt=runtime();installation=rt['x-ouf-installation'];issuer=installation['issuerUrl'];aud=installation['gatewayAudience'];workload=installation['mcpServiceIdentity']
     calls=[]
+    semantic_calls = []
+    adoption_receipt = (Path(__file__).parent/'fixtures/discovery-adoption-receipt.json').read_bytes()
+    adoption_conflict = b'{ "code": "CANDIDATE_EXPIRED" }\n'
+    historical_read = b'{"operation":"ADOPT","historicalSnapshot":true,"ownerStateMustBeRechecked":true,"result":' + adoption_receipt + b'}'
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path=='/discovery':
@@ -55,6 +59,18 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             elif self.path=='/api/udp/v1/objects/search':
                 self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
+            elif self.path in ('/api/semantic/v1/proposal-commands/adopt', '/api/semantic/v1/proposal-commands/read'):
+                semantic_calls.append((self.path, dict(self.headers), body))
+                status, data = 200, adoption_receipt
+                if self.path.endswith('/read'):
+                    data = historical_read
+                elif json.loads(body)['Arguments']['commandKey'] == 'expired':
+                    status, data = 409, adoption_conflict
+                self.send_response(status)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Length', str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
             else:self.send_error(404)
         def reply(self,value):
             data=json.dumps(value).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
@@ -66,8 +82,8 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def post(path,body,bearer=None,proof=None):
-        headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin'}
+    def post(path,body,bearer=None,proof=None,*,idempotency_key='idem'):
+        headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':idempotency_key,'X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin'}
         if bearer:headers['Authorization']='Bearer '+bearer
         if proof:headers['X-OUF-Delegation']=proof
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=json.dumps(body).encode(),headers=headers)
@@ -128,6 +144,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 'postgres:17-alpine','psql','-h','127.0.0.1','-U',udp_env['OUF_UDP_DB_USER'],'-d','ouf_udp','-v','ON_ERROR_STOP=1','-c',sql],check=True,stdout=subprocess.DEVNULL)
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
+        from tools.materialize_semantic_proposals import add_to_existing
+        doc = add_to_existing(doc, rt, 'DELEGATION_KEY', 'SEMANTIC_KEY')
         if owner_port:
             from tools.materialize_operational_execute import materialize as operational_routes
             signed = operational_routes(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY',
@@ -143,11 +161,11 @@ def test_real_apisix_oidc_delegation_and_execute():
                 r['upstream']['nodes'] = {f'127.0.0.1:{owner_port}': 1}
             if udp_port and r.get('uri','').endswith('/execute/urban.object.search'):
                 r['upstream']['nodes']={f'127.0.0.1:{udp_port}':1}
-        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
+        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','SEMANTIC_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         name='ouf-execute-ci-'+str(os.getpid())
-        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','UDP_KEY='+'34'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','SEMANTIC_KEY='+'56'*32,'-e','UDP_KEY='+'34'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
         try:
             for _ in range(60):
                 try:
@@ -173,6 +191,34 @@ def test_real_apisix_oidc_delegation_and_execute():
             for body,bearer,p in cases:
                 code,raw=post(path,body,bearer,p);assert code in (400,401,403),(code,raw)
             assert len(calls)==1
+            from tests.test_semantic_proposals import ADOPT, request as proposal_request
+            code, raw = post('/mcp', {}, token(scope='mcp.connect ouf.semantic.discovery ouf.semantic.proposal.read'))
+            assert code == 200, (code, raw)
+            semantic_proof = json.loads(raw)['proof']
+            adopt = proposal_request(ADOPT)
+            adopt_path = '/internal/capabilities/v1/execute/semantic/discovery/adopt'
+            for invalid_proof in (None, 'invalid'):
+                assert post(adopt_path, adopt, token('SERVICE'), invalid_proof,
+                            idempotency_key=adopt['IdempotencyKey'])[0] == 403
+            assert not semantic_calls
+            for mode, cap, key, expected in (
+                ('discovery/adopt', ADOPT, 'intent-1', (200, adoption_receipt)),
+                ('read', 'ouf.semantic.proposal.read', 'read-1', (200, historical_read)),
+                ('discovery/adopt', ADOPT, 'expired', (409, adoption_conflict)),
+            ):
+                dispatch = proposal_request(cap)
+                dispatch['IdempotencyKey'] = key
+                if cap == ADOPT:
+                    dispatch['Arguments']['commandKey'] = key
+                assert post('/internal/capabilities/v1/execute/semantic/'+mode, dispatch, token('SERVICE'),
+                            semantic_proof, idempotency_key=key) == expected
+                owner_path, headers, forwarded = semantic_calls[-1]
+                assert owner_path.endswith('/'+mode.split('/')[-1])
+                assert forwarded == json.dumps(dispatch).encode()
+                header_names = {name.lower() for name in headers}
+                assert 'x-ouf-semantic-proposal-receipt' in header_names
+                assert not {'authorization', 'x-ouf-delegation', 'cookie'} & header_names
+            assert len(semantic_calls) == 3
             from tests.test_permission_proposals import request as permission_request
             cap='authorization.permissions.propose'
             code,raw=post('/mcp',{},token(scope='mcp.connect '+cap,externalRoleRefs=['ente:staff']))
