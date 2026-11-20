@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "semantic.discovery.adopt v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/arguments"
+    },
+    {
+      "$ref": "#/$defs/receipt"
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "candidateId",
+        "commandKey"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "commandKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonicalUri",
+        "sourceLocation",
+        "providerId",
+        "publisher",
+        "license",
+        "licenseWarning",
+        "snapshotId",
+        "rdfSha256"
+      ],
+      "properties": {
+        "canonicalUri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceLocation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher": {
+          "type": "string",
+          "minLength": 1
+        },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "licenseWarning": {
+          "enum": [
+            null,
+            "licenza mancante"
+          ]
+        },
+        "snapshotId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "rdfSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "if": {
+        "properties": {
+          "license": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "licenseWarning": {
+            "const": "licenza mancante"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "license": {
+            "minLength": 1
+          },
+          "licenseWarning": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "candidateId",
+        "artifactId",
+        "revisionId",
+        "expectedRowVersion",
+        "semanticId",
+        "status",
+        "provenance",
+        "receiptSemantics",
+        "runtimeAuthorityIssued",
+        "notReleaseAcceptance"
+      ],
+      "properties": {
+        "requestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "artifactId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "revisionId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "expectedRowVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "semanticId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "DRAFT"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "receiptSemantics": {
+          "const": "DURABLE_COMMAND_RESULT_NOT_CURRENT_STATE"
+        },
+        "runtimeAuthorityIssued": {
+          "const": false
+        },
+        "notReleaseAcceptance": {
+          "const": true
+        }
+      }
+    }
+  }
+}
