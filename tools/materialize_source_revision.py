@@ -11,7 +11,7 @@ MODES = {'prepare': ('ouf.onboarding.revision.prepare', 'COMMAND', 10),
          'read': ('ouf.onboarding.revision.read', 'READ', 3)}
 
 
-def materialize(existing, runtime, delegation_key_env, owner_key_env):
+def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_route_labels=False):
     if delegation_key_env == owner_key_env:
         raise ValueError('distinct delegation and owner signing keys required')
     result = copy.deepcopy(existing)
@@ -60,7 +60,8 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
         route['plugins']['request-validation'] = {'max_req_body_size': 65536,
             'body_schema': json.loads((ROOT/f'schemas/mcp-gateway-source-revision-{mode}-dispatch-v1.json').read_text())}
         route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [
-            function('execute_source_revision', installation, delegation_key_env, owner_key_env)]}
+            function('execute_source_revision', installation, delegation_key_env, owner_key_env,
+                     use_route_labels=use_route_labels)]}
         route['plugins']['proxy-rewrite'] = {'uri': path}
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': nodes,
             'retries': 0, 'timeout': {'connect': 3, 'send': timeout, 'read': timeout}}

@@ -23,6 +23,7 @@ import yaml
 
 from tools.materialize_object_search import materialize
 from tests.test_execute_delegation import runtime, envelope
+from tests.release_bundle_fixture import ci_profile, load_release_routes
 
 def fixture_issuer(installation):
     import jwt
@@ -106,6 +107,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             elif self.path=='/api/udp/v1/objects/search':
                 self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
+            elif self.path in ('/api/internal/v1/onboarding/source-revision-mcp/prepare',
+                               '/api/internal/v1/onboarding/source-revision-mcp/read'):
+                self.reply({'path': self.path, 'receipt': self.headers.get('X-OUF-Source-Revision-Receipt')})
             elif self.path in ('/api/semantic/v1/proposal-commands/adopt', '/api/semantic/v1/proposal-commands/read'):
                 semantic_calls.append((self.path, dict(self.headers), body))
                 status, data = 200, adoption_receipt
@@ -188,7 +192,9 @@ def test_real_apisix_oidc_delegation_and_execute():
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
         from tools.materialize_semantic_proposals import add_to_existing
-        doc = add_to_existing(doc, rt, 'DELEGATION_KEY', 'SEMANTIC_KEY')
+        bundle_dir = os.environ.get('OUF_GATEWAY_RELEASE_BUNDLE')
+        if not bundle_dir:
+            doc = add_to_existing(doc, rt, 'DELEGATION_KEY', 'SEMANTIC_KEY')
         if owner_port:
             from tools.materialize_operational_execute import materialize as operational_routes
             signed = operational_routes(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY',
@@ -204,11 +210,15 @@ def test_real_apisix_oidc_delegation_and_execute():
                 r['upstream']['nodes'] = {f'127.0.0.1:{owner_port}': 1}
             if udp_port and r.get('uri','').endswith('/execute/urban.object.search'):
                 r['upstream']['nodes']={f'127.0.0.1:{udp_port}':1}
-        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','SEMANTIC_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
+        if bundle_dir:
+            release = load_release_routes(Path(bundle_dir), os.environ['GITHUB_SHA'],
+                                          ci_profile(installation, server.server_port))
+            doc['routes'].extend(release)
+        config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','SEMANTIC_KEY','REVISION_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         name='ouf-execute-ci-'+str(os.getpid())
-        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','SEMANTIC_KEY='+'56'*32,'-e','UDP_KEY='+'34'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['docker','run','-d','--name',name,'--network','host','-e','OIDC_SECRET=fixture-only','-e','DELEGATION_KEY='+'ab'*32,'-e','OWNER_KEY='+'cd'*32,'-e','SEMANTIC_KEY='+'56'*32,'-e','REVISION_KEY='+'78'*32,'-e','UDP_KEY='+'34'*32,'-e','GATEWAY_SUMMARY_RECEIPT_KEY='+'12'*32,'-v',folder+'/config.yaml:/usr/local/apisix/conf/config.yaml:ro','-v',folder+'/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro','apache/apisix:3.18.0-debian'],check=True,stdout=subprocess.DEVNULL)
         try:
             for _ in range(60):
                 try:
@@ -217,6 +227,23 @@ def test_real_apisix_oidc_delegation_and_execute():
                 except (OSError,urllib.error.URLError):pass
                 time.sleep(1)
             else:raise AssertionError('APISIX did not load protected routes')
+            if bundle_dir:
+                from tests.test_source_revision import request as revision_request
+                from tests.test_semantic_proposals import request as semantic_request
+                for route in release:
+                    capability = route['plugins']['request-validation']['body_schema']['properties']['CapabilityID']['const']
+                    mode = route['uri'].rsplit('/', 1)[1]
+                    revision = capability.startswith('ouf.onboarding.revision.')
+                    dispatch = revision_request(mode) if revision else semantic_request(capability)
+                    assert post(route['uri'], dispatch)[0] == 401, route['id']
+                    if revision:
+                        code, raw = post('/mcp', {}, token(scope='mcp.connect ' + capability))
+                        assert code == 200
+                        code, raw = post(route['uri'], dispatch, token('SERVICE'), json.loads(raw)['proof'],
+                                         idempotency_key=dispatch['IdempotencyKey'])
+                        assert code == 200, (route['id'], code, raw)
+                        result = json.loads(raw)
+                        assert result['path'] == route['plugins']['proxy-rewrite']['uri'] and result['receipt']
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
