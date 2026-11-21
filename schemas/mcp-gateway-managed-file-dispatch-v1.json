@@ -32,17 +32,83 @@
           "const": "COMMAND"
         },
         "Arguments": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "assetId"
-          ],
-          "properties": {
-            "assetId": {
-              "type": "string",
-              "format": "uuid"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "assetId"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "view",
+                "assetId",
+                "profileId"
+              ],
+              "properties": {
+                "view": {
+                  "enum": [
+                    "UNITS",
+                    "UNIT"
+                  ]
+                },
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "profileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 128
+                },
+                "unitRef": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "oneOf": [
+                {
+                  "properties": {
+                    "view": {
+                      "const": "UNIT"
+                    }
+                  },
+                  "required": [
+                    "unitRef"
+                  ]
+                },
+                {
+                  "properties": {
+                    "view": {
+                      "const": "UNITS"
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "unitRef"
+                    ]
+                  }
+                }
+              ]
             }
-          }
+          ]
         },
         "Identity": {
           "type": "object",
@@ -396,8 +462,6 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "assetId",
-            "profileId",
             "sourceId",
             "name",
             "owner",
@@ -518,8 +582,51 @@
                 }
               },
               "minItems": 1
+            },
+            "unitProfileRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "profileId",
+                "profileVersion",
+                "unitRef",
+                "schemaHash"
+              ],
+              "properties": {
+                "profileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "profileVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "unitRef": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schemaHash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "minLength": 71,
+                  "maxLength": 71
+                }
+              }
             }
-          }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "assetId",
+                "profileId"
+              ]
+            },
+            {
+              "required": [
+                "unitProfileRef"
+              ]
+            }
+          ]
         },
         "Identity": {
           "type": "object",
@@ -752,36 +859,102 @@
           "const": "READ"
         },
         "Arguments": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "view",
-            "assetId",
-            "profileId"
-          ],
-          "properties": {
-            "view": {
-              "const": "COLUMNS"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "view",
+                "assetId",
+                "profileId"
+              ],
+              "properties": {
+                "view": {
+                  "const": "COLUMNS"
+                },
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "profileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1023
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 128
+                }
+              }
             },
-            "assetId": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "profileId": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "offset": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1023
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 128
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "view",
+                "assetId",
+                "profileId"
+              ],
+              "properties": {
+                "view": {
+                  "enum": [
+                    "UNITS",
+                    "UNIT"
+                  ]
+                },
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "profileId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 128
+                },
+                "unitRef": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "oneOf": [
+                {
+                  "properties": {
+                    "view": {
+                      "const": "UNIT"
+                    }
+                  },
+                  "required": [
+                    "unitRef"
+                  ]
+                },
+                {
+                  "properties": {
+                    "view": {
+                      "const": "UNITS"
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "unitRef"
+                    ]
+                  }
+                }
+              ]
             }
-          }
+          ]
         },
         "Identity": {
           "type": "object",

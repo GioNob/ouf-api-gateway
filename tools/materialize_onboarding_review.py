@@ -43,7 +43,7 @@ def review_schema(mode):
     return schema
 
 
-def materialize(existing, runtime, delegation_key_env, owner_key_env):
+def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_route_labels=False):
     if delegation_key_env == owner_key_env:
         raise ValueError('distinct delegation and owner signing keys required')
     result = copy.deepcopy(existing)
@@ -83,7 +83,8 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
         if mode == 'review-read':
             post = owner_function('execute_managed_file_retained', installation, delegation_key_env, owner_key_env)
         else:
-            post = function('execute_managed_file', installation, delegation_key_env, owner_key_env)
+            post = function('execute_managed_file', installation, delegation_key_env, owner_key_env,
+                            use_route_labels=use_route_labels)
         route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [post]}
         route['plugins']['proxy-rewrite'] = {'uri': path}
         if mode == 'review-prepare':

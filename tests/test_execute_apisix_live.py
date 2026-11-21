@@ -17,6 +17,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qsl, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -86,6 +87,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     jwk, token = fixture_issuer(installation)
     calls=[]
     semantic_calls = []
+    notice_calls = []
     adoption_receipt = (Path(__file__).parent/'fixtures/discovery-adoption-receipt.json').read_bytes()
     adoption_conflict = b'{ "code": "CANDIDATE_EXPIRED" }\n'
     historical_read = b'{"operation":"ADOPT","historicalSnapshot":true,"ownerStateMustBeRechecked":true,"result":' + adoption_receipt + b'}'
@@ -94,6 +96,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             if self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
+            elif urlsplit(self.path).path == '/api/onboarding/v1/schema-notices':
+                notice_calls.append((self.path, dict(self.headers)))
+                self.reply({'notices': [], 'next': None, 'hasMore': False})
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
@@ -114,6 +119,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path in ('/api/internal/v1/onboarding/source-revision-mcp/prepare',
                                '/api/internal/v1/onboarding/source-revision-mcp/read'):
                 self.reply({'path': self.path, 'receipt': self.headers.get('X-OUF-Source-Revision-Receipt')})
+            elif self.path.startswith('/api/internal/v1/onboarding/managed-file-mcp/'):
+                self.reply({'path': self.path, 'receipt': self.headers.get('X-OUF-Managed-File-Receipt')})
             elif self.path in ('/api/semantic/v1/proposal-commands/adopt', '/api/semantic/v1/proposal-commands/read'):
                 semantic_calls.append((self.path, dict(self.headers), body))
                 status, data = 200, adoption_receipt
@@ -232,22 +239,29 @@ def test_real_apisix_oidc_delegation_and_execute():
                 time.sleep(1)
             else:raise AssertionError('APISIX did not load protected routes')
             if bundle_dir:
-                from tests.test_source_revision import request as revision_request
-                from tests.test_semantic_proposals import request as semantic_request
+                from tests.test_gateway_release_bundle import release_request
                 for route in release:
-                    capability = route['plugins']['request-validation']['body_schema']['properties']['CapabilityID']['const']
-                    mode = route['uri'].rsplit('/', 1)[1]
-                    revision = capability.startswith('ouf.onboarding.revision.')
-                    dispatch = revision_request(mode) if revision else semantic_request(capability)
+                    dispatch, _ = release_request(route)
+                    capability = dispatch['CapabilityID']
                     assert post(route['uri'], dispatch)[0] == 401, route['id']
-                    if revision:
+                    if dispatch['Owner'] == 'onboarding':
                         code, raw = post('/mcp', {}, token(scope='mcp.connect ' + capability))
                         assert code == 200
                         code, raw = post(route['uri'], dispatch, token('SERVICE'), json.loads(raw)['proof'],
                                          idempotency_key=dispatch['IdempotencyKey'])
-                        assert code == 200, (route['id'], code, raw)
-                        result = json.loads(raw)
-                        assert result['path'] == route['plugins']['proxy-rewrite']['uri'] and result['receipt']
+                        if capability == 'ouf.onboarding.schema-notices.read':
+                            assert code == 200, (route['id'], code, len(notice_calls))
+                            assert json.loads(raw) == {'notices': [], 'next': None, 'hasMore': False}
+                            (target, headers), = notice_calls
+                            assert parse_qsl(urlsplit(target).query) == [
+                                ('state', 'OPEN'), ('limit', '20'), ('after', dispatch['Arguments']['after'])]
+                            headers = {k.lower(): v for k, v in headers.items()}
+                            assert headers['x-ouf-schema-notices-receipt']
+                            assert not {'authorization', 'cookie', 'x-ouf-delegation'} & headers.keys()
+                        else:
+                            assert code == 200, (route['id'], code, raw)
+                            result = json.loads(raw)
+                            assert result['path'] == route['plugins']['proxy-rewrite']['uri'] and result['receipt']
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'

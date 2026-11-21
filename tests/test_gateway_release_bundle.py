@@ -1,4 +1,5 @@
 import json
+import copy
 import subprocess
 import sys
 
@@ -8,6 +9,9 @@ from tests.release_bundle_fixture import ci_profile, load_release_routes
 from tests.test_execute_delegation import Engine, INSTALL, human, proof, workload
 from tests.test_semantic_proposals import request as proposal_request
 from tests.test_source_revision import request as revision_request
+from tests.test_managed_file_mcp import request as file_request
+from tests.test_onboarding_review import request as review_request
+from tests.test_schema_notices import notice_request, check_notice_execution
 from tools import gateway_release_bundle as producer
 
 WORKFLOW_PATH = '.github/workflows/ci.yml'
@@ -36,6 +40,7 @@ def test_release_artifact(tmp_path, monkeypatch):
 
     bundle_file = first / 'bundle.json'
     bundle = json.loads(bundle_file.read_bytes())
+    check_sprint02_bytes(bundle['resources'])
     placeholder_types = {entry['name']: entry['type'] for entry in bundle['placeholders']}
     assert placeholder_types == {
         'caddy.oidcDiscoveryUrl': 'url',
@@ -73,6 +78,9 @@ def test_release_artifact(tmp_path, monkeypatch):
     expected = {
         'mcp-source-revision-read': 'source.revision/read', 'mcp-source-revision-prepare': 'source.revision/prepare',
         'mcp-semantic-discovery-adopt': 'semantic/discovery/adopt',
+        'mcp-onboarding-schema-notices-read': 'ouf.onboarding.schema-notices.read',
+        **{'mcp-managed-file-' + mode: 'managed.file/' + mode
+           for mode in ('profile', 'preview', 'create', 'review-prepare')},
         **{'semantic-proposal-' + mode: 'semantic/' + mode for mode in ('create', 'validate', 'review', 'read')},
     }
     assert {r['id']: r['uri'] for r in routes} == {
@@ -140,15 +148,41 @@ def test_invalid_placeholder_names(name):
         list(producer.placeholder_names({'$installation': name}))
 
 
+def check_sprint02_bytes(resources):
+    # SHA-256 of the seven canonical resources produced by 80aaea4. Undo only
+    # the four allowed changes inside revision.prepare's Arguments schema.
+    previous = copy.deepcopy([r for r in resources if not r['id'].startswith('mcp-managed-file-')
+                              and r['id'] != 'mcp-onboarding-schema-notices-read'])
+    assert len(previous) == 7
+    prepare, = [r for r in previous if r['id'] == 'mcp-source-revision-prepare']
+    args = prepare['body']['plugins']['request-validation']['body_schema']['properties']['Arguments']
+    del args['properties']['unitProfileRef']
+    args['if'] = {'required': ['assetRef']}
+    args['then'] = {'not': {'required': ['changes']}}
+    args['else'] = {'required': ['changes'], 'not': {'required': ['newColumns']}}
+    assert producer.digest(producer.canonical(previous)) == '2b40501280d57f34819cf05bdcc398009925b6ad21857f5ebd432a71412c28dd'
+
+
+def release_request(route):
+    mode = route['uri'].rsplit('/', 1)[1]
+    if route['id'] == 'mcp-onboarding-schema-notices-read':
+        return notice_request(), b'x-ouf-schema-notices-receipt'
+    if route['id'].startswith('mcp-source-revision-'):
+        return revision_request(mode), b'x-ouf-source-revision-receipt'
+    if route['id'].startswith('mcp-managed-file-'):
+        dispatch = review_request() if mode == 'review-prepare' else file_request(mode)
+        return dispatch, b'x-ouf-managed-file-receipt'
+    schema = route['plugins']['request-validation']['body_schema']
+    return proposal_request(schema['properties']['CapabilityID']['const']), b'x-ouf-semantic-proposal-receipt'
+
+
 def exercise_release_function(route):
     plugins = route['plugins']
-    capability = plugins['request-validation']['body_schema']['properties']['CapabilityID']['const']
-    if capability.startswith('ouf.onboarding.revision.'):
-        dispatch = revision_request(route['uri'].rsplit('/', 1)[1])
-        receipt = b'x-ouf-source-revision-receipt'
-    else:
-        dispatch = proposal_request(capability)
-        receipt = b'x-ouf-semantic-proposal-receipt'
+    dispatch, receipt = release_request(route)
+    capability = dispatch['CapabilityID']
+    if capability == 'ouf.onboarding.schema-notices.read':
+        check_notice_execution(route)
+        return
     scope = 'ouf.semantic.discovery' if capability == 'ouf.semantic.discovery.adopt' else capability
     headers = {'X-OUF-Delegation': proof(dict(human(), scope='mcp.connect ' + scope)),
                'X-Correlation-ID': dispatch['CorrelationID'], 'Idempotency-Key': dispatch['IdempotencyKey'],

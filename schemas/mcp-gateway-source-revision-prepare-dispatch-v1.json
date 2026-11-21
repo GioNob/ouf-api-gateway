@@ -42,25 +42,38 @@
       ],
       "if": {
         "required": [
-          "assetRef"
+          "changes"
         ]
       },
       "then": {
         "not": {
-          "required": [
-            "changes"
+          "anyOf": [
+            {
+              "required": [
+                "assetRef"
+              ]
+            },
+            {
+              "required": [
+                "newColumns"
+              ]
+            }
           ]
         }
       },
       "else": {
-        "required": [
-          "changes"
-        ],
-        "not": {
-          "required": [
-            "newColumns"
-          ]
-        }
+        "anyOf": [
+          {
+            "required": [
+              "assetRef"
+            ]
+          },
+          {
+            "required": [
+              "unitProfileRef"
+            ]
+          }
+        ]
       },
       "properties": {
         "sourceId": {
@@ -333,6 +346,36 @@
                   }
                 }
               }
+            }
+          }
+        },
+        "unitProfileRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileVersion",
+            "unitRef",
+            "schemaHash"
+          ],
+          "properties": {
+            "profileId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "profileVersion": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "unitRef": {
+              "type": "string",
+              "minLength": 1
+            },
+            "schemaHash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "minLength": 71,
+              "maxLength": 71
             }
           }
         }

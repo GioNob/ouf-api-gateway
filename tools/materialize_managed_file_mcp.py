@@ -16,7 +16,7 @@ MODES={
     'handoff':('ouf.managed-source.file.upload','COMMAND'),
 }
 
-def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
+def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use_route_labels=False):
     result=permission_runtime(runtime,oidc_secret_ref,delegation_key_env,owner_key_env)
     template=next(r for r in result['routes'] if r['uri']=='/internal/capabilities/v1/execute')
     schemas=json.loads((ROOT/'schemas/mcp-gateway-managed-file-dispatch-v1.json').read_text())['oneOf']
@@ -61,7 +61,8 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         if mode == 'handoff':
             post = owner_function('execute_managed_file_retained', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
         else:
-            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
+            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
+                            use_route_labels=use_route_labels)
         route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}

@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.onboarding.schema-notices.read, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: onboarding
+  operationType: READ
+  scope: ouf.onboarding.schema-notices.read
+  classification: [TENANT_OPERATIONAL]
+  mcp: {toolEligible: true, humanRequired: false}

@@ -14,7 +14,7 @@ INSTALLATION_LABELS = {
 
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *, use_route_labels=False):
-    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision'):
+    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file', 'execute_schema_notices'):
         raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
@@ -22,7 +22,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_schema_notices'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
@@ -72,7 +72,10 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         constants = '\n'.join(lines)
     else:
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_schema_notices'):
         raise ValueError('invalid function')
-    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
+    source = (ROOT / (kind + '.lua')).read_text()
+    if kind in ('execute_source_revision', 'execute_schema_notices'):
+        source = (ROOT / 'onboarding_delegated_envelope.lua').read_text() + source
+    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + source + '\nend'
 
