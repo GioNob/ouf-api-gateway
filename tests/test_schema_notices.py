@@ -60,10 +60,13 @@ def check_notice_execution(route, *, size=65536, declared=False, expected=200, s
         ngx.sleep = function(t) assert(t == 3-elapsed) end
         ngx.thread = {spawn=function(f) return f end, wait=function(timer,reader)
                           if timeout then return true,timer() end
-                          return true,reader()
+                          return pcall(reader)
                       end, kill=function() end}
         client = {set_timeout=function(_,t) assert(t==3000) end,
-                  connect=function(_,target) dest=target; return true end, close=function() closed=true end,
+                  connect=function(_,host,port)
+                      assert(type(host)=='string' and type(port)=='number', 'expected TCP host and port')
+                      dest={host=host,port=port}; return true
+                  end, close=function() closed=true end,
                   request=function(_,r)
                       request=r
                       return {status=status, headers={['Content-Length']=declared and tostring(size) or nil},

@@ -25,7 +25,8 @@ local node = ctx.matched_route.value.upstream.nodes[1]
 local function fetch()
     local client = require('resty.http').new()
     client:set_timeout(3000)
-    local connected, err = client:connect({scheme='http', host=node.host, port=node.port})
+    -- The Onboarding upstream is plain HTTP. Use the positional TCP API.
+    local connected, err = client:connect(node.host, node.port)
     if not connected then return err == 'timeout' and 504 or 502 end
     local res, err = client:request({method='GET', path=target, headers={
         ['Accept']='application/json', ['X-Correlation-ID']=e.CorrelationID,

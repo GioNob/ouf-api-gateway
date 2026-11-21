@@ -249,10 +249,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                         assert code == 200
                         code, raw = post(route['uri'], dispatch, token('SERVICE'), json.loads(raw)['proof'],
                                          idempotency_key=dispatch['IdempotencyKey'])
-                        assert code == 200, (route['id'], code, raw)
-                        result = json.loads(raw)
                         if capability == 'ouf.onboarding.schema-notices.read':
-                            assert result == {'notices': [], 'next': None, 'hasMore': False}
+                            assert code == 200, (route['id'], code, len(notice_calls))
+                            assert json.loads(raw) == {'notices': [], 'next': None, 'hasMore': False}
                             (target, headers), = notice_calls
                             assert parse_qsl(urlsplit(target).query) == [
                                 ('state', 'OPEN'), ('limit', '20'), ('after', dispatch['Arguments']['after'])]
@@ -260,6 +259,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                             assert headers['x-ouf-schema-notices-receipt']
                             assert not {'authorization', 'cookie', 'x-ouf-delegation'} & headers.keys()
                         else:
+                            assert code == 200, (route['id'], code, raw)
+                            result = json.loads(raw)
                             assert result['path'] == route['plugins']['proxy-rewrite']['uri'] and result['receipt']
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
