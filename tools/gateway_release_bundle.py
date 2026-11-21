@@ -10,10 +10,12 @@ from pathlib import Path
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
+from tools.materialize_managed_file_mcp import materialize as managed_files
 from tools.materialize_onboarding_review import materialize as onboarding_review
 from tools.materialize_permission_proposals import materialize as permissions
 from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
 from tools.materialize_source_revision import materialize as source_revisions
+from tools.materialize_schema_notices import materialize as schema_notices
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v1'
@@ -82,23 +84,35 @@ def release_routes():
     runtime = apply_projection(compile_config(ROOT / 'ouf-config'), projection)
     delegation = 'BUNDLE_INPUT_DELEGATION'
     existing = permissions(runtime, '$ENV://BUNDLE_INPUT_OIDC', delegation, 'BUNDLE_INPUT_AUTHORIZATION')
-    baseline = onboarding_review(existing, runtime, delegation, 'BUNDLE_INPUT_ONBOARDING')
+    owner_key = 'BUNDLE_INPUT_ONBOARDING'
+    managed = managed_files(runtime, '$ENV://BUNDLE_INPUT_OIDC', delegation, owner_key, use_route_labels=True)
+    baseline = onboarding_review(existing, runtime, delegation, owner_key, use_route_labels=True)
     revisions = source_revisions(baseline, runtime, delegation, 'BUNDLE_INPUT_ONBOARDING', use_route_labels=True)
     result = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
-    unexpected = (baseline.keys() | revisions.keys() | result.keys()) - MATERIALIZATION_METADATA - {'routes'}
+    unexpected = (managed.keys() | baseline.keys() | revisions.keys() | result.keys()) - MATERIALIZATION_METADATA - {'routes'}
     if unexpected:
         raise ValueError('unsupported release collections: ' + ', '.join(sorted(unexpected)))
     retained_ids = {r['id'] for r in baseline['routes']}
-    return [r for r in result['routes'] if r['id'] not in retained_ids]
+    selected = [r for r in result['routes'] if r['id'] not in retained_ids]
+    for mode in ('profile', 'preview', 'create', 'review-prepare'):
+        source = baseline if mode == 'review-prepare' else managed
+        route, = [r for r in source['routes'] if r['id'] == 'mcp-managed-file-' + mode]
+        selected.append(route)
+    revision_read, = [r for r in revisions['routes'] if r['id'] == 'mcp-source-revision-read']
+    selected.append(schema_notices(runtime, revision_read, delegation, owner_key))
+    return selected
 
 
 def resource(route):
     route_id = route['id']
     route = {key: value for key, value in route.items() if key not in ('id', 'create_time', 'update_time')}
-    service, owner_env = {
-        'source-revision-v1': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
-        'semantic-proposal-v1': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
-    }[route['labels']['ouf-mediation']]
+    mediation = route['labels']['ouf-mediation']
+    if mediation in ('source-revision-v1', 'managed-file-delegation-v1', 'onboarding-review-v1', 'schema-notices-v1'):
+        service, owner_env = 'ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'
+    elif mediation == 'semantic-proposal-v1':
+        service, owner_env = 'ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'
+    else:
+        raise ValueError('unsupported release mediation: ' + mediation)
     nodes = route['upstream']['nodes']
     # Keep APISIX's weight and the binding checked by the materializer. Array
     # notation makes host and port separately substitutable JSON values.

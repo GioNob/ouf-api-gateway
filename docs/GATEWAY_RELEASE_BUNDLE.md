@@ -1,8 +1,16 @@
 # Pacchetto di rilascio Gateway
 
-Il pacchetto di PR #93 aggiorna un Gateway già installato. Contiene sette risorse Admin API di tipo `routes`, con upstream e plugin inline. La linea D comprende `mcp-source-revision-prepare` e `mcp-source-revision-read`. La linea C comprende `mcp-semantic-discovery-adopt` e le quattro `semantic-proposal-{create,validate,review,read}` che incorporano lo stesso Lua aggiornato. La lettura consente la riconciliazione di un comando di adozione.
+Il pacchetto sprint-03 aggiorna un Gateway già installato con dodici risorse Admin API di tipo `routes`. Alla base sprint-02 di sette route aggiunge `mcp-onboarding-schema-notices-read` e distribuisce le quattro route esistenti `mcp-managed-file-{profile,preview,create,review-prepare}` con gli schemi del profilo di unità. Nella base cambia solo lo schema `Arguments` di `mcp-source-revision-prepare`, nelle proprietà `properties.unitProfileRef`, `if`, `then` ed `else`.
 
-Il generatore compila `ouf-config/`, applica la proiezione D-058 con valori simbolici e costruisce i prerequisiti execute e HUMAN con i materializzatori del repository. Il delta comprende le risorse restituite dai materializzatori di revisione e proposte. L'applicazione in esercizio deve verificare la corrispondenza delle rotte preesistenti e del backend della revisione HUMAN con l'installazione autorizzata. Le risorse assenti dal delta restano di competenza dei rispettivi rilasci.
+Il generatore compila `ouf-config/`, applica la proiezione D-058 con valori simbolici e costruisce i prerequisiti execute e HUMAN con i materializzatori del repository. L'applicazione in esercizio deve verificare la corrispondenza delle rotte preesistenti e del backend Onboarding con l'installazione autorizzata.
+
+### Contratto Gateway → Onboarding per gli avvisi
+
+Il Gateway verifica il workload, la delega HUMAN, lo scope e la corrispondenza con l'envelope. Emette un GET senza corpo verso il nodo Onboarding configurato. Il target firmato comprende il percorso e la query nell'ordine `state=OPEN&limit=n[&after=…]`, con il valore del cursore percent-encoded. La lettura ha una scadenza complessiva di tre secondi e il Gateway restituisce la pagina completa entro il limite `MaxResultBytes` di 65.536 byte.
+
+L'header `X-OUF-Schema-Notices-Receipt` contiene `base64url(payload).base64url(mac)` senza padding. Il MAC è HMAC-SHA256 sulla concatenazione di `ouf-schema-notices-owner-v1.` e della prima componente, con la chiave Onboarding già usata per le revisioni. Il payload JSON contiene `v=1`, `purpose=schema-notices-owner`, `method=GET`, `path` comprensivo della query, capability, issuer, audience, workload, subject, tenant, acr, roles, scope, iat ed exp. La scadenza è al massimo 30 secondi e rientra nella validità della delega.
+
+Per qualificare il percorso completo, il GET dell'owner deve verificare firma, target, capability, contesto e scadenza della ricevuta prima di costruire il principal HUMAN e rivalutare i grant sulle singole sorgenti. Le prove Gateway usano un owner di test. Per una revisione sostitutiva con il solo `unitProfileRef` il chiamante deve fornire `If-Match: W/"ov:<expectedVersion>"`, come richiesto dal task-01.
 
 ## Generazione e formato
 
