@@ -17,6 +17,8 @@ Only an authenticated internal service identity may use that route. The caller c
 
 Run `scripts/verify.sh`. Generated artifacts are evidence and are not committed.
 
+Per aggiornare le risorse richieste dalle pagine THS e verificarne il routing offline, consultare il [contratto delle rotte browser THS](docs/THS_PAGE_ROUTE_CONTRACT.md).
+
 Gateway 1B provides the publication state machine and a test control-plane adapter. A real APISIX/etcd adapter, infrastructure fault injection and production activation evidence are deliberately not claimed by this increment.
 
 Gateway 1C adds the governed MCP dispatch adapter and exact MCP→Gateway→UDP contract fixture. Authenticated identity and authorization references must match the admitted envelope; backend destinations remain registry-owned and backend governance errors are returned without retry or reinterpretation.
