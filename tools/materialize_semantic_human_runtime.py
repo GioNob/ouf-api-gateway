@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Materialize only the governed HUMAN Semantic first-publication routes."""
+"""Materialize the governed HUMAN Semantic routes."""
 import argparse
 import json
 from pathlib import Path
@@ -15,9 +15,11 @@ ROUTES = {
     'semantic-human-decision': ('POST', '/api/trusted-human/v1/semantic-approval-challenges/*', 'ouf.semantic.approve'),
     'semantic-human-publish': ('POST', '/api/trusted-human/v1/semantic-approval-challenges/*', 'ouf.semantic.publish'),
     'semantic-artifact-search': ('GET', '/api/semantic/v1/search', 'ouf.semantic.search'),
+    'semantic-human-terms': ('GET', '/api/trusted-human/v1/semantic-published-terms', 'ouf.semantic.review'),
 }
 UUID = '[0-9a-fA-F-]{36}'
 REGEX = {
+    'semantic-human-terms': '^/api/trusted-human/v1/semantic-published-terms$',
     'semantic-revision-validate': '^/api/semantic/v1/revisions/' + UUID + ':validate$',
     'semantic-human-card': '^/api/trusted-human/v1/semantic-approval-challenges/' + UUID + '$',
     'semantic-human-decision': '^/api/trusted-human/v1/semantic-approval-challenges/' + UUID + '/decision$',

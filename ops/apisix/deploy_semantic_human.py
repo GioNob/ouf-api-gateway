@@ -74,6 +74,14 @@ def install(routes, admin):
     print('SEMANTIC_HUMAN_ROUTES_ACTIVE=true COUNT=' + str(len(routes)))
 
 
+def validate_snapshot(previous):
+    # Older snapshots cover only the routes owned by their installer.
+    previous_ids = set(ROUTES) - {'semantic-human-terms'}
+    if not isinstance(previous, dict) or set(previous) not in (
+            set(ROUTES), previous_ids, previous_ids - {'semantic-rdf-import'}):
+        raise ValueError('SEMANTIC_SNAPSHOT_INVALID')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     mode = p.add_mutually_exclusive_group(required=True)
@@ -87,10 +95,7 @@ def main():
     os.umask(0o077)
     if args.restore:
         previous = json.loads(args.restore.read_text())
-        # Snapshots taken by the initial seven-route installer remain restorable.
-        if not isinstance(previous, dict) or set(previous) not in (
-                set(ROUTES), set(ROUTES) - {'semantic-rdf-import'}):
-            raise ValueError('SEMANTIC_SNAPSHOT_INVALID')
+        validate_snapshot(previous)
     else:
         routes = validate(json.loads(args.materialization.read_text()))
     admin = Admin(args, 'semantic-human-')

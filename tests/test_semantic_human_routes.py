@@ -7,7 +7,7 @@ import pytest
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.materialize_semantic_human_runtime import REGEX, ROUTES, materialize
-from ops.apisix.deploy_semantic_human import validate, install, sample_uri
+from ops.apisix.deploy_semantic_human import validate, install, sample_uri, validate_snapshot
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,7 +23,7 @@ def routes():
 
 def test_exact_scopes_and_bounded_suffixes():
     selected = routes()
-    assert len(selected) == 8
+    assert len(selected) == 9
     for route in selected:
         route_id = route['id']
         assert route['upstream']['nodes'] == {'ouf-semantic:8080': 1}
@@ -53,6 +53,25 @@ def test_scope_or_upstream_drift_fails_before_admin_mutation():
     binding['x-ouf-backend-binding']['service'] = 'unreviewed-upstream'
     with pytest.raises(ValueError, match='CONTRACT_CHANGED'):
         materialize(runtime, '$ENV://OUF_GATEWAY_OIDC_CLIENT_SECRET')
+
+
+def test_published_terms_compiled_contract():
+    route, = (r for r in compile_config(ROOT / 'ouf-config')['routes'] if r['id'] == 'semantic-human-terms')
+    assert route['labels']['exposure'] == 'public'
+    assert route['labels']['capability'] == 'ouf.semantic.review@1.0.0'
+    assert route['x-ouf-policy']['identity'] == 'OIDC'
+    assert route['x-ouf-policy']['allowedActorTypes'] == ['HUMAN']
+    assert route['x-ouf-backend-binding'] == {
+        'service': 'ouf-semantic-registry', 'port': 8080, 'path': '/api/trusted-human/v1/semantic-published-terms'}
+
+
+def test_restore_accepts_only_complete_current_or_historical_snapshots():
+    old_ids = set(ROUTES) - {'semantic-human-terms'}
+    for ids in (set(ROUTES), old_ids, old_ids - {'semantic-rdf-import'}):
+        validate_snapshot(dict.fromkeys(ids))
+    for ids in (set(ROUTES) - {'semantic-rdf-import'}, old_ids - {'semantic-human-card'}):
+        with pytest.raises(ValueError, match='SEMANTIC_SNAPSHOT_INVALID'):
+            validate_snapshot(dict.fromkeys(ids))
 
 
 def test_installer_rejects_existing_route_drift_without_a_write(monkeypatch, tmp_path):

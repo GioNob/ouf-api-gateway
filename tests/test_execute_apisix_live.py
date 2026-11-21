@@ -23,6 +23,7 @@ import yaml
 
 from tools.materialize_object_search import materialize
 from tests.test_execute_delegation import runtime, envelope
+from tests.release_bundle_fixture import ci_profile, load_release_routes
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
 
@@ -33,15 +34,23 @@ def test_real_apisix_oidc_delegation_and_execute():
     jwk=json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()));jwk.update(kid='fixture',use='sig',alg='RS256')
     rt=runtime();installation=rt['x-ouf-installation'];issuer=installation['issuerUrl'];aud=installation['gatewayAudience'];workload=installation['mcpServiceIdentity']
     calls=[]
+    terms_path = '/api/trusted-human/v1/semantic-published-terms'
+    terms_calls = []
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
+            elif self.path.startswith(terms_path):
+                terms_calls.append(self.path)
+                self.reply({'target': self.path})
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
-            if self.path=='/mcp':
+            if self.path.startswith(terms_path):
+                terms_calls.append(self.path)
+                self.reply({'unexpected_method': 'POST'})
+            elif self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
                 self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
@@ -143,6 +152,13 @@ def test_real_apisix_oidc_delegation_and_execute():
                 r['upstream']['nodes'] = {f'127.0.0.1:{owner_port}': 1}
             if udp_port and r.get('uri','').endswith('/execute/urban.object.search'):
                 r['upstream']['nodes']={f'127.0.0.1:{udp_port}':1}
+        bundle_dir = os.environ.get('OUF_GATEWAY_RELEASE_BUNDLE')
+        if bundle_dir:
+            release = load_release_routes(Path(bundle_dir), os.environ['OUF_GATEWAY_RELEASE_COMMIT'],
+                                          '.github/workflows/ci.yml', os.environ['GITHUB_RUN_ID'],
+                                          ci_profile(installation, server.server_port))
+            assert [route['id'] for route in release] == ['semantic-human-terms']
+            doc['routes'].extend(release)
         config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
@@ -156,6 +172,29 @@ def test_real_apisix_oidc_delegation_and_execute():
                 except (OSError,urllib.error.URLError):pass
                 time.sleep(1)
             else:raise AssertionError('APISIX did not load protected routes')
+            if bundle_dir:
+                target = terms_path + '?revisionIds=rev-a,rev-b'
+                reviewer = token(scope='ouf.semantic.review')
+                for method, uri, bearer, expected in [
+                    ('GET', target, None, 401),
+                    ('GET', target, token(), 403),
+                    ('GET', target, token('SERVICE', scope='ouf.semantic.review'), 403),
+                    ('GET', terms_path + '/extra', reviewer, 404),
+                    ('POST', terms_path, reviewer, 404),
+                    ('GET', target, reviewer, 200),
+                ]:
+                    req = urllib.request.Request(f'http://127.0.0.1:{port}' + uri, method=method)
+                    if bearer:
+                        req.add_header('Authorization', 'Bearer ' + bearer)
+                    try:
+                        response = urllib.request.urlopen(req, timeout=5)
+                    except urllib.error.HTTPError as error:
+                        response = error
+                    with response:
+                        assert response.status == expected, (method, uri, response.status)
+                        if expected == 200:
+                            assert json.load(response)['target'] == target
+                assert terms_calls == [target]
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
