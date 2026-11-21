@@ -32,6 +32,16 @@ def test_managed_file_upload_is_human_only_and_bound_to_onboarding():
 def test_output_is_deterministic():
     assert compile_config(ROOT/"ouf-config")==compile_config(ROOT/"ouf-config")
 
+
+def test_exact_path_rejects_a_broader_uri_regex(tmp_path):
+    root = isolated(tmp_path)
+    binding = root / 'routes/northbound/semantic-human-terms.yaml'
+    doc = yaml.safe_load(binding.read_text())
+    doc['spec']['match']['uriRegex'] = '^/api/trusted-human/v1/semantic-published-terms.*$'
+    binding.write_text(yaml.safe_dump(doc))
+    with pytest.raises(ConfigError, match='must match the exact path'):
+        compile_config(root)
+
 def test_udp_recovery_binding_is_compiled_from_registry_configuration():
     result=compile_config(ROOT/"ouf-config")
     route=next(item for item in result["routes"] if item["id"]=="mcp-related-search")
