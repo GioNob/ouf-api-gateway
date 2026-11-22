@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft7Validator, Draft202012Validator, FormatChecker
 
 from tests.test_execute_delegation import Denied, Engine, INSTALL, KEY, human, proof, workload
 from tests.release_bundle_fixture import ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
+from tools.sync_value_type_schemas import ROUTES as CATALOG_SCHEMAS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -108,13 +109,34 @@ def test_mcp_dispatch_in_release(routes, name):
         INSTALL["issuerUrl"],
     ]
     validation = route["plugins"]["request-validation"]
-    Draft202012Validator.check_schema(validation["body_schema"])
-    validator(routes, name).validate(body)
+    schema = validation["body_schema"]
+    catalog = json.loads((ROOT / "schemas" / f"mcp-gateway-{CATALOG_SCHEMAS[name]}-v1.json").read_bytes())
+    branch, = (item for item in catalog.get("oneOf", [catalog])
+               if item["properties"]["CapabilityID"]["const"] == body["CapabilityID"])
+    assert branch["$id"] == f"urn:ouf:gateway:dispatch:{name}"
+    assert schema == {key: value for key, value in branch.items() if key != "$id"}
+    Draft202012Validator.check_schema(schema)
+    validators = (
+        Draft202012Validator(catalog, format_checker=FormatChecker()),
+        Draft202012Validator(schema, format_checker=FormatChecker()),
+        Draft7Validator(schema, format_checker=FormatChecker()),
+    )
+    invalid = dispatch(name)
+    arguments = invalid["Arguments"]
+    if name == "semantic.propose":
+        arguments["definition"]["components"][0]["type"] = "unknown"
+    elif name == "source.onboarding.create":
+        arguments["fields"][-1]["transform"] = "unknown"
+    else:
+        arguments["newColumns"][0]["mapping"]["transform"] = "unknown"
+    for check in validators:
+        check.validate(body)
+        assert not check.is_valid(invalid)
     assert validation["max_req_body_size"] == route["plugins"]["client-control"]["max_body_size"] == limit
     assert validation["rejected_msg"] == "INVALID_TOOL_ARGUMENTS"
     assert route["upstream"]["retries"] == 0
     body["Owner"] = "unexpected"
-    assert not validator(routes, name).is_valid(body)
+    assert all(not check.is_valid(body) for check in validators)
 
 
 def test_value_map_definition_and_limits(routes):

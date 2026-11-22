@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 
+from tools.apisix_request_schema import inline_dispatch_schema
 from tools.delegation_functions import function
 from tools.materialize_operational_execute import operational_host
 
@@ -56,8 +57,11 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_rou
     route.update(id=route_id, uri=uri, methods=['POST'])
     route['labels']['ouf-mediation'] = 'source-revision-v1'
     schema = ROOT / 'schemas/mcp-gateway-source-revision-prepare-dispatch-v1.json'
-    route['plugins']['request-validation'] = {'max_req_body_size': 65536,
-        'body_schema': json.loads(schema.read_bytes()), 'rejected_msg': 'INVALID_TOOL_ARGUMENTS'}
+    route['plugins']['request-validation'] = {
+        'max_req_body_size': 65536,
+        'body_schema': inline_dispatch_schema(json.loads(schema.read_bytes())),
+        'rejected_msg': 'INVALID_TOOL_ARGUMENTS',
+    }
     route['plugins']['client-control'] = {'max_body_size': 65536}
     route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [
         function('execute_source_revision', installation, delegation_key_env, owner_key_env,

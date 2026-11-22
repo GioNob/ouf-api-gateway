@@ -78,8 +78,8 @@ def sync(checkout, check):
         branches = document.get('oneOf', [document])
         branch, = (s for s in branches
                    if s['properties']['CapabilityID']['const'] == capability['capabilityId'])
-        # These schemas are validated both in the catalog and as a standalone
-        # APISIX body_schema. The embedded resource has its own reference root.
+        # The catalog branch has its own reference root. The APISIX
+        # materializer drops this identifier when it extracts the branch.
         branch['$id'] = 'urn:ouf:gateway:dispatch:' + name
         branch['properties']['Arguments'] = envelope_refs(capability['inputSchema'])
         fixture = Path('internal/kernel/testdata/value-types') / (name + '.json')

@@ -4,6 +4,7 @@ import copy
 import json
 from pathlib import Path
 
+from tools.apisix_request_schema import inline_dispatch_schema
 from tools.delegation_functions import function
 from tools.managed_discovery_functions import owner_function
 from tools.materialize_permission_proposals import materialize as permission_runtime
@@ -57,7 +58,9 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
         else:
             route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
         if mode == 'create':
-            route['plugins']['request-validation']['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
+            validation = route['plugins']['request-validation']
+            validation['body_schema'] = inline_dispatch_schema(validation['body_schema'])
+            validation['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
         # The November 8 apply left this route's installed function intact.
         if mode == 'handoff':

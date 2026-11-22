@@ -87,6 +87,12 @@ Il bundle risolve le label prima del caricamento in APISIX. L'URL dell'issuer
 è risolto in `openid-connect.claim_validator.issuer.valid_issuers`. La funzione
 Lua legge lo stesso valore per verificare il token di servizio e la delega.
 
+APISIX 3.18 rifiuta gli identificatori assoluti nello schema inline di
+`request-validation`. I tre materializzatori omettono il `$id` radice dal
+`body_schema` e conservano i riferimenti JSON Pointer locali alla busta. Il
+catalogo conserva il `$id` per dare a ciascuno schema la propria radice quando
+viene usato come ramo di un documento più ampio.
+
 Per confrontare gli schemi e le tre fixture con una checkout locale del MCP,
 eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.
 Lo stesso comando senza `--check` aggiorna le copie. Il confronto verifica
