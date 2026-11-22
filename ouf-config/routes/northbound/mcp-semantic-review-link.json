@@ -1,0 +1,16 @@
+{
+  "capabilityId": "ouf.onboarding.ths-links.semantic-review",
+  "sourceRef": "onboarding-managed-files@1.0.0",
+  "backendBinding": {
+    "service": "ouf-onboarding",
+    "port": 8080,
+    "path": "/api/internal/v1/onboarding/ths-links/semantic-review"
+  },
+  "policy": {
+    "identity": "M2M",
+    "allowedServiceIdentities": ["installation://iam.workloadClients.mcpServer"],
+    "allowedActorTypes": ["HUMAN"],
+    "maxRequestBytes": 65536,
+    "timeoutSeconds": 3
+  }
+}

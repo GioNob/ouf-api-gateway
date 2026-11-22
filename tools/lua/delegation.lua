@@ -1,6 +1,11 @@
 -- This code runs only after openid-connect has verified the request bearer.
 local cjson = require('cjson.safe')
 local function fail(status)
+    if status == 400 then
+        ngx.status = status
+        ngx.header.content_type = 'application/problem+json'
+        ngx.say('{"type":"urn:ouf:problem:invalid_tool_arguments","code":"INVALID_TOOL_ARGUMENTS","status":400}')
+    end
     return ngx.exit(status)
 end
 local function text(v)

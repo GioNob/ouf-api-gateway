@@ -22,8 +22,10 @@ def capture_original_body(ceiling):
 end"""
 
 
-def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *, use_route_labels=False):
-    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file'):
+def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
+             use_route_labels=False, ths_link=None):
+    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
+                                         'execute_managed_file_retained'):
         raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
@@ -31,7 +33,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
@@ -90,9 +92,19 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         constants = '\n'.join(lines)
     else:
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
         raise ValueError('invalid function')
     source = (ROOT / (kind + '.lua')).read_text()
+    if kind == 'execute_managed_file':
+        if ths_link is None:
+            binding = 'nil'
+        else:
+            settings = [f'{key}={json.dumps(ths_link[key])}'
+                        for key in ('capability', 'binding', 'operation', 'scope', 'path')]
+            fields = [f'{{name={json.dumps(name)},type={json.dumps(field_type)}}}'
+                      for name, field_type in sorted(ths_link['fields'].items())]
+            binding = '{' + ', '.join(settings + ['fields={' + ', '.join(fields) + '}']) + '}'
+        source = source.replace('-- MATERIALIZE THS LINK', 'local ths_link = ' + binding)
     if kind == 'execute_semantic_proposals':
         from tools.materialize_semantic_proposals import PROPOSAL_REQUEST_BYTES, VALUE_MAP_REQUEST_BYTES
         ceiling = PROPOSAL_REQUEST_BYTES

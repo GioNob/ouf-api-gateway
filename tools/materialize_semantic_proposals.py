@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 
-from tools.apisix_request_schema import inline_dispatch_schema
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import capture_original_body, function
 from tools.materialize_operational_execute import materialize as operational_runtime
 
@@ -68,17 +68,15 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
         if any(r.get('id') == route['id'] or r.get('uri') == route['uri'] for r in result['routes']):
             raise ValueError('semantic proposal route already exists; reconcile before materialization')
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
-        validation = route['plugins']['request-validation']
         body_schema = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        request_limit = VALUE_MAP_REQUEST_BYTES if mode == 'create' else PROPOSAL_REQUEST_BYTES
+        route['plugins']['request-validation'] = dispatch_validation(body_schema, request_limit)
         if mode == 'create':
-            body_schema = inline_dispatch_schema(body_schema)
             route['plugins']['client-control'] = {'max_body_size': VALUE_MAP_REQUEST_BYTES}
-            validation.update(max_req_body_size=VALUE_MAP_REQUEST_BYTES, rejected_msg='INVALID_TOOL_ARGUMENTS')
             route['plugins']['serverless-pre-function']['functions'].append(capture_original_body(VALUE_MAP_REQUEST_BYTES))
-        validation['body_schema'] = body_schema
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
             delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
-            use_route_labels=use_route_labels and mode == 'create')]
+            use_route_labels=use_route_labels and mode in ('create', 'read'))]
         route['plugins']['proxy-rewrite']['uri'] = path
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-semantic-registry:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 3}}

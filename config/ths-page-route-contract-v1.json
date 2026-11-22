@@ -62,6 +62,16 @@
         "POST": ["api/package/confirm"]
       }
     },
+    "ingestion-run-recovery": {
+      "html": "ingestion-run-recovery.html",
+      "page": "/trusted-human/ingestion-run-recovery/",
+      "scripts": ["recovery.js"],
+      "stylesheets": ["recovery.css"],
+      "api": {
+        "GET": ["api/{runId}/{expectedVersion}"],
+        "POST": ["api/{runId}/{expectedVersion}/resume", "api/{runId}/{expectedVersion}/abort"]
+      }
+    },
     "profile-recovery": {
       "html": "profile-recovery.html",
       "page": "/trusted-human/managed-files/recovery/",

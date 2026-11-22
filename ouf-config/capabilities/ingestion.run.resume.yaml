@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ingestion.run.resume, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: ingestion
+  operationType: COMMAND
+  scope: ingestion.run.resume
+  classification: [RESTRICTED_OPERATIONAL]
+  mcp: {toolEligible: false, humanRequired: true}

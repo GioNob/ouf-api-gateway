@@ -20,7 +20,8 @@ I timeout di connessione e invio sono 3 secondi. Il timeout di lettura è
 30 secondi per la pagina e 20 secondi per le API UDP. La conferma conserva
 la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-package-confirm-v1.json)
 
-Il bundle incrementale contiene le sette risorse APISIX in tabella.
+Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
+secondo giro D-085 riportate più avanti.
 Il contratto `ouf.gateway-release-bundle.v1` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
 d’installazione. Il manifest riporta commit, workflow, ID del run e digest.
@@ -39,6 +40,52 @@ locale con un ID di prova.
 python -m tools.gateway_release_bundle --output generated/gateway-release-bundle --workflow-path .github/workflows/ci.yml --run-id 33
 python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_human_routes.py tests/test_resolution_ths.py
 ```
+
+## Recupero run e dispatch D-085
+
+| ID rotta | Metodo e percorso | Capability o scope | Percorso owner |
+| --- | --- | --- | --- |
+| `mcp-managed-file-preview` | `POST /internal/capabilities/v1/execute/managed.file/preview` | `ouf.managed-source.preview` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/preview` |
+| `mcp-managed-file-review-read` | `POST /internal/capabilities/v1/execute/managed.file/review-read` | `ouf.managed-source.onboarding.read` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/review-read` |
+| `semantic-proposal-read` | `POST /internal/capabilities/v1/execute/semantic/read` | `ouf.semantic.proposal.read` | Semantic `/api/semantic/v1/proposal-commands/read` |
+| `trusted-human-ingestion-run-recovery` | `GET`, `POST /trusted-human/ingestion-run-recovery/*` | Sessione THS | Onboarding, stesso percorso |
+| `trusted-human-ingestion-run-read` | `GET /api/trusted-human/v1/ingestion/runs/{id}` | `ingestion.run.read` | Ingestion, stesso percorso |
+| `trusted-human-ingestion-run-resume` | `POST /api/trusted-human/v1/ingestion/runs/{id}/resume` | `ingestion.run.resume` | Ingestion, stesso percorso |
+| `trusted-human-ingestion-run-abort` | `POST /api/trusted-human/v1/ingestion/runs/{id}/abort` | `ingestion.run.abort` | Ingestion, stesso percorso |
+
+Onboarding gestisce sessione e CSRF. La pagina preserva i relativi cookie e
+header e rimuove il bearer e gli header `x-ouf-*` del client. Le API Ingestion
+richiedono OIDC HUMAN e rimuovono gli header `x-ouf-*` del client. Il bundle
+risolve l'upstream da `services.bindings.ouf-ingestion-runtime` e
+`services.ports.ouf-ingestion-runtime`. Le rotte hanno `retries: 0`: la decisione
+versionata e il budget di recupero restano responsabilità di Ingestion.
+
+### Link THS emessi da Onboarding (D-085 B.2 e B.4)
+
+| ID della rotta | URI Gateway | Percorso owner (`ouf-onboarding`) | Argomenti |
+| --- | --- | --- | --- |
+| `mcp-ingestion-run-recovery-link` | `POST /internal/capabilities/v1/execute/<nome del gatewayBindingRef>` del link di recupero | `POST /api/internal/v1/onboarding/ths-links/ingestion-run-recovery` | `sourceId`, `runId`, `expectedVersion` |
+| `mcp-semantic-review-link` | `POST /internal/capabilities/v1/execute/<nome del gatewayBindingRef>` del link di revisione | `POST /api/internal/v1/onboarding/ths-links/semantic-review` | `challengeId` |
+
+Onboarding restituisce `{reviewUrl, expiresAt}`. Il Gateway richiede il client
+MCP M2M e la delega HUMAN con lo scope del manifest. Inoltra solo gli argomenti
+in JSON canonico UTF-8 e firma il percorso owner e l'hash dei byte inoltrati
+nella ricevuta managed-file. Entrambi i link applicano un limite di richiesta
+di 65.536 byte, timeout upstream di 3 secondi e `retries: 0`.
+
+Le dichiarazioni in `ouf-config/routes/northbound/` hanno entrambe
+`capabilityId: null`. Il manifest MCP fissato a
+`da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo delle due capability.
+Dopo aver sincronizzato il manifest del ramo `sprint-03/task-50-next-step`,
+impostare il `capabilityId` di ogni dichiarazione con il relativo ID
+effettivo. Il Gateway deriva lo schema e l'URI di dispatch dal manifest,
+rimuovendo il prefisso `capability://` da `gatewayBindingRef` per ottenere il
+segmento finale dell'URI. Ogni rotta resta assente dal bundle finché la sua
+dichiarazione è incompleta. Il test
+`test_ths_link_capability_is_present_in_pinned_manifest` usa uno
+`xfail(strict=True)` indipendente per ciascun link. L'URI effettivo con il
+client MCP, la ricevuta con il verificatore Onboarding reale e il rollout
+D-086 richiedono la prova integrata.
 
 ## Dispatch MCP e tipi di valore D-084
 

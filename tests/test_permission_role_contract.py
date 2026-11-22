@@ -8,6 +8,7 @@ from jsonschema import Draft7Validator
 
 from tests.test_execute_delegation import envelope, runtime
 from tools.materialize_permission_proposals import materialize
+from tools.mcp_dispatch_contract import capability_contracts, envelope_refs
 
 ROOT = Path(__file__).resolve().parents[1]
 READ = 'authorization.permissions.read'
@@ -27,6 +28,8 @@ def cases():
               (READ, {'view': 'GRANTS', 'subjectId': 'human-a', 'limit': 100}, True),
               (READ, {'view': 'GRANTS', 'externalRoleRef': 'ente:staff'}, True),
               (READ, {'view': 'ROLES'}, True),
+              (READ, {'view': 'CAPABILITIES'}, True),
+              (READ, {'view': 'CAPABILITIES', 'limit': 1}, False),
               (READ, {'view': 'ROLES', 'subjectId': 'human-a'}, False),
               (READ, {'view': 'ADMIN'}, False),
               (READ, {'subjectId': 'human-a', 'externalRoleRef': 'ente:staff'}, False),
@@ -58,11 +61,10 @@ def dispatch(capability, arguments):
     return value
 
 def test_gateway_inputs_match_pinned_mcp_manifest():
-    fixture = json.loads((ROOT/'tests/fixtures/permission-inputs-mcp-5615fdc.json').read_text())
     schemas = json.loads((ROOT/'schemas/mcp-gateway-permissions-dispatch-v1.json').read_text())['oneOf']
     for schema in schemas:
         cap = schema['properties']['CapabilityID']['const']
-        assert schema['properties']['Arguments'] == fixture['schemas'][cap]
+        assert schema['properties']['Arguments'] == envelope_refs(capability_contracts()[cap]['inputSchema'])
 
 @pytest.mark.parametrize('capability,arguments,allowed', cases())
 def test_materialized_route_accepts_only_valid_inputs(capability, arguments, allowed):

@@ -52,7 +52,10 @@ def test_signed_metadata_and_exact_unmodified_stream():
     {'Idempotency-Key':'../../wrong'},
 ])
 def test_invalid_stream_metadata_never_reaches_owner(change):
-    with pytest.raises(Denied):execute(change)
+    with pytest.raises(Denied) as rejected:
+        execute(change)
+    assert rejected.value.args == (400,)
+    assert json.loads(rejected.value.response_body)['code'] == 'INVALID_TOOL_ARGUMENTS'
 
 def test_wrong_scope_or_path_is_denied():
     with pytest.raises(Denied):execute(delegation=proof(dict(human(),scope='mcp.connect')))

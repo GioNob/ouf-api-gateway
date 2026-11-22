@@ -32,20 +32,85 @@
     "Arguments": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "sourceId",
-        "onboardingVersionId"
-      ],
       "properties": {
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
         "sourceId": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
         },
         "onboardingVersionId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+        },
+        "view": {
+          "const": "LATEST"
+        },
+        "ifObservationVersion": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceId",
+            "onboardingVersionId"
+          ],
+          "properties": {
+            "analysisId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Optional MCP analysis context, consumed locally."
+            },
+            "sourceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+            },
+            "onboardingVersionId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+            },
+            "ifObservationVersion": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sourceId",
+            "view"
+          ],
+          "properties": {
+            "analysisId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Optional MCP analysis context, consumed locally."
+            },
+            "sourceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+            },
+            "view": {
+              "const": "LATEST"
+            },
+            "ifObservationVersion": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        }
+      ]
     },
     "Identity": {
       "type": "object",

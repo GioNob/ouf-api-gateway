@@ -93,7 +93,7 @@ jobs:
         run: >-
           python3 -m tools.gateway_release_bundle --output "$RUNNER_TEMP/gateway-release-bundle"
           --workflow-path .github/workflows/ci.yml --run-id "$GITHUB_RUN_ID"
-      - name: Real APISIX OIDC and delegation gate
+      - name: Real APISIX OIDC, delegation and dispatch contract gate
         env:
           OUF_GATEWAY_RELEASE_BUNDLE: ${{ runner.temp }}/gateway-release-bundle
           OUF_GATEWAY_RELEASE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -103,6 +103,10 @@ jobs:
             echo "APISIX cold start $run/3"
             python3 -m pytest -q tests/test_execute_apisix_live.py::test_real_apisix_oidc_delegation_and_execute || exit $?
           done
+      - name: APISIX Lua validator parity on every dispatch schema (current and in-service MCP)
+        env:
+          OUF_APISIX_LIVE_TEST: '1'
+        run: python3 -m pytest -q tests/test_apisix_lua_schema_parity.py
       - name: Upload qualified Gateway release bundle
         if: success() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
