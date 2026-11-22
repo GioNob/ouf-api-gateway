@@ -1,2 +1,3 @@
 contracts/ouf-value-types-v1.json -text
 contracts/ouf-value-maps-v1.json -text
+contracts/mcp-capabilities.json -text

@@ -705,7 +705,6 @@
           "additionalProperties": false,
           "properties": {
             "constructor": {
-              "$ref": "#/properties/Arguments/$defs/constructor",
               "properties": {
                 "constructorId": {
                   "enum": [
@@ -713,7 +712,12 @@
                     "TEXT_JOIN_V1"
                   ]
                 }
-              }
+              },
+              "allOf": [
+                {
+                  "$ref": "#/properties/Arguments/$defs/constructor"
+                }
+              ]
             }
           },
           "required": [
@@ -1175,7 +1179,8 @@
         },
         "parentVersionId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
         },
         "expectedVersion": {
           "type": "integer",

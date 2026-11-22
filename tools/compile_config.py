@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-import argparse, hashlib, json, re
+import argparse, hashlib, json, re, sys
 from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator
+
+# Keep the documented direct-script entry point.
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.apisix_request_schema import dispatch_validation
+from tools.mcp_dispatch_contract import EXECUTE_PATH, capability_contracts, envelope_refs, result_ceiling
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json", "McpMediationBinding": "mcp-mediation-binding-v1.json"}
@@ -27,6 +34,7 @@ def load_documents(config_root):
 
 def compile_config(config_root):
     docs=load_documents(config_root)
+    contracts = capability_contracts()
     indexed={}
     for path,doc in docs:
         key=(doc["kind"],ref(doc))
@@ -77,6 +85,23 @@ def compile_config(config_root):
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
+        capability_id = capability[1]["metadata"]["id"]
+        contract = contracts.get(capability_id)
+        if (contract and match[0] == 'POST' and match[1].startswith(EXECUTE_PATH + '/')
+                and match[1] != EXECUTE_PATH + '/managed.file/upload'):
+            schema = json.loads((ROOT / 'schemas/mcp-gateway-dispatch-v1.json').read_bytes())
+            fields = schema['properties']
+            fields['Arguments'] = envelope_refs(contract['inputSchema'])
+            for field, value in {
+                'CapabilityID': capability_id,
+                'GatewayBindingRef': contract['gatewayBindingRef'],
+                'Owner': capability[1]['spec']['owner'],
+                'OperationClass': capability[1]['spec']['operationType'],
+            }.items():
+                fields[field] = {'const': value}
+            result = fields['MaxResultBytes']
+            result['maximum'] = result_ceiling(capability_id, result['maximum'])
+            plugins['request-validation'] = dispatch_validation(schema, spec['policy']['maxRequestBytes'])
         selector={"vars": [["uri", "~~", uri_regex]]} if uri_regex else {}
         routes.append({
           "id": route["metadata"]["id"], "uri": spec["match"]["path"], "methods": [spec["match"]["method"]],

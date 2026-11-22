@@ -4,7 +4,7 @@ import copy
 import json
 from pathlib import Path
 
-from tools.apisix_request_schema import inline_dispatch_schema
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
 from tools.managed_discovery_functions import owner_function
 from tools.materialize_permission_proposals import materialize as permission_runtime
@@ -45,7 +45,6 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
         route['labels']['ouf-mediation']='managed-file-delegation-v1'
         route['labels']['ouf-managed']='true'
         route['labels']['ouf-exposure']='internal'
-        matching=[s for s in schemas if s['properties']['CapabilityID']['const']==cap]
         if mode=='handoff':
             # This is a status operation of the existing upload capability.
             # The CSV stream route remains separate and unchanged.
@@ -54,13 +53,10 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
             schema['properties']['CapabilityID']['const']=cap
             schema['properties']['Arguments']={'type':'object','additionalProperties':False,
                 'required':['handoffId'],'properties':{'handoffId':{'type':'string','format':'uuid'}}}
-            route['plugins']['request-validation']['body_schema']=schema
         else:
-            route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
-        if mode == 'create':
-            validation = route['plugins']['request-validation']
-            validation['body_schema'] = inline_dispatch_schema(validation['body_schema'])
-            validation['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
+            schema, = (s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        request_limit = 3145728 if mode == 'create' else 65536
+        route['plugins']['request-validation'] = dispatch_validation(schema, request_limit)
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
         # The November 8 apply left this route's installed function intact.
         if mode == 'handoff':
@@ -72,9 +68,7 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
         if mode != 'handoff':
-            request_limit=3145728 if mode=='create' else 65536
             timeout=10 if mode in ('create','preview') else 3
-            route['plugins']['request-validation']['max_req_body_size']=request_limit
             route['plugins']['client-control']={'max_body_size':request_limit}
             route['upstream']['timeout']={'connect':3,'send':timeout,'read':timeout}
         result['routes'].append(route)

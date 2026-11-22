@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -6,6 +7,9 @@ from typing import Protocol
 from jsonschema import Draft202012Validator, FormatChecker
 
 from tools.compile_config import ROOT
+from tools.mcp_dispatch_contract import (
+    EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, capability_contracts, result_ceiling,
+)
 
 
 class DispatchError(RuntimeError):
@@ -48,12 +52,19 @@ class MCPDispatcher:
         self.upstream = upstream
         self.service_identity = service_identity
         self.schema = json.loads((schema_path or ROOT / "schemas" / "mcp-gateway-dispatch-v1.json").read_text())
+        self.maximum = None
+        if schema_path is None:
+            self.maximum = self.schema['properties']['MaxResultBytes'].pop('maximum')
+        self.contracts = capability_contracts()
         self.routes = {}
         for route in compiled["routes"]:
             capability = route.get("x-ouf-capability") or {}
             policy = route.get("x-ouf-policy", {})
             is_mcp_route = (
                 capability.get("toolEligible")
+                and capability.get("capabilityId") in self.contracts
+                and route.get("uri", "").startswith(EXECUTE_PATH + '/')
+                and route.get("uri") != EXECUTE_PATH + '/managed.file/upload'
                 and route.get("labels", {}).get("exposure") == "internal"
                 and policy.get("identity") == "M2M"
                 and (
@@ -79,9 +90,17 @@ class MCPDispatcher:
         route = self.routes.get(envelope["CapabilityID"])
         if route is None:
             raise DispatchError(404, "CAPABILITY_BINDING_NOT_FOUND", envelope["CapabilityID"])
-        if (envelope["CapabilityID"] == "urban.object.search" and "type" not in envelope["Arguments"]
-            or envelope["CapabilityID"] == "urban.object.related_search" and "anchorObjectId" not in envelope["Arguments"]):
-            raise DispatchError(400, "INVALID_MCP_GATEWAY_REQUEST", "arguments do not match the bound capability")
+        contract = self.contracts[envelope['CapabilityID']]
+        if not Draft202012Validator(
+            contract['inputSchema'], format_checker=FormatChecker()
+        ).is_valid(envelope['Arguments']):
+            raise DispatchError(400, INVALID_TOOL_ARGUMENTS, "arguments do not match the bound capability")
+        if envelope['CapabilityID'] == 'urban.object.search':
+            type_code = envelope['Arguments']['type']
+            if re.search(r'[*%\x00-\x1f\x7f\ud800-\udfff]', type_code) or len(type_code.encode('utf-8')) > 128:
+                raise DispatchError(400, INVALID_TOOL_ARGUMENTS, "invalid object type")
+        if self.maximum is not None and envelope['MaxResultBytes'] > result_ceiling(envelope['CapabilityID'], self.maximum):
+            raise DispatchError(400, "INVALID_MCP_GATEWAY_REQUEST", "result budget exceeds route limit")
         capability = route["x-ouf-capability"]
         policy = route["x-ouf-policy"]
         if len(raw_body) > policy["maxRequestBytes"]:

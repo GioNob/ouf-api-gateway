@@ -3,58 +3,17 @@ import argparse
 import json
 from pathlib import Path
 
+if __package__:
+    from tools.mcp_dispatch_contract import MANIFEST, envelope_refs
+else:
+    from mcp_dispatch_contract import MANIFEST, envelope_refs
+
 ROOT = Path(__file__).resolve().parents[1]
 ROUTES = {
     'semantic.propose': 'semantic-proposals',
     'source.onboarding.create': 'managed-file-dispatch',
     'source.onboarding.revision.prepare': 'source-revision-prepare-dispatch',
 }
-
-# APISIX matches in PCRE byte mode. Expand classes above ASCII into
-# alternatives that each match one complete UTF-8 character.
-VALUE_MAP_SPACE_CLASS = '[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
-VALUE_MAP_SPACE_ALTERNATIVES = r'(?:[\x09-\x0D ]|' + '|'.join(
-    '\u0085\u00a0\u1680' + ''.join(chr(code) for code in range(0x2000, 0x200B))
-    + '\u2028\u2029\u202f\u205f\u3000'
-) + ')'
-VALUE_MAP_CONTROL_CLASS = r'[\x00-\x1F\x7F-\x9F]'
-VALUE_MAP_CONTROL_ALTERNATIVES = r'(?:[\x00-\x1F\x7F]|' + '|'.join(
-    chr(code) for code in range(0x80, 0xA0)
-) + ')'
-
-
-def envelope_refs(node):
-    """The root seen by APISIX is the HTTP envelope, one level above Arguments."""
-    if isinstance(node, list):
-        return [envelope_refs(child) for child in node]
-    if isinstance(node, dict):
-        if '$ref' in node:
-            ref = node['$ref']
-            if not ref.startswith('#/'):
-                raise ValueError('expected a local MCP schema reference')
-            projected = {'$ref': '#/properties/Arguments/' + ref[2:]}
-            if 'maxLength' in node:
-                # Draft 7 validators ignore siblings of $ref.
-                siblings = {key: value for key, value in node.items() if key != '$ref'}
-                return {'type': 'string', **envelope_refs(siblings), 'allOf': [projected]}
-            return {**node, **projected}
-        result = {key: envelope_refs(value) for key, value in node.items()}
-        if isinstance(result.get('pattern'), str):
-            result['pattern'] = (result['pattern']
-                                 .replace(VALUE_MAP_SPACE_CLASS, VALUE_MAP_SPACE_ALTERNATIVES)
-                                 .replace(VALUE_MAP_CONTROL_CLASS, VALUE_MAP_CONTROL_ALTERNATIVES))
-        # The installation's Lua validator handles boolean propertyNames only.
-        # Express MCP's closed name lists using its supported object keywords.
-        if 'propertyNames' in result:
-            names = result.pop('propertyNames')
-            properties = result.get('properties', {})
-            if set(names) != {'enum'} or set(properties) - set(names['enum']):
-                raise ValueError('unsupported propertyNames projection')
-            result['properties'] = {key: properties.get(key, {}) for key in names['enum']}
-            result['additionalProperties'] = False
-        return result
-    return node
-
 
 def sync(checkout, check):
     for contract, error in (
@@ -64,7 +23,10 @@ def sync(checkout, check):
         source = checkout / 'contracts' / contract
         if not source.is_file() or source.read_bytes() != (ROOT / 'contracts' / contract).read_bytes():
             raise ValueError(error)
-    manifest = json.loads((checkout / 'internal/manifest/capabilities.json').read_bytes())
+    source_manifest = (checkout / 'internal/manifest/capabilities.json').read_bytes()
+    if source_manifest != MANIFEST.read_bytes():
+        raise ValueError('MCP_DISPATCH_MANIFEST_MISMATCH')
+    manifest = json.loads(source_manifest)
     capabilities = {row['toolName']: row for row in manifest['capabilities']}
     proposal = capabilities['semantic.propose']['inputSchema']
     if 'VALUE_MAP' not in proposal['properties']['artifactType']['enum']:

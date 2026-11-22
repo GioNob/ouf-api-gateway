@@ -24,8 +24,10 @@ import pytest
 import yaml
 
 from tools.materialize_object_search import materialize
+from tests.test_dispatch_schema_contract import REVIEW_READ_URI, dispatch_body, dispatch_profiles, is_dispatch
 from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS
 
 
 def wait_for_protected_routes(post, probes, timeout=60):
@@ -86,6 +88,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     rt=runtime();installation=rt['x-ouf-installation'];issuer=installation['issuerUrl'];aud=installation['gatewayAudience'];workload=installation['mcpServiceIdentity']
     calls=[]
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
+    review_read_owner = '/api/internal/v1/onboarding/managed-file-mcp/review-read'
     terms_calls = []
     dispatch_paths = {
         "semantic.propose": ("semantic/create", "/api/semantic/v1/proposal-commands/create"),
@@ -108,7 +111,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             if self.path.startswith(terms_path):
                 terms_calls.append(self.path)
                 self.reply({'unexpected_method': 'POST'})
-            elif self.path in {owner for _, owner in dispatch_paths.values()}:
+            elif self.path == review_read_owner or self.path in {owner for _, owner in dispatch_paths.values()}:
                 dispatch_calls.append(self.path)
                 dispatch_bodies[self.path] = body
                 if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
@@ -229,9 +232,19 @@ def test_real_apisix_oidc_delegation_and_execute():
                                           ci_profile(installation, server.server_port))
             assert [route['id'] for route in release] == RELEASE_ROUTE_IDS
             doc['routes'].extend(release)
+            # Qualify the rest of the JSON dispatch materializers alongside the release artifact.
+            loaded = {r.get('uri') for r in doc['routes']}
+            _, profiles = dispatch_profiles()
+            for route in profiles:
+                if route['uri'] not in loaded and 'request-validation' in route['plugins']:
+                    route['plugins']['openid-connect']['discovery'] = f'http://127.0.0.1:{server.server_port}/discovery'
+                    route['upstream']['nodes'] = {f'127.0.0.1:{server.server_port}': 1}
+                    doc['routes'].append(route)
+            from tests.test_onboarding_review import request as review_request
             from tests.test_value_type_schemas import dispatch
             for tool_name, (suffix, _) in dispatch_paths.items():
                 probes['/internal/capabilities/v1/execute/' + suffix] = dispatch(tool_name)
+            probes[REVIEW_READ_URI] = review_request('review-read')
         config = {
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
@@ -256,6 +269,36 @@ def test_real_apisix_oidc_delegation_and_execute():
         try:
             wait_for_protected_routes(post, probes)
             if bundle_dir:
+                review = next(r for r in doc['routes'] if r.get('uri') == REVIEW_READ_URI)
+                review_schema = review['plugins']['request-validation']['body_schema']
+                exact = review_request('review-read')['Arguments']
+                latest = {'sourceId': exact['sourceId'], 'view': 'LATEST'}
+                status, result = post('/mcp', {}, token(scope='mcp.connect ouf.managed-source.onboarding.read'))
+                assert status == 200
+                review_proof = json.loads(result)['proof']
+                for arguments in (exact, latest):
+                    body = dispatch_body(review_schema, arguments)
+                    status, result = post(REVIEW_READ_URI, body, token('SERVICE'), review_proof)
+                    assert status == 200 and json.loads(result)['body'] == body
+                assert dispatch_calls == [review_read_owner, review_read_owner]
+                for arguments in (dict(exact, view='LATEST'), {'sourceId': exact['sourceId']},
+                                  dict(latest, view='private-source-value'),
+                                  dict(exact, onboardingVersionId='private-source-value')):
+                    status, result = post(REVIEW_READ_URI, dispatch_body(review_schema, arguments),
+                                          token('SERVICE'), review_proof)
+                    assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result
+                    assert b'private-source-value' not in result
+                assert dispatch_calls == [review_read_owner, review_read_owner]
+
+                for route in doc['routes']:
+                    if not is_dispatch(route):
+                        continue
+                    schema = route['plugins']['request-validation']['body_schema']
+                    invalid = dispatch_body(schema, ['private-source-value'])
+                    status, result = post(route['uri'], invalid, token('SERVICE'), review_proof)
+                    assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result, (route['id'], status)
+                    assert b'private-source-value' not in result
+
                 target = terms_path + '?revisionIds=rev-a,rev-b'
                 reviewer = token(scope='ouf.semantic.review')
                 for method, uri, bearer, expected in [

@@ -93,7 +93,7 @@ jobs:
         run: >-
           python3 -m tools.gateway_release_bundle --output "$RUNNER_TEMP/gateway-release-bundle"
           --workflow-path .github/workflows/ci.yml --run-id "$GITHUB_RUN_ID"
-      - name: Real APISIX OIDC and delegation gate
+      - name: Real APISIX OIDC, delegation and dispatch contract gate
         env:
           OUF_GATEWAY_RELEASE_BUNDLE: ${{ runner.temp }}/gateway-release-bundle
           OUF_GATEWAY_RELEASE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}

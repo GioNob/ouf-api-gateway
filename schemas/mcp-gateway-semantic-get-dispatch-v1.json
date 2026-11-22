@@ -46,11 +46,13 @@
         },
         "revisionId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
         },
         "publicationSetId": {
           "type": "string",
-          "format": "uuid"
+          "format": "uuid",
+          "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
         }
       }
     },
@@ -125,7 +127,7 @@
     "MaxResultBytes": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 262144
+      "maximum": 264192
     }
   }
 }

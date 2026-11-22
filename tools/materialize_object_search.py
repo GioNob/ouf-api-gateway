@@ -5,6 +5,7 @@ import json
 import re
 from pathlib import Path
 
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
 from tools.materialize_operational_execute import materialize as existing_runtime
 
@@ -36,7 +37,8 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env, udp
     route = copy.deepcopy(template)
     route.update(id='execute-urban-object-search', uri='/internal/capabilities/v1/execute/urban.object.search')
     route['labels']['ouf-mediation'] = 'udp-search-execute-v1'
-    route['plugins']['request-validation']['body_schema'] = json.loads((ROOT/'schemas/mcp-gateway-object-search-dispatch-v1.json').read_text())
+    schema = json.loads((ROOT/'schemas/mcp-gateway-object-search-dispatch-v1.json').read_bytes())
+    route['plugins']['request-validation'] = dispatch_validation(schema, 65536)
     route['plugins']['serverless-post-function']['functions'] = [function('execute_object_search', runtime['x-ouf-installation'], delegation_key_env, udp_key_env)]
     route['plugins']['proxy-rewrite']['uri'] = PATH
     route['upstream']['nodes'] = {'ouf-udp-object-resolution:8080': 1}

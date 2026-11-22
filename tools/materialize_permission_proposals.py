@@ -4,6 +4,7 @@ import copy
 import json
 from pathlib import Path
 from tools.materialize_apisix_execute_runtime import materialize as status_runtime
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
 ROOT=Path(__file__).resolve().parents[1]
 CAPS={'authorization.permissions.read':('read','READ'),'authorization.permissions.propose':('propose','COMMAND'),'authorization.proposal.read':('status','READ')}
@@ -20,7 +21,8 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
             raise ValueError('permission binding mismatch: '+cap)
         route=copy.deepcopy(template);route['id']='mcp-permissions-'+mode;route['uri']='/internal/capabilities/v1/execute/authorization/'+mode
         route['labels']['ouf-mediation']='permission-proposals-v1'
-        route['plugins']['request-validation']['body_schema']=next(s for s in schemas if s['properties']['CapabilityID']['const']==cap)
+        schema, = (s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        route['plugins']['request-validation'] = dispatch_validation(schema, 65536)
         route['plugins']['serverless-post-function']['functions']=[function('execute_permissions',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
