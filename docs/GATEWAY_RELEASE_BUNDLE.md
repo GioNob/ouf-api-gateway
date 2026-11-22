@@ -60,17 +60,32 @@ risolve l'upstream da `services.bindings.ouf-ingestion-runtime` e
 `services.ports.ouf-ingestion-runtime`. Le rotte hanno `retries: 0`: la decisione
 versionata e il budget di recupero restano responsabilità di Ingestion.
 
-Il binding `mcp-ingestion-run-recovery-link` è dichiarato in
-[`ouf-config/routes/northbound/mcp-ingestion-run-recovery-link.json`](../ouf-config/routes/northbound/mcp-ingestion-run-recovery-link.json).
-Il manifest MCP `da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo della capability
-per il link. Impostare `capabilityId` dopo la sincronizzazione del manifest che
-la dichiara e verificare il percorso canonico derivato da `gatewayBindingRef`
-con il client MCP. Il test
-`test_recovery_link_capability_is_present_in_pinned_manifest` segnala questo
-blocco. La rotta è esclusa dalla pubblicazione finché il binding è incompleto.
-La prova con fixture controlla delega, scope, corpo e ricevuta. Il verificatore
-reale Onboarding per `POST /api/internal/v1/onboarding/ths-links/ingestion-run-recovery`
-e il rollout D-086 richiedono ancora la verifica integrata.
+### Link THS emessi da Onboarding (D-085 B.2 e B.4)
+
+| ID della rotta | URI Gateway | Percorso owner (`ouf-onboarding`) | Argomenti |
+| --- | --- | --- | --- |
+| `mcp-ingestion-run-recovery-link` | `POST /internal/capabilities/v1/execute/<nome del gatewayBindingRef>` del link di recupero | `POST /api/internal/v1/onboarding/ths-links/ingestion-run-recovery` | `sourceId`, `runId`, `expectedVersion` |
+| `mcp-semantic-review-link` | `POST /internal/capabilities/v1/execute/<nome del gatewayBindingRef>` del link di revisione | `POST /api/internal/v1/onboarding/ths-links/semantic-review` | `challengeId` |
+
+Onboarding restituisce `{reviewUrl, expiresAt}`. Il Gateway richiede il client
+MCP M2M e la delega HUMAN con lo scope del manifest. Inoltra solo gli argomenti
+in JSON canonico UTF-8 e firma il percorso owner e l'hash dei byte inoltrati
+nella ricevuta managed-file. Entrambi i link applicano un limite di richiesta
+di 65.536 byte, timeout upstream di 3 secondi e `retries: 0`.
+
+Le dichiarazioni in `ouf-config/routes/northbound/` hanno entrambe
+`capabilityId: null`. Il manifest MCP fissato a
+`da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo delle due capability.
+Dopo aver sincronizzato il manifest del ramo `sprint-03/task-50-next-step`,
+impostare il `capabilityId` di ogni dichiarazione con il relativo ID
+effettivo. Il Gateway deriva lo schema e l'URI di dispatch dal manifest,
+rimuovendo il prefisso `capability://` da `gatewayBindingRef` per ottenere il
+segmento finale dell'URI. Ogni rotta resta assente dal bundle finché la sua
+dichiarazione è incompleta. Il test
+`test_ths_link_capability_is_present_in_pinned_manifest` usa uno
+`xfail(strict=True)` indipendente per ciascun link. L'URI effettivo con il
+client MCP, la ricevuta con il verificatore Onboarding reale e il rollout
+D-086 richiedono la prova integrata.
 
 ## Dispatch MCP e tipi di valore D-084
 

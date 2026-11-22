@@ -24,14 +24,14 @@ import pytest
 import yaml
 
 from tools.materialize_object_search import materialize
-from tests.test_dispatch_schema_contract import dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases
+from tests.test_dispatch_schema_contract import (
+    THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
+)
 from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
-from tools.mcp_dispatch_contract import (
-    INVALID_TOOL_ARGUMENTS, RECOVERY_LINK_ID, RECOVERY_LINK_PATH, bound_capability, capability_contracts,
-)
+from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, bound_capability, capability_contracts
 
 
 def wait_for_protected_routes(post, probes, timeout=60):
@@ -263,7 +263,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             generate(bundle_path, commit, workflow, run_id)
         release = load_release_routes(bundle_path, commit, workflow, run_id,
                                       ci_profile(installation, server.server_port))
-        optional_ids = [RECOVERY_LINK_ID] if any(r['id'] == RECOVERY_LINK_ID for r in release) else []
+        optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
         if bundle_dir:
@@ -318,12 +318,17 @@ def test_real_apisix_oidc_delegation_and_execute():
                 assert status == 200
                 delegation = json.loads(result)['proof']
                 before = len(dispatch_calls)
+                is_ths_link = changed_routes[uri]['id'] in THS_LINK_DISPATCH_CASES
                 for arguments in accepted:
                     body = dispatch_body(schema, arguments)
                     status, result = post(uri, body, token('SERVICE'), delegation)
                     assert status == 200, (uri, status, result)
-                    forwarded = arguments if owner == RECOVERY_LINK_PATH else body
+                    forwarded = arguments if is_ths_link else body
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
+                    if is_ths_link:
+                        canonical = json.dumps(arguments, sort_keys=True, separators=(',', ':'),
+                                               ensure_ascii=False).encode('utf-8')
+                        assert dispatch_bodies[owner] == canonical
                 for arguments in rejected:
                     status, result = post(uri, dispatch_body(schema, arguments), token('SERVICE'), delegation)
                     assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result, (uri, status, result)

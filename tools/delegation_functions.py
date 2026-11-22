@@ -23,7 +23,7 @@ end"""
 
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
-             use_route_labels=False, recovery_link=None):
+             use_route_labels=False, ths_link=None):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
                                          'execute_managed_file_retained'):
         raise ValueError('unsupported installation-bound function')
@@ -96,16 +96,15 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         raise ValueError('invalid function')
     source = (ROOT / (kind + '.lua')).read_text()
     if kind == 'execute_managed_file':
-        if recovery_link is None:
+        if ths_link is None:
             binding = 'nil'
         else:
-            from tools.mcp_dispatch_contract import RECOVERY_LINK_PATH
-            fields = {'capability': 'capabilityId', 'binding': 'gatewayBindingRef',
-                      'operation': 'operationClass', 'scope': 'requiredAuthorizationCapability'}
-            values = {key: recovery_link[field] for key, field in fields.items()}
-            values['path'] = RECOVERY_LINK_PATH
-            binding = '{' + ', '.join(f'{key}={json.dumps(value)}' for key, value in values.items()) + '}'
-        source = source.replace('-- MATERIALIZE RECOVERY LINK', 'local recovery_link = ' + binding)
+            settings = [f'{key}={json.dumps(ths_link[key])}'
+                        for key in ('capability', 'binding', 'operation', 'scope', 'path')]
+            fields = [f'{{name={json.dumps(name)},type={json.dumps(field_type)}}}'
+                      for name, field_type in sorted(ths_link['fields'].items())]
+            binding = '{' + ', '.join(settings + ['fields={' + ', '.join(fields) + '}']) + '}'
+        source = source.replace('-- MATERIALIZE THS LINK', 'local ths_link = ' + binding)
     if kind == 'execute_semantic_proposals':
         from tools.materialize_semantic_proposals import PROPOSAL_REQUEST_BYTES, VALUE_MAP_REQUEST_BYTES
         ceiling = PROPOSAL_REQUEST_BYTES

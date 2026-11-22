@@ -11,8 +11,8 @@ if __package__ in (None, ''):
 
 from tools.apisix_request_schema import dispatch_validation
 from tools.mcp_dispatch_contract import (
-    EXECUTE_PATH, RECOVERY_LINK_ID, RECOVERY_LINK_PATH, capability_contracts,
-    envelope_refs, manifest_execute_uri, result_ceiling,
+    EXECUTE_PATH, THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts,
+    envelope_refs, manifest_execute_uri, result_ceiling, ths_link_schema_matches,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,52 +40,49 @@ def validate_document(path, doc):
     if errors: raise ConfigError(f"{path}: {errors[0].message}")
 
 
-def recovery_link_documents(config_root, contracts):
-    path = config_root / 'routes/northbound' / f'{RECOVERY_LINK_ID}.json'
-    if not path.is_file():
-        return []
-    spec = json.loads(path.read_bytes())
-    cap = spec.pop('capabilityId')
-    # D-085 activation requires the exact capability ID selected from the MCP
-    # snapshot. An incomplete declaration cannot become a routable binding.
-    if cap is None:
-        return []
-    contract = contracts.get(cap)
-    fields = {'sourceId', 'runId', 'expectedVersion'}
-    if (not contract or contract['owner'] != 'onboarding'
-            or contract.get('publicationState') != 'ACTIVE'
-            or contract['inputSchema'].get('additionalProperties') is not False
-            or set(contract['inputSchema'].get('properties', {})) != fields
-            or set(contract['inputSchema'].get('required', [])) != fields
-            or spec['backendBinding']['path'] != RECOVERY_LINK_PATH):
-        raise ConfigError(f'{path}: MCP recovery-link capability missing or inconsistent')
-    try:
-        uri = manifest_execute_uri(contract['gatewayBindingRef'])
-    except ValueError as exc:
-        raise ConfigError(f'{path}: {exc}') from exc
-    version = {'version': '1.0.0', 'status': 'ACTIVE'}
-    capability = {
-        'apiVersion': 'ouf.trieste.it/v1', 'kind': 'Capability',
-        'metadata': {'id': cap, **version},
-        'spec': {'owner': contract['owner'], 'operationType': contract['operationClass'],
-                 'scope': contract['requiredAuthorizationCapability'],
-                 'classification': ['SECURITY_SENSITIVE'], 'mcp': {'toolEligible': contract['toolEligible']}},
-    }
-    binding = {
-        'apiVersion': 'ouf.trieste.it/v1', 'kind': 'RouteBinding',
-        'metadata': {'id': RECOVERY_LINK_ID, **version},
-        'spec': {**spec, 'direction': 'northbound', 'exposure': 'internal',
-                 'capabilityRef': cap + '@' + version['version'],
-                 'match': {'method': 'POST', 'path': uri}},
-    }
-    for doc in (capability, binding):
-        validate_document(path, doc)
-    return [(path, capability), (path, binding)]
+def ths_link_documents(config_root, contracts):
+    for route_id, key in THS_LINK_ROUTE_KEYS.items():
+        path = config_root / 'routes/northbound' / f'{route_id}.json'
+        if not path.is_file():
+            continue
+        spec = json.loads(path.read_bytes())
+        cap = spec.pop('capabilityId')
+        # D-085 activation requires the exact capability ID selected from the MCP snapshot.
+        if cap is None:
+            continue
+        contract = contracts.get(cap)
+        if (not contract or contract['owner'] != 'onboarding'
+                or contract.get('publicationState') != 'ACTIVE'
+                or not ths_link_schema_matches(contract['inputSchema'], THS_LINKS[key])
+                or spec['backendBinding']['path'] != THS_LINK_PATH_PREFIX + key):
+            raise ConfigError(f'{path}: MCP THS link capability missing or inconsistent')
+        try:
+            uri = manifest_execute_uri(contract['gatewayBindingRef'])
+        except ValueError as exc:
+            raise ConfigError(f'{path}: {exc}') from exc
+        version = {'version': '1.0.0', 'status': 'ACTIVE'}
+        capability = {
+            'apiVersion': 'ouf.trieste.it/v1', 'kind': 'Capability',
+            'metadata': {'id': cap, **version},
+            'spec': {'owner': contract['owner'], 'operationType': contract['operationClass'],
+                     'scope': contract['requiredAuthorizationCapability'],
+                     'classification': ['SECURITY_SENSITIVE'], 'mcp': {'toolEligible': contract['toolEligible']}},
+        }
+        binding = {
+            'apiVersion': 'ouf.trieste.it/v1', 'kind': 'RouteBinding',
+            'metadata': {'id': route_id, **version},
+            'spec': {**spec, 'direction': 'northbound', 'exposure': 'internal',
+                     'capabilityRef': cap + '@' + version['version'],
+                     'match': {'method': 'POST', 'path': uri}},
+        }
+        for doc in (capability, binding):
+            validate_document(path, doc)
+            yield path, doc
 
 
 def compile_config(config_root):
     contracts = capability_contracts()
-    docs = load_documents(config_root) + recovery_link_documents(config_root, contracts)
+    docs = load_documents(config_root) + list(ths_link_documents(config_root, contracts))
     indexed={}
     for path,doc in docs:
         key=(doc["kind"],ref(doc))

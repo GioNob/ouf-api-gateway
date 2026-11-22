@@ -9,8 +9,24 @@ MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.jso
 INVALID_TOOL_ARGUMENTS = 'INVALID_TOOL_ARGUMENTS'
 NEXT_RESULT_HEADROOM_BYTES = 2048
 EXECUTE_PATH = '/internal/capabilities/v1/execute'
-RECOVERY_LINK_ID = 'mcp-ingestion-run-recovery-link'
-RECOVERY_LINK_PATH = '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery'
+THS_LINK_PATH_PREFIX = '/api/internal/v1/onboarding/ths-links/'
+THS_LINKS = {
+    'ingestion-run-recovery': {'sourceId': 'string', 'runId': 'string', 'expectedVersion': 'integer'},
+    'semantic-review': {'challengeId': 'string'},
+}
+THS_LINK_ROUTE_KEYS = {f'mcp-{key}-link': key for key in THS_LINKS}
+MAX_SAFE_INTEGER = 2**53 - 1
+
+
+def ths_link_schema_matches(schema, fields):
+    properties = schema.get('properties', {})
+    return (schema.get('type') == 'object' and schema.get('additionalProperties') is False
+            and properties.keys() == fields.keys() and set(schema.get('required', [])) == fields.keys()
+            and all(properties[name].get('type') == kind
+                    and (kind != 'integer' or
+                         0 <= properties[name].get('minimum', -1)
+                         <= properties[name].get('maximum', MAX_SAFE_INTEGER + 1) <= MAX_SAFE_INTEGER)
+                    for name, kind in fields.items()))
 
 
 def manifest_execute_uri(binding_ref):

@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
-from tools.mcp_dispatch_contract import RECOVERY_LINK_ID
+from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
 
 def test_published_terms_release(tmp_path):
@@ -14,7 +14,7 @@ def test_published_terms_release(tmp_path):
     profile = ci_profile({'installationId': 'fixture', 'revision': 3, 'gatewayAudience': 'reviewer',
                           'issuerUrl': 'https://issuer.invalid', 'mcpServiceIdentity': 'test-mcp'}, 18080)
     routes = load_release_routes(tmp_path, commit, workflow, '33', profile)
-    required_routes = [route['id'] for route in routes if route['id'] != RECOVERY_LINK_ID]
+    required_routes = [route['id'] for route in routes if route['id'] not in THS_LINK_ROUTE_KEYS]
     assert required_routes == RELEASE_ROUTE_IDS
     route, = (r for r in routes if r['id'] == 'semantic-human-terms')
     assert route['id'] == 'semantic-human-terms'

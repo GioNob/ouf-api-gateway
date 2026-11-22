@@ -13,7 +13,8 @@ from tools.materialize_managed_file_ths import materialize as human_picker
 from tools.materialize_trusted_human_onboarding_runtime import materialize_route as human_route
 from tools.materialize_apisix_internal_m2m_routes import materialize as service_routes
 from tools.mcp_dispatch_contract import (
-    RECOVERY_LINK_ID, RECOVERY_LINK_PATH, capability_contracts, manifest_execute_uri,
+    THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts, manifest_execute_uri,
+    ths_link_schema_matches,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,34 +71,42 @@ def recovery_run_route(binding, installation, secret_ref):
     return route
 
 
-def recovery_link_route(template, binding, installation, delegation_key_env, owner_key_env, *, use_route_labels):
+def ths_link_route(template, binding, installation, delegation_key_env, owner_key_env, *, use_route_labels):
+    route_id = binding['id']
+    key = THS_LINK_ROUTE_KEYS[route_id]
+    path = THS_LINK_PATH_PREFIX + key
+    fields = THS_LINKS[key]
     policy, capability = binding['x-ouf-policy'], binding['x-ouf-capability']
     contract = capability_contracts().get(capability['capabilityId'])
     if not contract or contract.get('publicationState') != 'ACTIVE':
-        raise ValueError('active MCP recovery-link capability required in pinned manifest')
+        raise ValueError('active MCP THS link capability required in pinned manifest')
     uri = manifest_execute_uri(contract['gatewayBindingRef'])
     if (binding['uri'] != uri or binding['methods'] != ['POST']
             or binding['labels']['exposure'] != 'internal'
-            or binding['x-ouf-backend-binding'] != {'service': 'ouf-onboarding', 'port': 8080, 'path': RECOVERY_LINK_PATH}
+            or binding['x-ouf-backend-binding'] != {'service': 'ouf-onboarding', 'port': 8080, 'path': path}
             or capability['owner'] != contract['owner'] or contract['owner'] != 'onboarding'
             or capability['operationType'] != contract['operationClass']
+            or not ths_link_schema_matches(contract['inputSchema'], fields)
             or policy['requiredScope'] != contract['requiredAuthorizationCapability']
             or policy['identity'] != 'M2M' or policy['allowedActorTypes'] != ['HUMAN']
             or policy['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
             or policy['maxRequestBytes'] != 65536 or policy['timeoutSeconds'] != 3):
-        raise ValueError('ingestion recovery-link binding mismatch')
+        raise ValueError('THS link binding mismatch: ' + route_id)
     route = copy.deepcopy(template)
-    route.update(id=RECOVERY_LINK_ID, uri=uri, methods=['POST'])
+    route.update(id=route_id, uri=uri, methods=['POST'])
     route['labels']['ouf-mediation'] = 'onboarding-review-v1'
     plugins = route['plugins']
     plugins['request-validation'] = binding['plugins']['request-validation']
     plugins['client-control'] = {'max_body_size': policy['maxRequestBytes']}
     plugins['serverless-pre-function']['functions'].append(capture_original_body(policy['maxRequestBytes']))
+    link = {'capability': capability['capabilityId'], 'binding': contract['gatewayBindingRef'],
+            'operation': contract['operationClass'], 'scope': policy['requiredScope'],
+            'path': path, 'fields': fields}
     plugins['serverless-post-function'] = {'phase': 'access', 'functions': [
         function('execute_managed_file', installation, delegation_key_env, owner_key_env,
-                 use_route_labels=use_route_labels, recovery_link=contract),
+                 use_route_labels=use_route_labels, ths_link=link),
     ]}
-    plugins['proxy-rewrite'] = {'uri': RECOVERY_LINK_PATH}
+    plugins['proxy-rewrite'] = {'uri': path}
     route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-onboarding:8080': 1},
                          'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 3}}
     return route
@@ -162,9 +171,9 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_rou
         _append(result, review_page(human_routes[0], flow))
     secret_ref = templates[0]['plugins']['openid-connect']['client_secret']
     indexed = {r['id']: r for r in runtime['routes']}
-    if RECOVERY_LINK_ID in indexed:
-        _append(result, recovery_link_route(templates[0], indexed[RECOVERY_LINK_ID], installation,
-                                           delegation_key_env, owner_key_env, use_route_labels=use_route_labels))
+    for route_id in sorted(THS_LINK_ROUTE_KEYS.keys() & indexed.keys()):
+        _append(result, ths_link_route(templates[0], indexed[route_id], installation,
+                                      delegation_key_env, owner_key_env, use_route_labels=use_route_labels))
     for route_id in RUN_ROUTES:
         _append(result, recovery_run_route(indexed[route_id], installation, secret_ref))
     readiness_id = 'trusted-human-ingestion-onboarding-readiness'

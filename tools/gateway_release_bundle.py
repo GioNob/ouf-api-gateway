@@ -18,7 +18,7 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
-from tools.mcp_dispatch_contract import RECOVERY_LINK_ID
+from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v1'
@@ -107,8 +107,8 @@ def release_resources():
         'mcp-managed-file-review-read': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
     }
-    if any(r['id'] == RECOVERY_LINK_ID for r in mediated['routes']):
-        dispatch_bindings[RECOVERY_LINK_ID] = ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv')
+    dispatch_bindings.update({route['id']: ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv')
+                              for route in mediated['routes'] if route['id'] in THS_LINK_ROUTE_KEYS})
     for route_id, (service, owner_env) in dispatch_bindings.items():
         route, = (r for r in mediated['routes'] if r.get('id') == route_id)
         # A full HTTPS issuer contains ":" and cannot be stored in an APISIX label.

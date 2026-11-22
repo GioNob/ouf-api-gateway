@@ -16,7 +16,7 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as source_revision
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, MANIFEST, NEXT_RESULT_HEADROOM_BYTES,
-    RECOVERY_LINK_ID, RECOVERY_LINK_PATH, bound_capability, capability_contracts, envelope_refs,
+    bound_capability, capability_contracts, envelope_refs,
 )
 
 HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
@@ -24,6 +24,19 @@ REVIEW_READ_URI = EXECUTE_PATH + '/managed.file/review-read'
 PREVIEW_URI = EXECUTE_PATH + '/managed.file/preview'
 SEMANTIC_READ_URI = EXECUTE_PATH + '/semantic/read'
 MANIFEST_SHA256 = '78cee1486d8860f9fdf419ab71bdbc4b9ca73c917358fc3673c7fe11a30a5d41'
+THS_LINK_DISPATCH_CASES = {
+    'mcp-ingestion-run-recovery-link': (
+        '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery',
+        [{'sourceId': 'teatri', 'runId': '11111111-1111-4111-8111-111111111111', 'expectedVersion': 7}],
+        [{'sourceId': 'teatri', 'runId': '11111111-1111-4111-8111-111111111111',
+          'expectedVersion': -1}],
+    ),
+    'mcp-semantic-review-link': (
+        '/api/internal/v1/onboarding/ths-links/semantic-review',
+        [{'challengeId': '11111111-1111-4111-8111-111111111111'}],
+        [{'challengeId': 7}],
+    ),
+}
 
 
 def dispatch_profiles():
@@ -168,9 +181,8 @@ def wave2_dispatch_cases(routes=()):
             _, accepted, rejected = cases[uri]
             rejected.append(dict(accepted[0], **{argument: 'private-source-value'}))
     for route in routes:
-        if route['id'] == RECOVERY_LINK_ID:
-            args = {'sourceId': 'teatri', 'runId': asset, 'expectedVersion': 7}
-            cases[route['uri']] = (RECOVERY_LINK_PATH, [args], [dict(args, runId='private-source-value')])
+        if route['id'] in THS_LINK_DISPATCH_CASES:
+            cases[route['uri']] = THS_LINK_DISPATCH_CASES[route['id']]
     return cases
 
 
