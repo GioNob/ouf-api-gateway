@@ -103,6 +103,10 @@ jobs:
             echo "APISIX cold start $run/3"
             python3 -m pytest -q tests/test_execute_apisix_live.py::test_real_apisix_oidc_delegation_and_execute || exit $?
           done
+      - name: APISIX Lua validator parity on every dispatch schema (current and in-service MCP)
+        env:
+          OUF_APISIX_LIVE_TEST: '1'
+        run: python3 -m pytest -q tests/test_apisix_lua_schema_parity.py
       - name: Upload qualified Gateway release bundle
         if: success() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4

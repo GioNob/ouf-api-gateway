@@ -100,6 +100,11 @@ def envelope_refs(node):
                 raise ValueError('unsupported propertyNames projection')
             result['properties'] = {key: properties.get(key, {}) for key in names['enum']}
             result['additionalProperties'] = False
+        # APISIX's Lua validator reads an empty `required` table as "the object
+        # must be empty". An empty `required` constrains nothing, so dropping it
+        # is exact. A property named `required` maps to a schema, never to [].
+        if result.get('required') == []:
+            del result['required']
         return result
     return node
 
