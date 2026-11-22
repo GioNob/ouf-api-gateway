@@ -5,10 +5,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / 'lua'
 
-# Release routes carry installation settings as structured APISIX label values.
+# Release routes carry installation settings as structured APISIX values.
 # A profile value never becomes executable Lua source.
 INSTALLATION_LABELS = {
-    'ISSUER': 'ouf-issuer', 'AUDIENCE': 'ouf-audience', 'MCP_WORKLOAD': 'ouf-mcp-workload',
+    'AUDIENCE': 'ouf-audience', 'MCP_WORKLOAD': 'ouf-mcp-workload',
     'DELEGATION_KEY_ENV': 'ouf-delegation-key-env', 'OWNER_KEY_ENV': 'ouf-owner-key-env',
 }
 
@@ -62,8 +62,17 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         return ('return function(conf, ctx)\n' + constants + '\n' +
                 (ROOT / 'delegation.lua').read_text() + '\n' + source + '\nend')
     if use_route_labels:
-        lines = ['local labels = ctx.matched_route.value.labels']
+        lines = [
+            'local route = ctx.matched_route.value',
+            'local labels = route.labels',
+            "local oidc = route.plugins['openid-connect']",
+            'local issuer = oidc and oidc.claim_validator and oidc.claim_validator.issuer',
+            'local issuers = issuer and issuer.valid_issuers',
+            'local ISSUER = issuers and #issuers == 1 and issuers[1]',
+        ]
         for key, value in values.items():
+            if key == 'ISSUER':
+                continue
             expression = (f'labels[{json.dumps(INSTALLATION_LABELS[key])}]'
                           if key in INSTALLATION_LABELS else json.dumps(value))
             lines.append(f'local {key} = {expression}')

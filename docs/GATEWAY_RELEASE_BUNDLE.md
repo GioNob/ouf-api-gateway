@@ -83,7 +83,9 @@ Nel profilo D-058, `gateway.delegationKeyEnv` identifica la chiave di delega.
 `gateway.semanticProposalOwnerKeyEnv` e `gateway.sourceRevisionOwnerKeyEnv`
 identificano le chiavi dei verificatori Semantic e Onboarding. Le due rotte
 Onboarding raggiungono lo stesso verificatore e usano domini MAC distinti.
-Il bundle sostituisce i valori delle label prima del caricamento in APISIX.
+Il bundle risolve le label prima del caricamento in APISIX. L'URL dell'issuer
+è risolto in `openid-connect.claim_validator.issuer.valid_issuers`. La funzione
+Lua legge lo stesso valore per verificare il token di servizio e la delega.
 
 Per confrontare gli schemi e le tre fixture con una checkout locale del MCP,
 eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.

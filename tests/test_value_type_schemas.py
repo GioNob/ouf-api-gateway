@@ -2,9 +2,11 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.test_execute_delegation import Denied, Engine, INSTALL, KEY, human, proof, workload
@@ -100,7 +102,11 @@ def validator(routes, name):
 def test_mcp_dispatch_in_release(routes, name):
     route_id, limit = ROUTES[name]
     body = dispatch(name)
-    route = routes[route_id]
+    route = yaml.safe_load(yaml.safe_dump(routes[route_id]))
+    assert all(re.fullmatch(r'[A-Za-z0-9_./-]{1,64}', value) for value in route["labels"].values())
+    assert route["plugins"]["openid-connect"]["claim_validator"]["issuer"]["valid_issuers"] == [
+        INSTALL["issuerUrl"],
+    ]
     validation = route["plugins"]["request-validation"]
     Draft202012Validator.check_schema(validation["body_schema"])
     validator(routes, name).validate(body)
@@ -230,8 +236,7 @@ def test_value_map_duplicate_code_is_rejected_before_receipt(routes, same_concep
     engine.modules[b'apisix.core'][b'response'] = response
     route = routes['semantic-proposal-create']
     lua, = route['plugins']['serverless-post-function']['functions']
-    labels = {key.encode(): value.encode() for key, value in route['labels'].items()}
-    ctx = engine.lua.table_from({b'matched_route': {b'value': {b'labels': labels}}}, recursive=True)
+    ctx = matched_route_context(engine, route)
     forward = engine.lua.execute(lua.encode())
     assert forward(None, ctx) == (400, b'INVALID_TOOL_ARGUMENTS')
     receipt = b'x-ouf-semantic-proposal-receipt'
@@ -242,6 +247,11 @@ def test_value_map_duplicate_code_is_rejected_before_receipt(routes, same_concep
     forward(None, ctx)
     assert receipt in engine.headers
     assert json.loads(engine.body) == body
+
+
+def matched_route_context(engine, route):
+    decode = engine.modules[b'cjson.safe'][b'decode']
+    return decode(json.dumps({'matched_route': {'value': route}}).encode())
 
 
 def test_closed_vocabularies_match_contract(routes):
@@ -363,10 +373,20 @@ def test_released_lua_signs_exact_dispatch_at_limit(routes, name, body_limit, re
                "X-Correlation-ID": body["CorrelationID"], "X-Tool-Attempt-ID": body["AttemptID"]}
     route = routes[ROUTES[name][0]]
     engine = Engine(dict(workload(), tenant_id=identity["TenantID"]), headers, body, uri=route["uri"])
-    labels = {key.encode(): value.encode() for key, value in route["labels"].items()}
-    ctx = engine.lua.table_from({b"matched_route": {b"value": {b"labels": labels}}}, recursive=True)
+    ctx = matched_route_context(engine, route)
     lua, = route["plugins"]["serverless-post-function"]["functions"]
     forward = engine.lua.execute(lua.encode())
+    issuer_config = ctx[b'matched_route'][b'value'][b'plugins'][b'openid-connect'][b'claim_validator'][b'issuer']
+    issuers = issuer_config[b'valid_issuers']
+    issuer_config[b'valid_issuers'] = None
+    with pytest.raises(Denied, match="503"):
+        forward(None, ctx)
+    issuer_config[b'valid_issuers'] = engine.lua.table_from([b'https://other-issuer.invalid'])
+    with pytest.raises(Denied, match="403"):
+        forward(None, ctx)
+    assert receipt_header.encode() not in engine.headers
+    issuer_config[b'valid_issuers'] = issuers
+
     # Whitespace pads the original JSON to the exact HTTP envelope limit.
     engine.lua.execute(b"ngx.req.get_body_data=function() return nil end")
     raw = compact_json(body).ljust(body_limit)

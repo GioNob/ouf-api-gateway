@@ -98,7 +98,12 @@ def release_resources():
         'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
     }.items():
         route, = (r for r in mediated['routes'] if r.get('id') == route_id)
-        settings = {'ISSUER': 'gateway.issuerUrl', 'AUDIENCE': 'gateway.requiredAudience',
+        # A full HTTPS issuer contains ":" and cannot be stored in an APISIX label.
+        # Bind OIDC and the delegated request check to the same projected issuer.
+        route['plugins']['openid-connect']['claim_validator']['issuer'] = {
+            'valid_issuers': [installation('gateway.issuerUrl')],
+        }
+        settings = {'AUDIENCE': 'gateway.requiredAudience',
                     'MCP_WORKLOAD': 'iam.workloadClients.mcpServer',
                     'DELEGATION_KEY_ENV': 'gateway.delegationKeyEnv', 'OWNER_KEY_ENV': owner_env}
         route['labels'].update({label: installation(settings[key]) for key, label in INSTALLATION_LABELS.items()})

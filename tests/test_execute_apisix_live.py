@@ -239,6 +239,8 @@ def test_real_apisix_oidc_delegation_and_execute():
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
             config['nginx_config']['worker_processes'] = 1
+            # Keep route-load errors visible in the failure log during readiness.
+            config['nginx_config']['http'] = {'enable_access_log': False}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         container_id = subprocess.check_output([
