@@ -102,7 +102,8 @@ def check_r2b_mixed_window(request, token, installation):
         assert status == 429
         assert int(quota['X-RateLimit-Limit']) == 12
         assert int(quota['X-RateLimit-Remaining']) == 0
-        assert int(quota['X-RateLimit-Reset']) >= 0
+        # APISIX 3.18 reports the reset in fractional seconds, for example 59.97.
+        assert 0 <= float(quota['X-RateLimit-Reset']) <= 60
 
 
 def wait_for_protected_routes(post, probes, timeout=60):

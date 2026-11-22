@@ -172,7 +172,10 @@ il blocco `gateway.rateLimits` da unire alla proiezione. Test e produzione
 richiedono un profilo esplicito. Per la qualifica è proposta la variabile
 `remote_addr`. Caddy aggrega i chiamanti sullo stesso indirizzo. APISIX applica
 la quota per rotta e restituisce `X-RateLimit-Limit`, `X-RateLimit-Remaining`
-e `X-RateLimit-Reset`. Il budget di produzione dipende dalla qualifica R-043.
+e `X-RateLimit-Reset`. `X-RateLimit-Reset` è espresso in secondi frazionari,
+per esempio `59.97`. Il `429` di APISIX 3.18 non porta `Retry-After`: i runtime
+ricavano l'attesa da `X-RateLimit-Reset`. Il budget di produzione dipende dalla
+qualifica R-043.
 [Contratto delle rotte e ordine dei plugin](R2B_OWNER_ROUTES.md)
 
 **Registro D-065 · gateway.r2b-rate-limits.v1.** Il Gateway possiede i 15
