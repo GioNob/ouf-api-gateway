@@ -406,7 +406,1104 @@
             "sourceObjectKeyFields",
             "fields"
           ],
+          "$defs": {
+            "reader": {
+              "enum": [
+                "IDENTITY",
+                "TEXT_NFC_TRIM_V1",
+                "INTEGER_V1",
+                "INTEGER_GROUP_DOT_V1",
+                "DECIMAL_DOT_V1",
+                "DECIMAL_COMMA_V1",
+                "DECIMAL_GROUP_DOT_COMMA_V1",
+                "DECIMAL_GROUP_COMMA_DOT_V1",
+                "BOOLEAN_IT_V1",
+                "DATE_ISO_V1",
+                "DATE_DMY_V1",
+                "DATE_DMY_DASH_V1",
+                "DATETIME_ISO_OFFSET_V1",
+                "DATETIME_LOCAL_ROME_V1",
+                "GEOJSON_V1",
+                "WKT_V1",
+                "VALUE_MAP_V1"
+              ]
+            },
+            "transformParams": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "crs": {
+                  "type": "string",
+                  "pattern": "^EPSG:[0-9]+$",
+                  "maxLength": 512
+                },
+                "valueMapRef": {
+                  "type": "string",
+                  "maxLength": 512,
+                  "minLength": 1
+                },
+                "separator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8
+                },
+                "itemReader": {
+                  "$ref": "#/properties/Arguments/$defs/reader"
+                }
+              }
+            },
+            "fieldReaderParams": {
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "transform"
+                    ],
+                    "properties": {
+                      "transform": {
+                        "enum": [
+                          "WKT_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "crs"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "transform"
+                    ],
+                    "properties": {
+                      "transform": {
+                        "enum": [
+                          "VALUE_MAP_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "transformParams"
+                        ],
+                        "properties": {
+                          "transformParams": {
+                            "required": [
+                              "valueMapRef"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "required": [
+                          "valueMapRef"
+                        ],
+                        "properties": {
+                          "valueMapRef": {
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "constructorInput": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "fieldName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "reader": {
+                  "$ref": "#/properties/Arguments/$defs/reader"
+                },
+                "transformParams": {
+                  "$ref": "#/properties/Arguments/$defs/transformParams"
+                }
+              },
+              "required": [
+                "role",
+                "fieldName",
+                "reader"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "WKT_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "crs"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "VALUE_MAP_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "valueMapRef"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "constructor": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "constructorId": {
+                  "enum": [
+                    "POINT_FROM_LAT_LON_V1",
+                    "TEXT_JOIN_V1",
+                    "LIST_SPLIT_V1"
+                  ]
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/properties/Arguments/$defs/constructorInput"
+                  }
+                },
+                "params": {
+                  "type": "object"
+                }
+              },
+              "required": [
+                "constructorId",
+                "inputs",
+                "params"
+              ],
+              "allOf": [
+                {
+                  "$ref": "#/properties/Arguments/$defs/constructorRules"
+                }
+              ]
+            },
+            "constructorRules": {
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "constructorId"
+                    ],
+                    "properties": {
+                      "constructorId": {
+                        "enum": [
+                          "POINT_FROM_LAT_LON_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "inputs": {
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {
+                          "properties": {
+                            "role": {
+                              "enum": [
+                                "lat",
+                                "lon"
+                              ]
+                            }
+                          }
+                        },
+                        "allOf": [
+                          {
+                            "contains": {
+                              "properties": {
+                                "role": {
+                                  "const": "lat"
+                                }
+                              }
+                            },
+                            "minContains": 1,
+                            "maxContains": 1
+                          },
+                          {
+                            "contains": {
+                              "properties": {
+                                "role": {
+                                  "const": "lon"
+                                }
+                              }
+                            },
+                            "minContains": 1,
+                            "maxContains": 1
+                          }
+                        ]
+                      },
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {}
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "constructorId"
+                    ],
+                    "properties": {
+                      "constructorId": {
+                        "enum": [
+                          "TEXT_JOIN_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "inputs": {
+                        "minItems": 2,
+                        "maxItems": 8,
+                        "items": {
+                          "properties": {
+                            "role": {
+                              "enum": [
+                                "part"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "separator": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 8
+                          }
+                        },
+                        "required": [
+                          "separator"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "constructorId"
+                    ],
+                    "properties": {
+                      "constructorId": {
+                        "enum": [
+                          "LIST_SPLIT_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "inputs": {
+                        "minItems": 1,
+                        "maxItems": 1,
+                        "items": {
+                          "properties": {
+                            "role": {
+                              "enum": [
+                                "value"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "params": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "separator": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 8
+                          },
+                          "itemReader": {
+                            "$ref": "#/properties/Arguments/$defs/reader"
+                          },
+                          "itemReaderParams": {
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "separator",
+                          "itemReader"
+                        ],
+                        "allOf": [
+                          {
+                            "if": {
+                              "required": [
+                                "itemReader"
+                              ],
+                              "properties": {
+                                "itemReader": {
+                                  "enum": [
+                                    "IDENTITY",
+                                    "TEXT_NFC_TRIM_V1",
+                                    "INTEGER_V1",
+                                    "INTEGER_GROUP_DOT_V1",
+                                    "DECIMAL_DOT_V1",
+                                    "DECIMAL_COMMA_V1",
+                                    "DECIMAL_GROUP_DOT_COMMA_V1",
+                                    "DECIMAL_GROUP_COMMA_DOT_V1",
+                                    "BOOLEAN_IT_V1",
+                                    "DATE_ISO_V1",
+                                    "DATE_DMY_V1",
+                                    "DATE_DMY_DASH_V1",
+                                    "DATETIME_ISO_OFFSET_V1",
+                                    "DATETIME_LOCAL_ROME_V1",
+                                    "GEOJSON_V1"
+                                  ]
+                                }
+                              }
+                            },
+                            "then": {
+                              "properties": {
+                                "itemReaderParams": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {}
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "if": {
+                              "required": [
+                                "itemReader"
+                              ],
+                              "properties": {
+                                "itemReader": {
+                                  "enum": [
+                                    "WKT_V1"
+                                  ]
+                                }
+                              }
+                            },
+                            "then": {
+                              "required": [
+                                "itemReaderParams"
+                              ],
+                              "properties": {
+                                "itemReaderParams": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "crs": {
+                                      "type": "string",
+                                      "pattern": "^EPSG:[0-9]+$",
+                                      "maxLength": 512
+                                    }
+                                  },
+                                  "required": [
+                                    "crs"
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "if": {
+                              "required": [
+                                "itemReader"
+                              ],
+                              "properties": {
+                                "itemReader": {
+                                  "enum": [
+                                    "VALUE_MAP_V1"
+                                  ]
+                                }
+                              }
+                            },
+                            "then": {
+                              "required": [
+                                "itemReaderParams"
+                              ],
+                              "properties": {
+                                "itemReaderParams": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "valueMapRef": {
+                                      "type": "string",
+                                      "maxLength": 512,
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "required": [
+                                    "valueMapRef"
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "fieldComponent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "component": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                },
+                "fieldName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "reader": {
+                  "$ref": "#/properties/Arguments/$defs/reader"
+                },
+                "transformParams": {
+                  "$ref": "#/properties/Arguments/$defs/transformParams"
+                }
+              },
+              "required": [
+                "component",
+                "fieldName",
+                "reader"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "WKT_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "crs"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "VALUE_MAP_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "valueMapRef"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "fieldItem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "fieldName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "reader": {
+                  "$ref": "#/properties/Arguments/$defs/reader"
+                },
+                "transformParams": {
+                  "$ref": "#/properties/Arguments/$defs/transformParams"
+                }
+              },
+              "required": [
+                "fieldName",
+                "reader"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "WKT_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "crs"
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "reader"
+                    ],
+                    "properties": {
+                      "reader": {
+                        "enum": [
+                          "VALUE_MAP_V1"
+                        ]
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "transformParams"
+                    ],
+                    "properties": {
+                      "transformParams": {
+                        "required": [
+                          "valueMapRef"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "constructorItem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "constructor": {
+                  "$ref": "#/properties/Arguments/$defs/constructor",
+                  "properties": {
+                    "constructorId": {
+                      "enum": [
+                        "POINT_FROM_LAT_LON_V1",
+                        "TEXT_JOIN_V1"
+                      ]
+                    }
+                  }
+                }
+              },
+              "required": [
+                "constructor"
+              ]
+            },
+            "constructorComponent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "component": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                },
+                "constructor": {
+                  "$ref": "#/properties/Arguments/$defs/constructor"
+                }
+              },
+              "required": [
+                "component",
+                "constructor"
+              ]
+            },
+            "structured4": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "typeRef": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                  "maxLength": 512
+                },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/properties/Arguments/$defs/fieldComponent"
+                      },
+                      {
+                        "$ref": "#/properties/Arguments/$defs/constructorComponent"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "component": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/fieldItem"
+                                },
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/constructorItem"
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "component",
+                          "items"
+                        ]
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "typeRef",
+                "components"
+              ]
+            },
+            "structured3": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "typeRef": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                  "maxLength": 512
+                },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/properties/Arguments/$defs/fieldComponent"
+                      },
+                      {
+                        "$ref": "#/properties/Arguments/$defs/constructorComponent"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "component": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                          },
+                          "structured": {
+                            "$ref": "#/properties/Arguments/$defs/structured4"
+                          }
+                        },
+                        "required": [
+                          "component",
+                          "structured"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "component": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/fieldItem"
+                                },
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/constructorItem"
+                                },
+                                {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "structured": {
+                                      "$ref": "#/properties/Arguments/$defs/structured4"
+                                    }
+                                  },
+                                  "required": [
+                                    "structured"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "component",
+                          "items"
+                        ]
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "typeRef",
+                "components"
+              ]
+            },
+            "structured2": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "typeRef": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                  "maxLength": 512
+                },
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "$ref": "#/properties/Arguments/$defs/fieldComponent"
+                      },
+                      {
+                        "$ref": "#/properties/Arguments/$defs/constructorComponent"
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "component": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                          },
+                          "structured": {
+                            "$ref": "#/properties/Arguments/$defs/structured3"
+                          }
+                        },
+                        "required": [
+                          "component",
+                          "structured"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "component": {
+                            "type": "string",
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/fieldItem"
+                                },
+                                {
+                                  "$ref": "#/properties/Arguments/$defs/constructorItem"
+                                },
+                                {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "structured": {
+                                      "$ref": "#/properties/Arguments/$defs/structured3"
+                                    }
+                                  },
+                                  "required": [
+                                    "structured"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "component",
+                          "items"
+                        ]
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 32,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "typeRef",
+                "components"
+              ]
+            },
+            "compositions": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "CONSTRUCTOR"
+                      },
+                      "targetPropertyIri": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 512
+                      },
+                      "dataAccessLabel": {
+                        "enum": [
+                          "OPEN",
+                          "ANONYMOUS",
+                          "PERSONAL",
+                          "SENSITIVE",
+                          "RESTRICTED"
+                        ]
+                      },
+                      "constructorId": {
+                        "enum": [
+                          "POINT_FROM_LAT_LON_V1",
+                          "TEXT_JOIN_V1",
+                          "LIST_SPLIT_V1"
+                        ]
+                      },
+                      "inputs": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/properties/Arguments/$defs/constructorInput"
+                        }
+                      },
+                      "params": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "targetPropertyIri",
+                      "dataAccessLabel",
+                      "constructorId",
+                      "inputs",
+                      "params"
+                    ],
+                    "allOf": [
+                      {
+                        "$ref": "#/properties/Arguments/$defs/constructorRules"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "STRUCTURED"
+                      },
+                      "targetPropertyIri": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 512
+                      },
+                      "dataAccessLabel": {
+                        "enum": [
+                          "OPEN",
+                          "ANONYMOUS",
+                          "PERSONAL",
+                          "SENSITIVE",
+                          "RESTRICTED"
+                        ]
+                      },
+                      "typeRef": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                        "maxLength": 512
+                      },
+                      "components": {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/properties/Arguments/$defs/fieldComponent"
+                            },
+                            {
+                              "$ref": "#/properties/Arguments/$defs/constructorComponent"
+                            },
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "component": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                },
+                                "structured": {
+                                  "$ref": "#/properties/Arguments/$defs/structured2"
+                                }
+                              },
+                              "required": [
+                                "component",
+                                "structured"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "component": {
+                                  "type": "string",
+                                  "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                                },
+                                "items": {
+                                  "type": "array",
+                                  "items": {
+                                    "oneOf": [
+                                      {
+                                        "$ref": "#/properties/Arguments/$defs/fieldItem"
+                                      },
+                                      {
+                                        "$ref": "#/properties/Arguments/$defs/constructorItem"
+                                      },
+                                      {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "structured": {
+                                            "$ref": "#/properties/Arguments/$defs/structured2"
+                                          }
+                                        },
+                                        "required": [
+                                          "structured"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "required": [
+                                "component",
+                                "items"
+                              ]
+                            }
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 32,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "targetPropertyIri",
+                      "dataAccessLabel",
+                      "typeRef",
+                      "components"
+                    ]
+                  }
+                ]
+              },
+              "minItems": 0,
+              "maxItems": 1024,
+              "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+            }
+          },
           "properties": {
+            "compositions": {
+              "$ref": "#/properties/Arguments/$defs/compositions"
+            },
             "assetId": {
               "type": "string",
               "format": "uuid"
@@ -471,6 +1568,11 @@
                   "extractionDecision",
                   "dataAccessLabel"
                 ],
+                "allOf": [
+                  {
+                    "$ref": "#/properties/Arguments/$defs/fieldReaderParams"
+                  }
+                ],
                 "properties": {
                   "fieldName": {
                     "type": "string",
@@ -498,8 +1600,10 @@
                     "maxLength": 512
                   },
                   "transform": {
-                    "type": "string",
-                    "maxLength": 512
+                    "$ref": "#/properties/Arguments/$defs/reader"
+                  },
+                  "transformParams": {
+                    "$ref": "#/properties/Arguments/$defs/transformParams"
                   },
                   "vocabularyId": {
                     "type": "string",
@@ -592,7 +1696,8 @@
           "minimum": 1,
           "maximum": 1048576
         }
-      }
+      },
+      "$id": "urn:ouf:gateway:dispatch:source.onboarding.create"
     },
     {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

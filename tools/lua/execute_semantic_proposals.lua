@@ -24,8 +24,7 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-ngx.req.read_body()
-local body = ngx.req.get_body_data()
+-- MATERIALIZE SEMANTIC REQUEST BODY
 if not body or #body > 65536 then return fail(413) end
 local e = cjson.decode(body)
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' or type(e.Arguments) ~= 'table' then return fail(400) end

@@ -1,0 +1,145 @@
+{
+  "GatewayBindingRef": "capability://ouf.onboarding.revision.prepare",
+  "CapabilityID": "ouf.onboarding.revision.prepare",
+  "Owner": "onboarding",
+  "OperationClass": "COMMAND",
+  "Arguments": {
+    "sourceId": "places",
+    "parentVersionId": "00000000-0000-4000-8000-000000000012",
+    "expectedVersion": 1,
+    "configurationHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "commandKey": "rev-1",
+    "publicationEffect": "NEW_PUBLICATION_MAY_START_ACQUISITION",
+    "assetRef": {
+      "assetId": "00000000-0000-4000-8000-000000000012",
+      "profileId": "00000000-0000-4000-8000-000000000012"
+    },
+    "newColumns": [
+      {
+        "column": "shape",
+        "decision": "MAP",
+        "mapping": {
+          "propertyIri": "urn:shape",
+          "transform": "WKT_V1",
+          "transformParams": {
+            "crs": "EPSG:3003"
+          },
+          "reconciliation": {
+            "policyRef": "urn:ouf:policy:linked-object-property-reconciliation:v1",
+            "cardinality": "SINGLE",
+            "normalizerRef": "EXACT_TYPED",
+            "normalizerVersion": 1,
+            "validity": "UNBOUNDED"
+          }
+        }
+      },
+      {
+        "column": "codes",
+        "decision": "MAP",
+        "mapping": {
+          "propertyIri": "urn:codes",
+          "transform": "IDENTITY",
+          "reconciliation": {
+            "policyRef": "urn:ouf:policy:linked-object-property-reconciliation:v1",
+            "cardinality": "SINGLE",
+            "normalizerRef": "EXACT_TYPED",
+            "normalizerVersion": 1,
+            "validity": "UNBOUNDED"
+          }
+        }
+      }
+    ],
+    "compositions": [
+      {
+        "kind": "STRUCTURED",
+        "typeRef": "urn:example:place@00000000-0000-4000-8000-000000000012",
+        "targetPropertyIri": "urn:place",
+        "dataAccessLabel": "OPEN",
+        "components": [
+          {
+            "component": "address",
+            "items": [
+              {
+                "structured": {
+                  "typeRef": "urn:example:address@00000000-0000-4000-8000-000000000012",
+                  "components": [
+                    {
+                      "component": "shape",
+                      "fieldName": "shape",
+                      "reader": "WKT_V1",
+                      "transformParams": {
+                        "crs": "EPSG:3003"
+                      }
+                    },
+                    {
+                      "component": "labels",
+                      "items": [
+                        {
+                          "fieldName": "via",
+                          "reader": "TEXT_NFC_TRIM_V1"
+                        },
+                        {
+                          "constructor": {
+                            "constructorId": "TEXT_JOIN_V1",
+                            "inputs": [
+                              {
+                                "role": "part",
+                                "fieldName": "via",
+                                "reader": "TEXT_NFC_TRIM_V1"
+                              },
+                              {
+                                "role": "part",
+                                "fieldName": "civico",
+                                "reader": "IDENTITY"
+                              }
+                            ],
+                            "params": {
+                              "separator": " / "
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "component": "categories",
+                      "constructor": {
+                        "constructorId": "LIST_SPLIT_V1",
+                        "inputs": [
+                          {
+                            "role": "value",
+                            "fieldName": "codes",
+                            "reader": "IDENTITY"
+                          }
+                        ],
+                        "params": {
+                          "separator": ";",
+                          "itemReader": "VALUE_MAP_V1",
+                          "itemReaderParams": {
+                            "valueMapRef": "urn:example:map@00000000-0000-4000-8000-000000000012"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "Identity": {
+    "ServicePrincipalID": "fixture-mcp",
+    "PrincipalID": "fixture-human",
+    "TenantID": "fixture-tenant",
+    "ActorType": "HUMAN",
+    "AuthenticationContextRef": "fixture-auth"
+  },
+  "AuthorizationDecisionRef": "fixture-decision",
+  "CorrelationID": "fixture-correlation",
+  "IdempotencyKey": "rev-1",
+  "AttemptID": "00000000-0000-4000-8000-000000000012",
+  "RequestHash": "2703d94ecf5aea20695533eabf3bc1f73c081eabd1c8e5debc2ec9016d0bae7f",
+  "MaxResultBytes": 65536
+}

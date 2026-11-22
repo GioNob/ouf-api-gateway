@@ -59,7 +59,8 @@
                 "RELATIONSHIP",
                 "VOCABULARY",
                 "CONCEPT",
-                "ONTOLOGY"
+                "ONTOLOGY",
+                "DATATYPE"
               ]
             },
             "namespace": {
@@ -118,6 +119,9 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "components": {
+                  "$ref": "#/properties/Arguments/$defs/datatypeComponents"
+                },
                 "description": {
                   "type": "object",
                   "additionalProperties": false,
@@ -202,7 +206,329 @@
               "maxLength": 49152
             },
             "mediaType": {
+              "type": "string",
               "const": "text/turtle"
+            }
+          },
+          "$defs": {
+            "datatypeComponents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][A-Za-z0-9]{0,63}$"
+                  },
+                  "type": {
+                    "oneOf": [
+                      {
+                        "enum": [
+                          "string",
+                          "integer",
+                          "decimal",
+                          "boolean",
+                          "date",
+                          "datetime",
+                          "geometry",
+                          "concept"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                        "maxLength": 1024
+                      }
+                    ]
+                  },
+                  "cardinality": {
+                    "enum": [
+                      "ONE",
+                      "MANY"
+                    ]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "labels": {
+                    "$ref": "#/properties/Arguments/properties/labels"
+                  },
+                  "constraints": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "minInclusive": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "maxInclusive": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "maxLength": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "vocabularyRef": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "format": "iri",
+                        "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+$"
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "type",
+                  "cardinality",
+                  "required"
+                ],
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "string"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "maxLength": {}
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "concept"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "vocabularyRef": {}
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "integer"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "minInclusive": {
+                              "pattern": "^(0|-?[1-9][0-9]*)$"
+                            },
+                            "maxInclusive": {
+                              "pattern": "^(0|-?[1-9][0-9]*)$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "decimal"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "minInclusive": {
+                              "pattern": "^(0|-?[1-9][0-9]*|-?(0|[1-9][0-9]*)\\.[0-9]*[1-9])$"
+                            },
+                            "maxInclusive": {
+                              "pattern": "^(0|-?[1-9][0-9]*|-?(0|[1-9][0-9]*)\\.[0-9]*[1-9])$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "date"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "minInclusive": {
+                              "format": "date",
+                              "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)$"
+                            },
+                            "maxInclusive": {
+                              "format": "date",
+                              "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "enum": [
+                            "datetime"
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "properties": {
+                            "minInclusive": {
+                              "format": "date-time",
+                              "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"
+                            },
+                            "maxInclusive": {
+                              "format": "date-time",
+                              "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "if": {
+                      "properties": {
+                        "type": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$"
+                            },
+                            {
+                              "enum": [
+                                "boolean",
+                                "geometry"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "constraints": {
+                          "maxProperties": 0
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "minItems": 1,
+              "maxItems": 32,
+              "uniqueItems": true,
+              "description": "Use unique component names. The Semantic Registry resolves published pins and checks cycles, depth (4) and total leaf components (256)."
+            }
+          },
+          "if": {
+            "properties": {
+              "artifactType": {
+                "const": "DATATYPE"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "definition"
+            ],
+            "properties": {
+              "semanticId": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$"
+              },
+              "definition": {
+                "required": [
+                  "components"
+                ],
+                "properties": {
+                  "description": {},
+                  "components": {}
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "definition": {
+                "not": {
+                  "required": [
+                    "components"
+                  ]
+                }
+              }
             }
           },
           "oneOf": [
@@ -315,7 +641,8 @@
           "minimum": 1,
           "maximum": 1048576
         }
-      }
+      },
+      "$id": "urn:ouf:gateway:dispatch:semantic.propose"
     },
     {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

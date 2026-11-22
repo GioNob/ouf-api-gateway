@@ -16,7 +16,7 @@ MODES={
     'handoff':('ouf.managed-source.file.upload','COMMAND'),
 }
 
-def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
+def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use_route_labels=False):
     result=permission_runtime(runtime,oidc_secret_ref,delegation_key_env,owner_key_env)
     template=next(r for r in result['routes'] if r['uri']=='/internal/capabilities/v1/execute')
     schemas=json.loads((ROOT/'schemas/mcp-gateway-managed-file-dispatch-v1.json').read_text())['oneOf']
@@ -56,12 +56,15 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
             route['plugins']['request-validation']['body_schema']=schema
         else:
             route['plugins']['request-validation']['body_schema']=matching[0] if len(matching)==1 else {'oneOf':matching}
+        if mode == 'create':
+            route['plugins']['request-validation']['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
         # The November 8 apply left this route's installed function intact.
         if mode == 'handoff':
             post = owner_function('execute_managed_file_retained', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
         else:
-            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
+            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
+                            use_route_labels=use_route_labels and mode == 'create')
         route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}

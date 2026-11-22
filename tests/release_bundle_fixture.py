@@ -4,7 +4,8 @@ import json
 import re
 
 
-RELEASE_ROUTE_IDS = ['semantic-human-terms', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
+RELEASE_ROUTE_IDS = ['mcp-managed-file-create', 'mcp-source-revision-prepare', 'semantic-human-terms',
+                     'semantic-proposal-create', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
                      'trusted-human-resolution-review']
 
 
@@ -88,6 +89,10 @@ def ci_profile(installation, port):
     return {
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
+        'gateway.issuerUrl': installation['issuerUrl'],
+        'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
+        'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
+        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,

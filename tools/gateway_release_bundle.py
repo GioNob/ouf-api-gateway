@@ -10,6 +10,11 @@ from pathlib import Path
 from ops.apisix.deploy_semantic_human import validate
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
+from tools.delegation_functions import INSTALLATION_LABELS
+from tools.materialize_managed_file_mcp import materialize as managed_file
+from tools.materialize_onboarding_review import materialize as onboarding_review
+from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
+from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
 
@@ -80,6 +85,23 @@ def release_resources():
     resources = [route_resource(terms, 'ouf-semantic-registry')]
     for route in resolution(runtime, secret_ref):
         service = 'ouf-onboarding' if route['id'] == 'trusted-human-resolution-review' else UDP
+        resources.append(route_resource(route, service))
+    delegation = 'BUNDLE_INPUT_DELEGATION'
+    onboarding = 'BUNDLE_INPUT_ONBOARDING'
+    managed = managed_file(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
+    reviewed = onboarding_review(managed, runtime, delegation, onboarding)
+    revisions = revision_prepare(reviewed, runtime, delegation, onboarding, use_route_labels=True)
+    mediated = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
+    for route_id, (service, owner_env) in {
+        'semantic-proposal-create': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
+        'mcp-managed-file-create': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+    }.items():
+        route, = (r for r in mediated['routes'] if r.get('id') == route_id)
+        settings = {'ISSUER': 'gateway.issuerUrl', 'AUDIENCE': 'gateway.requiredAudience',
+                    'MCP_WORKLOAD': 'iam.workloadClients.mcpServer',
+                    'DELEGATION_KEY_ENV': 'gateway.delegationKeyEnv', 'OWNER_KEY_ENV': owner_env}
+        route['labels'].update({label: installation(settings[key]) for key, label in INSTALLATION_LABELS.items()})
         resources.append(route_resource(route, service))
     return resources
 

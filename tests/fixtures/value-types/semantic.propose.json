@@ -1,0 +1,100 @@
+{
+  "GatewayBindingRef": "capability://ouf.semantic.propose",
+  "CapabilityID": "ouf.semantic.propose",
+  "Owner": "semantic",
+  "OperationClass": "COMMAND",
+  "Arguments": {
+    "commandKey": "draft-1",
+    "semanticId": "urn:example:container",
+    "artifactType": "DATATYPE",
+    "namespace": "urn:example:",
+    "localName": "container",
+    "ownerRef": "owner",
+    "authorityRef": "authority",
+    "semanticVersion": "1.0.0",
+    "labels": {
+      "it": "Contenitore"
+    },
+    "definition": {
+      "components": [
+        {
+          "name": "location",
+          "type": "urn:example:place@00000000-0000-4000-8000-000000000012",
+          "cardinality": "MANY",
+          "required": true,
+          "labels": {
+            "en": "Locations"
+          }
+        },
+        {
+          "name": "price",
+          "type": "decimal",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "minInclusive": "0.001",
+            "maxInclusive": "9007199254740993"
+          }
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "maxLength": 64
+          }
+        },
+        {
+          "name": "category",
+          "type": "concept",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "vocabularyRef": "urn:example:vocabulary"
+          }
+        },
+        {
+          "name": "count",
+          "type": "integer",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "minInclusive": "-42"
+          }
+        },
+        {
+          "name": "validFrom",
+          "type": "date",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "minInclusive": "2024-02-29"
+          }
+        },
+        {
+          "name": "updated",
+          "type": "datetime",
+          "cardinality": "ONE",
+          "required": false,
+          "constraints": {
+            "maxInclusive": "2026-01-01T00:00:00Z"
+          }
+        }
+      ]
+    }
+  },
+  "Identity": {
+    "ServicePrincipalID": "fixture-mcp",
+    "PrincipalID": "fixture-human",
+    "TenantID": "fixture-tenant",
+    "ActorType": "HUMAN",
+    "AuthenticationContextRef": "fixture-auth"
+  },
+  "AuthorizationDecisionRef": "fixture-decision",
+  "CorrelationID": "fixture-correlation",
+  "IdempotencyKey": "draft-1",
+  "AttemptID": "00000000-0000-4000-8000-000000000012",
+  "RequestHash": "05dcecc17efb7fa0ba887004ec8740818368ce78fd722d40e93b85d780627fcf",
+  "MaxResultBytes": 262144
+}

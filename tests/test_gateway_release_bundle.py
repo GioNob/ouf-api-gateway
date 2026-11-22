@@ -10,10 +10,11 @@ def test_published_terms_release(tmp_path):
     workflow = '.github/workflows/ci.yml'
     commit = '1' * 40
     generate(tmp_path, commit, workflow, '33')
-    profile = ci_profile({'installationId': 'fixture', 'revision': 3, 'gatewayAudience': 'reviewer'}, 18080)
+    profile = ci_profile({'installationId': 'fixture', 'revision': 3, 'gatewayAudience': 'reviewer',
+                          'issuerUrl': 'https://issuer.invalid', 'mcpServiceIdentity': 'test-mcp'}, 18080)
     routes = load_release_routes(tmp_path, commit, workflow, '33', profile)
     assert [route['id'] for route in routes] == RELEASE_ROUTE_IDS
-    route = routes[0]
+    route, = (r for r in routes if r['id'] == 'semantic-human-terms')
     assert route['id'] == 'semantic-human-terms'
     assert route['labels']['ouf-surface'] == 'TRUSTED_HUMAN_SEMANTIC'
     oidc = route['plugins']['openid-connect']
@@ -37,6 +38,9 @@ def test_published_terms_release(tmp_path):
 
     bundle = json.loads((tmp_path / 'bundle.json').read_bytes())
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
+        'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
+        'gateway.sourceRevisionOwnerKeyEnv': 'secret',
+        'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',

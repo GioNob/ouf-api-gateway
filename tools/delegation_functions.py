@@ -5,14 +5,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / 'lua'
 
-def function(kind, installation, key_env, owner_key_env=None, operational_binding=None):
+# Release routes carry installation settings as structured APISIX label values.
+# A profile value never becomes executable Lua source.
+INSTALLATION_LABELS = {
+    'ISSUER': 'ouf-issuer', 'AUDIENCE': 'ouf-audience', 'MCP_WORKLOAD': 'ouf-mcp-workload',
+    'DELEGATION_KEY_ENV': 'ouf-delegation-key-env', 'OWNER_KEY_ENV': 'ouf-owner-key-env',
+}
+
+
+def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *, use_route_labels=False):
+    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file'):
+        raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
     values = {'DELEGATION_KEY_ENV': key_env, 'ISSUER': installation['issuerUrl'].rstrip('/'),
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
@@ -51,8 +61,24 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
         return ('return function(conf, ctx)\n' + constants + '\n' +
                 (ROOT / 'delegation.lua').read_text() + '\n' + source + '\nend')
-    constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read'):
+    if use_route_labels:
+        lines = ['local labels = ctx.matched_route.value.labels']
+        for key, value in values.items():
+            expression = (f'labels[{json.dumps(INSTALLATION_LABELS[key])}]'
+                          if key in INSTALLATION_LABELS else json.dumps(value))
+            lines.append(f'local {key} = {expression}')
+        lines.append('if not ISSUER or not AUDIENCE or not MCP_WORKLOAD or not OWNER_KEY_ENV '
+                     'or not DELEGATION_KEY_ENV or OWNER_KEY_ENV == DELEGATION_KEY_ENV then return ngx.exit(503) end')
+        constants = '\n'.join(lines)
+    else:
+        constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
         raise ValueError('invalid function')
-    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + (ROOT/(kind+'.lua')).read_text() + '\nend'
+    source = (ROOT / (kind + '.lua')).read_text()
+    if kind == 'execute_semantic_proposals':
+        # DATATYPE envelopes can exceed the nginx in-memory body buffer.
+        reader = ("local body = require('apisix.core').request.get_body(65536)" if cap == 'ouf.semantic.propose'
+                  else "ngx.req.read_body()\nlocal body = ngx.req.get_body_data()")
+        source = source.replace('-- MATERIALIZE SEMANTIC REQUEST BODY', reader)
+    return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + source + '\nend'
 

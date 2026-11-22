@@ -21,7 +21,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, semantic_owner_key
     return add_to_existing(result, runtime, delegation_key_env, semantic_owner_key_env)
 
 
-def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_env):
+def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_env, *, use_route_labels=False):
     """Append the four reviewed proposal routes without replacing live routes.
 
     The caller supplies the retained materialized installation and its current
@@ -65,8 +65,11 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             raise ValueError('semantic proposal route already exists; reconcile before materialization')
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
         route['plugins']['request-validation']['body_schema'] = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        if mode == 'create':
+            route['plugins']['request-validation']['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
-            delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope})]
+            delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
+            use_route_labels=use_route_labels and mode == 'create')]
         route['plugins']['proxy-rewrite']['uri'] = path
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-semantic-registry:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 3}}

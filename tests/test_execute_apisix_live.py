@@ -36,6 +36,12 @@ def test_real_apisix_oidc_delegation_and_execute():
     calls=[]
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     terms_calls = []
+    dispatch_paths = {
+        "semantic.propose": ("semantic/create", "/api/semantic/v1/proposal-commands/create"),
+        "source.onboarding.create": ("managed.file/create", "/api/internal/v1/onboarding/managed-file-mcp/create"),
+        "source.onboarding.revision.prepare": ("source.revision/prepare", "/api/internal/v1/onboarding/source-revision-mcp/prepare"),
+    }
+    dispatch_calls = []
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path=='/discovery':
@@ -50,6 +56,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             if self.path.startswith(terms_path):
                 terms_calls.append(self.path)
                 self.reply({'unexpected_method': 'POST'})
+            elif self.path in {owner for _, owner in dispatch_paths.values()}:
+                dispatch_calls.append(self.path)
+                self.reply({"body": json.loads(body)})
             elif self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
@@ -195,6 +204,31 @@ def test_real_apisix_oidc_delegation_and_execute():
                         if expected == 200:
                             assert json.load(response)['target'] == target
                 assert terms_calls == [target]
+                from tests.test_value_type_schemas import dispatch
+                for name, (suffix, owner_path) in dispatch_paths.items():
+                    body = dispatch(name)
+                    # Bind the synthetic MCP request to this live gate's identity and headers.
+                    for field in ("Identity", "AttemptID", "IdempotencyKey", "CorrelationID"):
+                        body[field] = envelope()[field]
+                    if "commandKey" in body["Arguments"]:
+                        body["Arguments"]["commandKey"] = body["IdempotencyKey"]
+                    status, result = post("/mcp", {}, token(scope="mcp.connect " + body["CapabilityID"]))
+                    assert status == 200
+                    delegation = json.loads(result)["proof"]
+                    path = "/internal/capabilities/v1/execute/" + suffix
+                    before = len(dispatch_calls)
+                    invalid = copy.deepcopy(body)
+                    if name == "semantic.propose":
+                        invalid["Arguments"]["definition"]["components"][0].update(
+                            type="string", constraints={"minInclusive": "private-source-value"})
+                    else:
+                        invalid["Arguments"]["compositions"][0]["kind"] = "private-source-value"
+                    status, result = post(path, invalid, token("SERVICE"), delegation)
+                    assert status == 400 and b"INVALID_TOOL_ARGUMENTS" in result
+                    assert b"private-source-value" not in result and len(dispatch_calls) == before
+                    status, result = post(path, body, token("SERVICE"), delegation)
+                    assert status == 200 and json.loads(result)["body"] == body
+                    assert dispatch_calls[before:] == [owner_path]
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
