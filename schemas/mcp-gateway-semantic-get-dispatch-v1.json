@@ -39,6 +39,11 @@
         "publicationSetId"
       ],
       "properties": {
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
         "semanticId": {
           "type": "string",
           "minLength": 1,

@@ -91,12 +91,9 @@ def test_ingestion_run_page_preserves_owner_session_and_csrf():
     assert engine.headers[b'x-csrf-token'] == b'fixture'
 
 
-# Keep a separate strict marker per link so they can be removed independently.
 @pytest.mark.parametrize('route_id', [
-    pytest.param('mcp-ingestion-run-recovery-link', id='ingestion-run-recovery',
-                 marks=pytest.mark.xfail(strict=True, reason='MCP THS link capability pending (D-085 B.2)')),
-    pytest.param('mcp-semantic-review-link', id='semantic-review',
-                 marks=pytest.mark.xfail(strict=True, reason='MCP THS link capability pending (D-085 B.4)')),
+    pytest.param('mcp-ingestion-run-recovery-link', id='ingestion-run-recovery'),
+    pytest.param('mcp-semantic-review-link', id='semantic-review'),
 ])
 def test_ths_link_capability_is_present_in_pinned_manifest(route_id):
     path = ROOT / 'ouf-config/routes/northbound' / (route_id + '.json')

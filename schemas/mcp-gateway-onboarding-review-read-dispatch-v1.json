@@ -33,6 +33,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
         "sourceId": {
           "type": "string",
           "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
@@ -59,6 +64,11 @@
             "onboardingVersionId"
           ],
           "properties": {
+            "analysisId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Optional MCP analysis context, consumed locally."
+            },
             "sourceId": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
@@ -82,6 +92,11 @@
             "view"
           ],
           "properties": {
+            "analysisId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Optional MCP analysis context, consumed locally."
+            },
             "sourceId": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_.:-]{1,160}$"

@@ -23,7 +23,7 @@ HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
 REVIEW_READ_URI = EXECUTE_PATH + '/managed.file/review-read'
 PREVIEW_URI = EXECUTE_PATH + '/managed.file/preview'
 SEMANTIC_READ_URI = EXECUTE_PATH + '/semantic/read'
-MANIFEST_SHA256 = '78cee1486d8860f9fdf419ab71bdbc4b9ca73c917358fc3673c7fe11a30a5d41'
+MANIFEST_SHA256 = '03cadcb7747e60b0a4ede3d63dedfec620037216ce623c8cc52548aba8e3a1fa'
 THS_LINK_DISPATCH_CASES = {
     'mcp-ingestion-run-recovery-link': (
         '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery',

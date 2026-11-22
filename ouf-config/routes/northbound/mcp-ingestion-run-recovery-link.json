@@ -1,5 +1,5 @@
 {
-  "capabilityId": null,
+  "capabilityId": "ouf.onboarding.ths-links.ingestion-run-recovery",
   "sourceRef": "onboarding-managed-files@1.0.0",
   "backendBinding": {
     "service": "ouf-onboarding",

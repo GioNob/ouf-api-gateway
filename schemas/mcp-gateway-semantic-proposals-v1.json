@@ -1101,6 +1101,11 @@
             "commandKey"
           ],
           "properties": {
+            "analysisId": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Optional MCP analysis context, consumed locally."
+            },
             "commandKey": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
@@ -1108,6 +1113,9 @@
             "expectedVersion": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "includeState": {
+              "type": "boolean"
             }
           }
         },
