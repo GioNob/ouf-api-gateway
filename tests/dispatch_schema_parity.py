@@ -28,8 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # (D-086 train: the Gateway goes first, the MCP follows). Its requests must
 # keep passing until the MCP is replaced.
 PREDECESSOR_MANIFEST = ROOT / 'contracts/mcp-capabilities-predecessor.json'
-PREDECESSOR_COMMIT = '843d22059e03bcd58569fff9960bb46ae552b2b2'
-PREDECESSOR_SHA256 = 'e21634af3c7e087f753665be1e4babeb470541730383847e443ec4faa597efb6'
+PREDECESSOR_COMMIT = '8859406ad5f05ae030161431763ba7b47698c9eb'
+PREDECESSOR_SHA256 = '03cadcb7747e60b0a4ede3d63dedfec620037216ce623c8cc52548aba8e3a1fa'
 VALUE_TYPE_FIXTURES = {
     'ouf.semantic.propose': 'semantic.propose',
     'ouf.managed-source.onboarding.create': 'source.onboarding.create',
