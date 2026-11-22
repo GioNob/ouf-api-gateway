@@ -1,3 +1,4 @@
+-- MATERIALIZE RECOVERY LINK
 local claims = jwt_claims()
 if type(claims) ~= 'table' or claims.iss ~= ISSUER or not audience_has(claims.aud, AUDIENCE)
     or claims.ouf_actor_type ~= 'SERVICE' or (claims.azp or claims.client_id) ~= MCP_WORKLOAD
@@ -25,7 +26,13 @@ if roles == nil then return fail(403) end
 local name = ngx.var.uri:match('/([a-z-]+)$')
 local body_limit = (name == 'create' or name == 'review-prepare') and 3145728 or 65536
 -- APISIX reads both memory-buffered and temporary-file bodies with the same bound.
-local body = require("apisix.core").request.get_body(body_limit)
+local body
+if recovery_link then
+    body = ctx.ouf_original_body
+    if type(body) ~= 'string' then return fail(503) end
+else
+    body = require("apisix.core").request.get_body(body_limit)
+end
 if not body or #body > body_limit then return fail(413) end
 local e = cjson.decode(body)
 -- request-validation enforces the closed permission envelope before this function.
@@ -45,10 +52,15 @@ local operations = {
 -- The exact route and request-validation schema bind the operation; both
 -- accepted URI forms have the same final segment.
 local operation = name and operations[name]
-if not operation or e.CapabilityID ~= operation[1]
-    or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'onboarding'
-    or e.OperationClass ~= operation[2] or not scope_has(p.scope, e.CapabilityID) then return fail(403) end
-if name == 'review-prepare' and (type(e.Arguments) ~= 'table'
+local binding = recovery_link
+if not binding and operation then
+    binding = {capability=operation[1],binding='capability://'..operation[1],operation=operation[2],
+        scope=operation[1],path='/api/internal/v1/onboarding/managed-file-mcp/'..name}
+end
+if not binding or e.CapabilityID ~= binding.capability or e.GatewayBindingRef ~= binding.binding
+    or e.Owner ~= 'onboarding' or e.OperationClass ~= binding.operation
+    or not scope_has(p.scope, binding.scope) then return fail(403) end
+if not recovery_link and name == 'review-prepare' and (type(e.Arguments) ~= 'table'
     or e.Arguments.commandKey ~= e.IdempotencyKey) then return fail(409) end
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
@@ -67,10 +79,19 @@ local owner_key = os.getenv(OWNER_KEY_ENV)
 if type(owner_key) ~= 'string' or #owner_key ~= 64 or owner_key:find('[^0-9a-fA-F]') then return fail(503) end
 -- Preserve the validated original JSON, including empty arrays and objects.
 local args = body
+if recovery_link then
+    local a = e.Arguments
+    if type(a) ~= 'table' or type(a.sourceId) ~= 'string' or type(a.runId) ~= 'string'
+        or type(a.expectedVersion) ~= 'number' or a.expectedVersion % 1 ~= 0
+        or a.expectedVersion < 0 or a.expectedVersion > 9007199254740991 then return fail(400) end
+    -- Lua CJSON's default number precision cannot round-trip every safe integer.
+    args = '{"sourceId":'..cjson.encode(a.sourceId)..',"runId":'..cjson.encode(a.runId)
+        ..',"expectedVersion":'..string.format('%.0f', a.expectedVersion)..'}'
+end
 local digest = require('resty.openssl.digest').new('sha256')
 local body_hash = require('resty.string').to_hex(digest:final(args))
 local receipt = {v=1,purpose='managed-file-owner',method='POST',
-    path='/api/internal/v1/onboarding/managed-file-mcp/'..name,bodyHash=body_hash,
+    path=binding.path,bodyHash=body_hash,
     capability=e.CapabilityID,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
     workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,acr=p.acr,roles=roles,scope=p.scope,idempotencyKey=e.IdempotencyKey}
 local encoded = encode64(cjson.encode(receipt))

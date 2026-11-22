@@ -196,7 +196,8 @@
               "type": "object",
               "additionalProperties": false,
               "required": [
-                "assetId"
+                "assetId",
+                "profileId"
               ],
               "properties": {
                 "assetId": {
@@ -208,35 +209,28 @@
                   "type": "string",
                   "format": "uuid",
                   "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "assetId",
+                "jobId"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
                 },
                 "jobId": {
                   "type": "string",
                   "format": "uuid",
                   "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
                 }
-              },
-              "oneOf": [
-                {
-                  "required": [
-                    "profileId"
-                  ],
-                  "not": {
-                    "required": [
-                      "jobId"
-                    ]
-                  }
-                },
-                {
-                  "required": [
-                    "jobId"
-                  ],
-                  "not": {
-                    "required": [
-                      "profileId"
-                    ]
-                  }
-                }
-              ]
+              }
             },
             {
               "type": "object",

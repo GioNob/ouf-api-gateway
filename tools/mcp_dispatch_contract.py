@@ -1,5 +1,6 @@
 """Pinned MCP input and result contracts for Gateway JSON dispatch."""
 import json
+import re
 from functools import cache
 from pathlib import Path
 
@@ -8,6 +9,19 @@ MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.jso
 INVALID_TOOL_ARGUMENTS = 'INVALID_TOOL_ARGUMENTS'
 NEXT_RESULT_HEADROOM_BYTES = 2048
 EXECUTE_PATH = '/internal/capabilities/v1/execute'
+RECOVERY_LINK_ID = 'mcp-ingestion-run-recovery-link'
+RECOVERY_LINK_PATH = '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery'
+
+
+def manifest_execute_uri(binding_ref):
+    """Resolve the canonical dispatch URI of a logical capability binding."""
+    prefix = 'capability://'
+    if not binding_ref.startswith(prefix):
+        raise ValueError('expected a logical MCP capability binding')
+    name = binding_ref.removeprefix(prefix)
+    if not re.fullmatch(r'[a-z0-9][a-z0-9._-]*', name):
+        raise ValueError('invalid MCP capability binding name')
+    return f'{EXECUTE_PATH}/{name}'
 
 
 @cache

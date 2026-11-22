@@ -44,6 +44,10 @@
         },
         "view": {
           "const": "LATEST"
+        },
+        "ifObservationVersion": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
         }
       },
       "oneOf": [
@@ -63,6 +67,10 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+            },
+            "ifObservationVersion": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
             }
           }
         },
@@ -80,6 +88,10 @@
             },
             "view": {
               "const": "LATEST"
+            },
+            "ifObservationVersion": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
             }
           }
         }

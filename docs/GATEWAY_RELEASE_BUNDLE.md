@@ -20,7 +20,8 @@ I timeout di connessione e invio sono 3 secondi. Il timeout di lettura è
 30 secondi per la pagina e 20 secondi per le API UDP. La conferma conserva
 la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-package-confirm-v1.json)
 
-Il bundle incrementale contiene le sette risorse APISIX in tabella.
+Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
+secondo giro D-085 riportate più avanti.
 Il contratto `ouf.gateway-release-bundle.v1` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
 d’installazione. Il manifest riporta commit, workflow, ID del run e digest.
@@ -39,6 +40,37 @@ locale con un ID di prova.
 python -m tools.gateway_release_bundle --output generated/gateway-release-bundle --workflow-path .github/workflows/ci.yml --run-id 33
 python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_human_routes.py tests/test_resolution_ths.py
 ```
+
+## Recupero run e dispatch D-085
+
+| ID rotta | Metodo e percorso | Capability o scope | Percorso owner |
+| --- | --- | --- | --- |
+| `mcp-managed-file-preview` | `POST /internal/capabilities/v1/execute/managed.file/preview` | `ouf.managed-source.preview` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/preview` |
+| `mcp-managed-file-review-read` | `POST /internal/capabilities/v1/execute/managed.file/review-read` | `ouf.managed-source.onboarding.read` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/review-read` |
+| `semantic-proposal-read` | `POST /internal/capabilities/v1/execute/semantic/read` | `ouf.semantic.proposal.read` | Semantic `/api/semantic/v1/proposal-commands/read` |
+| `trusted-human-ingestion-run-recovery` | `GET`, `POST /trusted-human/ingestion-run-recovery/*` | Sessione THS | Onboarding, stesso percorso |
+| `trusted-human-ingestion-run-read` | `GET /api/trusted-human/v1/ingestion/runs/{id}` | `ingestion.run.read` | Ingestion, stesso percorso |
+| `trusted-human-ingestion-run-resume` | `POST /api/trusted-human/v1/ingestion/runs/{id}/resume` | `ingestion.run.resume` | Ingestion, stesso percorso |
+| `trusted-human-ingestion-run-abort` | `POST /api/trusted-human/v1/ingestion/runs/{id}/abort` | `ingestion.run.abort` | Ingestion, stesso percorso |
+
+Onboarding gestisce sessione e CSRF. La pagina preserva i relativi cookie e
+header e rimuove il bearer e gli header `x-ouf-*` del client. Le API Ingestion
+richiedono OIDC HUMAN e rimuovono gli header `x-ouf-*` del client. Il bundle
+risolve l'upstream da `services.bindings.ouf-ingestion-runtime` e
+`services.ports.ouf-ingestion-runtime`. Le rotte hanno `retries: 0`: la decisione
+versionata e il budget di recupero restano responsabilità di Ingestion.
+
+Il binding `mcp-ingestion-run-recovery-link` è dichiarato in
+[`ouf-config/routes/northbound/mcp-ingestion-run-recovery-link.json`](../ouf-config/routes/northbound/mcp-ingestion-run-recovery-link.json).
+Il manifest MCP `da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo della capability
+per il link. Impostare `capabilityId` dopo la sincronizzazione del manifest che
+la dichiara e verificare il percorso canonico derivato da `gatewayBindingRef`
+con il client MCP. Il test
+`test_recovery_link_capability_is_present_in_pinned_manifest` segnala questo
+blocco. La rotta è esclusa dalla pubblicazione finché il binding è incompleto.
+La prova con fixture controlla delega, scope, corpo e ricevuta. Il verificatore
+reale Onboarding per `POST /api/internal/v1/onboarding/ths-links/ingestion-run-recovery`
+e il rollout D-086 richiedono ancora la verifica integrata.
 
 ## Dispatch MCP e tipi di valore D-084
 

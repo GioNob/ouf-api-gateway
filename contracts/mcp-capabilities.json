@@ -1,8 +1,270 @@
 {
-  "version": "1.14.0-value-types",
+  "version": "1.15.0-next-step-v1",
+  "nextErrors": [
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@profileId": "?", "@jobId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "profileId": "@profileId"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@jobId": "?", "@profileId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "jobId": "@jobId"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"view": "=ASSETS"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS"}, "action": "BLOCKED", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "$read", "message": "Controlla le forme ammesse e recupera i riferimenti mancanti."},
+    {"when": {"code": "NO_APPLICABLE_GRANT"}, "action": "BLOCKED", "reason": "NO_APPLICABLE_GRANT", "tool": "authorization.permissions.propose", "message": "Chiedi una proposta di permesso per la risorsa e il periodo necessari."},
+    {"when": {"code": "SEMANTIC_RECEIPT_READ_REQUIRED"}, "action": "CALL_TOOL", "reason": "SEMANTIC_RECEIPT_READ_REQUIRED", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey"}},
+    {"when": {"code": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.revision.prepare"}, "action": "CALL_TOOL", "reason": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.revision.read", "args": {"sourceId": "@sourceId", "parentVersionId": "@parentVersionId", "commandKey": "@commandKey"}},
+    {"when": {"code": "SOURCE_REVIEW_READ_REQUIRED"}, "action": "CALL_TOOL", "reason": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "@sourceId", "onboardingVersionId": "@onboardingVersionId"}},
+    {"when": {"retryable": "true", "safeToRepeat": "true"}, "action": "POLL", "reason": "$code", "tool": "$self", "terminal": ["SUCCEEDED", "FAILED"]},
+    {"when": {}, "action": "BLOCKED", "reason": "$code", "tool": "$read", "message": "Consulta lo stato e verifica il motivo del rifiuto."}
+  ],
+  "nextPolicies": {
+    "upload": {
+      "read": "source.file.preview",
+      "rules": [
+        {"when": {"status": "AWAITING_FILE_SELECTION|PENDING"}, "action": "POLL", "reason": "FILE_SELECTION_PENDING", "tool": "source.file.upload.status", "args": {"handoffId": "handoffId|@handoffId"}, "terminal": ["STAGED", "REJECTED"]},
+        {"when": {"status": "STAGED|PROFILED"}, "action": "CALL_TOOL", "reason": "ASSET_AVAILABLE", "tool": "source.file.profile", "args": {"assetId": "assetId|@assetId"}},
+        {"when": {"status": "QUARANTINED|REJECTED"}, "action": "BLOCKED", "reason": "FILE_REVIEW_REQUIRED", "tool": "source.file.preview", "message": "Verifica lo stato del file prima di proseguire."}
+      ]
+    },
+    "profile": {
+      "read": "source.file.preview",
+      "rules": [
+        {"when": {"status": "QUEUED|PENDING|READY|RUNNING|RETRY_WAIT|SUCCEEDED"}, "action": "POLL", "reason": "PROFILE_JOB", "tool": "source.file.preview", "args": {"assetId": "assetId|@assetId", "jobId": "jobId|@jobId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"profileId": "?"}, "action": "CALL_TOOL", "reason": "PROFILE_AVAILABLE", "tool": "source.file.preview", "args": {"profileId": "profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"status": "FAILED|CANCELLED"}, "action": "BLOCKED", "reason": "PROFILE_STOPPED", "tool": "source.file.preview", "message": "Controlla il job di profilazione."}
+      ]
+    },
+    "preview": {
+      "read": "source.file.preview",
+      "rules": [
+        {"when": {"@view": "ASSETS", "items": "?"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Seleziona il file e il suo profilo dalla pagina ricevuta."},
+        {"when": {"workflowState": "ASSETS"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Scegli il profilo del file da analizzare."},
+        {"when": {"workflowState": "PROFILE_COLUMNS", "hasMore": "false"}, "action": "BLOCKED", "reason": "COLUMN_PAGE_COMPLETE", "tool": "source.file.preview", "message": "Consulta il profilo selezionato per pianificare la discovery."},
+        {"when": {"status": "READY|QUEUED|PENDING|RUNNING|RETRY_WAIT"}, "action": "POLL", "reason": "PROFILE_PENDING", "tool": "source.file.preview", "args": {"assetId": "assetId|@assetId", "jobId": "jobId|@jobId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"status": "SUCCEEDED"}, "action": "CALL_TOOL", "reason": "PROFILE_AVAILABLE", "tool": "source.file.preview", "args": {"profileId": "resultRef", "assetId": "assetId|@assetId"}},
+        {"when": {"status": "FAILED|CANCELLED|EXHAUSTED|QUARANTINED"}, "action": "BLOCKED", "reason": "PROFILE_STOPPED", "tool": "source.file.preview", "message": "Controlla il job di profilazione."},
+        {"when": {"proposalStatus": "PENDING_HUMAN_REVIEW", "format": "CSV", "columns": "?"}, "action": "CALL_TOOL", "reason": "PLAN_COLUMN_DISCOVERY", "tool": "source.analysis.plan", "args": {"work": "#discovery", "expectedRevision": "#zero", "profileId": "profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"hasMore": "true", "nextOffset": "?"}, "action": "CALL_TOOL", "reason": "COLUMN_PAGE", "tool": "source.file.preview", "args": {"view": "=COLUMNS", "offset": "nextOffset", "profileId": "profileId|@profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"assets": "?"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Scegli il profilo del file da analizzare."}
+      ]
+    },
+    "analysis": {
+      "read": "source.analysis.read",
+      "rules": [
+        {"when": {"tasks.0.state": "PLANNED|READY|PENDING"}, "action": "CALL_TOOL", "reason": "PLANNED_STEP", "tool": "source.analysis.step", "args": {"analysisId": "analysisId", "taskId": "tasks.0.taskId"}},
+        {"when": {"tasks": "?"}, "action": "BLOCKED", "reason": "ANALYSIS_REVIEW_REQUIRED", "tool": "source.analysis.read", "message": "Verifica i risultati delle attività pianificate."}
+      ]
+    },
+    "step": {
+      "read": "source.analysis.read",
+      "rules": [
+        {"when": {"state": "COMPLETED|SUCCEEDED", "result.requestId": "?"}, "action": "CALL_TOOL", "reason": "DISCOVERY_OBSERVATION", "tool": "semantic.discovery.status", "args": {"requestId": "result.requestId"}},
+        {"when": {"state": "COMPLETED|SUCCEEDED"}, "action": "CALL_TOOL", "reason": "ANALYSIS_OBSERVATION", "tool": "source.analysis.read", "args": {"analysisId": "@analysisId"}},
+        {"when": {"state": "WAITING|HELD|FAILED|UNKNOWN|RUNNING"}, "action": "BLOCKED", "reason": "ANALYSIS_HELD", "tool": "source.analysis.read", "message": "Verifica il budget e lo stato del piano."}
+      ]
+    },
+    "discovery": {
+      "read": "semantic.discovery.status",
+      "vocabulary": {"state": ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"], "recoveryState": ["ACTIVE", "RETRY_WAIT", "PAUSED_EXHAUSTED", "BLOCKED", "CANCELLED"]},
+      "rules": [
+        {"when": {"allowedActions": "NONE"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Verifica lo stato corrente e il budget della discovery."},
+        {"when": {"allowedActions": "-", "recoveryState": "PAUSED_EXHAUSTED|BLOCKED|CANCELLED"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Verifica la causa della sospensione."},
+        {"when": {"allowedActions": "POLL_DISCOVERY"}, "action": "POLL", "reason": "DISCOVERY_PENDING", "tool": "semantic.discovery.status", "args": {"requestId": "requestId|@requestId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"allowedActions": "-", "state|status": "PENDING|RUNNING|RETRY_WAIT"}, "action": "POLL", "reason": "DISCOVERY_PENDING", "tool": "semantic.discovery.status", "args": {"requestId": "requestId|@requestId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"state|status": "SUCCEEDED"}, "action": "CALL_TOOL", "reason": "DISCOVERY_COMPLETE", "tool": "semantic.discovery.candidates", "args": {"requestId": "requestId|@requestId"}},
+        {"when": {"state|status": "FAILED|CANCELLED|EXHAUSTED"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Controlla la discovery prima di proseguire."}
+      ]
+    },
+    "candidates": {
+      "read": "semantic.discovery.status",
+      "rules": [
+        {"when": {"candidates": "?"}, "action": "BLOCKED", "reason": "CANDIDATE_SELECTION_REQUIRED", "tool": "semantic.discovery.adopt", "message": "Scegli una proposta e specifica la chiave del nuovo comando."},
+        {"when": {"legacyList": "true"}, "action": "BLOCKED", "reason": "CANDIDATE_SELECTION_REQUIRED", "tool": "semantic.discovery.adopt", "message": "Scegli una proposta e specifica la chiave del nuovo comando."}
+      ]
+    },
+    "proposal": {
+      "read": "semantic.proposal.read",
+      "rules": [
+        {"when": {"revisionId": "?", "state|status": "DRAFT|-"}, "action": "BLOCKED", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "message": "Serve una nuova chiave per validare la revisione semantica."},
+        {"when": {"status": "UNDER_REVIEW|ACTIVE"}, "action": "CALL_TOOL", "reason": "READ_SEMANTIC_PROPOSAL", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey"}}
+      ]
+    },
+    "validation": {
+      "read": "semantic.proposal.read",
+      "rules": [
+        {"when": {"status": "PASS"}, "action": "BLOCKED", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "message": "La validazione è riuscita. Serve una nuova chiave per richiedere l’approvazione."},
+        {"when": {"status": "FAIL"}, "action": "BLOCKED", "reason": "SEMANTIC_VALIDATION_FAILED", "tool": "semantic.propose", "message": "Correggi la proposta secondo i rilievi della validazione."}
+      ]
+    },
+    "semanticDecision": {
+      "read": "semantic.proposal.read",
+      "vocabulary": {"state": ["DRAFT", "VALIDATED", "VALIDATION_FAILED", "UNDER_REVIEW", "APPROVED", "REJECTED", "EXPIRED", "ACTIVE", "DEPRECATED", "RETIRED", "UNKNOWN"]},
+      "rules": [
+        {"when": {"state": "VALIDATION_FAILED|REJECTED|EXPIRED", "allowedActions": "REVISE_PROPOSAL"}, "action": "BLOCKED", "reason": "REVISE_PROPOSAL", "tool": "semantic.propose", "message": "Verifica il motivo della revisione e prepara le modifiche."},
+        {"when": {"state": "ACTIVE"}, "action": "BLOCKED", "reason": "SOURCE_MAPPING_REQUIRED", "tool": "source.onboarding.create", "message": "Completa il mapping con i riferimenti semantici pubblicati."},
+        {"when": {"state": "DEPRECATED|RETIRED"}, "action": "BLOCKED", "reason": "SEMANTIC_REVISION_INACTIVE", "tool": "semantic.search", "message": "Verifica il riferimento semantico pubblicato."},
+        {"when": {"state": "APPROVED"}, "action": "POLL", "reason": "SEMANTIC_PUBLICATION_PENDING", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey"}, "terminal": ["ACTIVE", "RETIRED", "DEPRECATED"]},
+        {"when": {"state": "DRAFT"}, "action": "BLOCKED", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "message": "Occorre la chiave del nuovo comando di validazione."},
+        {"when": {"state": "VALIDATED"}, "action": "BLOCKED", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "message": "Occorre la chiave del nuovo comando di approvazione."},
+        {"when": {"historicalSnapshot": "true", "version": "-"}, "action": "BLOCKED", "reason": "LIVE_OBSERVATION_REQUIRED", "tool": "semantic.proposal.read", "message": "Occorre una lettura aggiornata della decisione."},
+        {"when": {"allowedActions": "WAIT_HUMAN_DECISION", "state": "UNDER_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"allowedActions": "-", "lifecycleStatus|revisionStatus|status": "UNDER_REVIEW|PENDING|CREATED"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"lifecycleStatus|revisionStatus": "PUBLISHED|ACTIVE"}, "action": "BLOCKED", "reason": "SOURCE_MAPPING_REQUIRED", "tool": "source.onboarding.create", "message": "Completa il mapping con i riferimenti semantici pubblicati."},
+        {"when": {"lifecycleStatus|revisionStatus": "REJECTED"}, "action": "DONE", "reason": "SEMANTIC_REJECTED", "outcome": "REJECTED_BY_HUMAN"}
+      ]
+    },
+    "onboarding": {
+      "read": "source.onboarding.read",
+      "vocabulary": {"workflowState": ["DRAFT", "IN_REVIEW", "APPROVED", "ACTIVE", "SUPERSEDED", "REJECTED", "REVOKED", "CHANGES_REQUESTED", "COMMAND_ABSENT", "ERROR"], "state": ["DRAFT", "IN_REVIEW", "APPROVED", "ACTIVE", "SUPERSEDED", "REJECTED", "REVOKED", "CHANGES_REQUESTED"], "activationProgress.readiness_phase": ["NOT_STARTED", "CHECKING_COMPATIBILITY", "CHECKING_IDENTITY", "ACTIVATING", "ACTIVE", "PAUSED", "BLOCKED", "EXHAUSTED"]},
+      "rules": [
+        {"when": {"reasonCode": "CURRENT_REVIEW_REQUIRED", "allowedActions": "READ_AGAIN"}, "action": "CALL_TOOL", "reason": "CURRENT_REVIEW_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}},
+        {"when": {"state": "APPROVED", "allowedActions": "READ_AGAIN"}, "action": "POLL", "reason": "VERIFYING_DEPENDENCY", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "terminal": ["ACTIVE", "REVOKED", "SUPERSEDED"]},
+        {"when": {"state": "APPROVED", "allowedActions": "HUMAN_ACTIVATE"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
+        {"when": {"state": "APPROVED", "allowedActions": "-", "activationProgress.readiness_phase": "NOT_STARTED", "activationProgress.requiresAuthenticatedHumanResume": "true"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
+        {"when": {"allowedActions": "HUMAN_GRANT_BUDGET"}, "action": "BLOCKED", "reason": "READINESS_BUDGET_EXHAUSTED", "tool": "source.onboarding.read", "message": "Serve una decisione umana su un nuovo budget."},
+        {"when": {"allowedActions": "RENEW_REVIEW"}, "action": "BLOCKED", "reason": "CHALLENGE_EXPIRED", "tool": "source.onboarding.review.prepare", "message": "Serve una nuova chiave per rinnovare la revisione."},
+        {"when": {"workflowState": "COMMAND_ABSENT"}, "action": "BLOCKED", "reason": "REVISION_COMMAND_ABSENT", "tool": "source.onboarding.revision.read", "message": "Verifica la ricevuta del comando di revisione."},
+        {"when": {"state": "IN_REVIEW", "allowedActions": "NONE"}, "action": "BLOCKED", "reason": "REVIEW_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica la disponibilità della revisione."},
+        {"when": {"state": "CHANGES_REQUESTED", "allowedActions": "NONE"}, "action": "BLOCKED", "reason": "REVISION_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica la versione sulla quale è ammessa una modifica."},
+        {"when": {"state": "DRAFT"}, "action": "BLOCKED", "reason": "PREPARE_SOURCE_REVIEW", "tool": "source.onboarding.review.prepare", "message": "La bozza è pronta. Serve una nuova chiave per preparare la revisione."},
+        {"when": {"state": "CHANGES_REQUESTED"}, "action": "BLOCKED", "reason": "REVISION_REQUIRED", "tool": "source.onboarding.revision.prepare", "message": "Esamina le modifiche richieste, poi prepara la revisione con una nuova chiave."},
+        {"when": {"state": "REJECTED"}, "action": "DONE", "reason": "SOURCE_REJECTED", "outcome": "REJECTED_BY_HUMAN"},
+        {"when": {"state": "ACTIVE"}, "action": "CALL_TOOL", "reason": "SOURCE_ACTIVE", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}},
+        {"when": {"state": "REVOKED|SUPERSEDED"}, "action": "BLOCKED", "reason": "SOURCE_INACTIVE", "tool": "source.onboarding.read", "message": "Verifica la versione corrente della fonte."},
+        {"when": {"allowedActions": "HUMAN_RECHECK", "state": "APPROVED"}, "action": "WAIT_FOR_HUMAN", "reason": "DEPENDENCY_RECHECK", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "decision": "RECHECK"},
+        {"when": {"allowedActions": "WAIT_HUMAN_REVIEW", "state": "IN_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SOURCE_REVIEW", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"allowedActions": "-", "state": "IN_REVIEW", "challengeStatus": "CREATED|PENDING", "challengeExpired": "false|-"}, "action": "WAIT_FOR_HUMAN", "reason": "SOURCE_REVIEW", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"state": "IN_REVIEW", "challengeStatus": "EXPIRED"}, "action": "BLOCKED", "reason": "CHALLENGE_EXPIRED", "tool": "source.onboarding.review.prepare", "message": "La verifica è scaduta. Serve una nuova richiesta di revisione."},
+        {"when": {"allowedActions": "-", "state": "APPROVED", "activationProgress.humanRecheckAllowed": "true"}, "action": "WAIT_FOR_HUMAN", "reason": "DEPENDENCY_RECHECK", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "decision": "RECHECK"},
+        {"when": {"state": "APPROVED", "activationProgress.readiness_phase": "CHECKING_COMPATIBILITY|CHECKING_IDENTITY|ACTIVATING", "allowedActions": "-"}, "action": "POLL", "reason": "VERIFYING_DEPENDENCY", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId"}, "terminal": ["ACTIVE", "REVOKED", "SUPERSEDED"]},
+        {"when": {"state": "APPROVED"}, "action": "BLOCKED", "reason": "ACTIVATION_REVIEW_REQUIRED", "tool": "source.onboarding.read", "message": "Verifica il requisito di attivazione e il budget della fonte."},
+        {"when": {"state": "IN_REVIEW"}, "action": "BLOCKED", "reason": "REVIEW_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica lo stato della revisione."},
+        {"when": {"workflowState": "ERROR"}, "action": "BLOCKED", "reason": "OWNER_REQUEST_FAILED", "tool": "source.onboarding.read", "message": "Verifica il motivo del rifiuto."}
+      ]
+    },
+    "ingestion": {
+      "read": "ouf.ingestion.status",
+      "vocabulary": {"run_state": ["AWAITING_START", "READY", "PREFLIGHT", "RUNNING", "DRAINING", "RETRY_WAIT", "COMPLETED", "SUCCEEDED", "COMPLETED_WITH_WARNINGS", "FAILED", "PAUSED", "ABORTED", "DISABLED", "BLOCKED"], "runState": ["AWAITING_START", "READY", "PREFLIGHT", "RUNNING", "DRAINING", "RETRY_WAIT", "COMPLETED", "SUCCEEDED", "COMPLETED_WITH_WARNINGS", "FAILED", "PAUSED", "ABORTED", "DISABLED", "BLOCKED"], "recoveryAction": ["NONE", "AUTOMATIC_RETRY", "AUTOMATIC_RECONCILIATION", "HUMAN_RESUME_OR_ABORT", "HUMAN_ABORT_REQUIRED", "HUMAN_QUARANTINE_REVIEW", "HUMAN_SCHEDULE_REVIEW", "WAITING_FOR_PUBLICATION_VERIFICATION", "NEW_PUBLICATION_REQUIRED", "TERMINAL"]},
+      "rules": [
+        {"when": {"recoveryAction": "-|TERMINAL|NONE", "runState|run_state": "COMPLETED", "udpHandoffConfirmed": "true|-"}, "action": "CALL_TOOL", "reason": "INGESTION_COMPLETED", "tool": "urban.object.search", "args": {"type": "typeCode"}},
+        {"when": {"recoveryAction": "WAITING_FOR_PUBLICATION_VERIFICATION"}, "action": "POLL", "reason": "PUBLICATION_VERIFICATION_PENDING", "tool": "ouf.ingestion.status", "args": {"sourceId": "source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"recoveryAction": "NEW_PUBLICATION_REQUIRED"}, "action": "BLOCKED", "reason": "NEW_PUBLICATION_REQUIRED", "tool": "ouf.ingestion.status", "actor": "HUMAN_THS", "message": "Occorre una nuova pubblicazione della fonte."},
+        {"when": {"recoveryAction": "HUMAN_SCHEDULE_REVIEW"}, "action": "BLOCKED", "reason": "HUMAN_SCHEDULE_REVIEW", "tool": "ouf.ingestion.status", "actor": "HUMAN_THS", "message": "Verifica la pianificazione nella console operativa."},
+        {"when": {"recoveryAction": "HUMAN_QUARANTINE_REVIEW"}, "action": "BLOCKED", "reason": "HUMAN_QUARANTINE_REVIEW", "tool": "ouf.ingestion.status", "actor": "HUMAN_THS", "message": "La quarantena richiede una revisione umana."},
+        {"when": {"recoveryAction": "HUMAN_ABORT_REQUIRED"}, "action": "BLOCKED", "reason": "HUMAN_ABORT_REQUIRED", "tool": "ouf.ingestion.status", "actor": "HUMAN_THS", "message": "La ripresa è bloccata. Serve una decisione di annullamento nella pagina del run."},
+        {"when": {"recoveryAction": "HUMAN_RESUME_OR_ABORT"}, "action": "WAIT_FOR_HUMAN", "reason": "RUN_DECISION_REQUIRED", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "decision": "RESUME_OR_ABORT"},
+        {"when": {"recoveryAction": "-", "error_code": "ING_LAKE_RECONCILE_REQUIRED", "runState|run_state": "PAUSED"}, "action": "WAIT_FOR_HUMAN", "reason": "RUN_DECISION_REQUIRED", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "decision": "RESUME_OR_ABORT"},
+        {"when": {"recoveryAction": "AUTOMATIC_RETRY|AUTOMATIC_RECONCILIATION"}, "action": "POLL", "reason": "RUN_RECOVERING", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"recoveryAction": "-|NONE", "runState|run_state": "AWAITING_START|READY|PREFLIGHT|RUNNING|DRAINING|RETRY_WAIT"}, "action": "POLL", "reason": "INGESTION_PENDING", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"runState|run_state": "ABORTED"}, "action": "DONE", "reason": "RUN_ABORTED", "outcome": "ABORTED"},
+        {"when": {"runState|run_state": "FAILED|PAUSED|BLOCKED|DISABLED|COMPLETED_WITH_WARNINGS|SUCCEEDED"}, "action": "BLOCKED", "reason": "RUN_REVIEW_REQUIRED", "tool": "ouf.ingestion.status", "message": "Verifica con il responsabile della fonte il motivo del fermo."}
+      ]
+    },
+    "udp": {
+      "read": "urban.object.search",
+      "vocabulary": {"outcome": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL", "MATERIALIZATION_PENDING"]},
+      "rules": [
+        {"when": {"outcome": "MATERIALIZATION_PENDING"}, "action": "POLL", "reason": "MATERIALIZATION_PENDING", "tool": "urban.object.search", "args": {"type": "@type", "pageSize": "@pageSize", "cursor": "@cursor"}, "terminal": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL"]},
+        {"when": {"outcome": "PARTIAL", "nextCursor": "?"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.object.search", "args": {"type": "@type", "pageSize": "@pageSize", "cursor": "nextCursor"}},
+        {"when": {"outcome": "INCOMPLETE|NO_OBJECTS|PARTIAL"}, "action": "BLOCKED", "reason": "UDP_OBSERVATION_INCOMPLETE", "tool": "urban.object.search", "message": "Verifica la visibilità e la materializzazione degli oggetti."},
+        {"when": {"outcome": "COMPLETE"}, "action": "DONE", "reason": "OBJECTS_READ", "outcome": "SUCCEEDED"},
+        {"when": {"nextCursor": "?", "outcome": "-"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.object.search", "args": {"type": "@type", "cursor": "nextCursor", "pageSize": "@pageSize"}},
+        {"when": {"partial": "true", "outcome": "-"}, "action": "BLOCKED", "reason": "PARTIAL_WITHOUT_CURSOR", "tool": "urban.object.search", "message": "La lettura è parziale. Verifica la visibilità dei dati."},
+        {"when": {"items.0": "?", "partial": "false|-", "outcome": "-"}, "action": "DONE", "reason": "OBJECTS_READ", "outcome": "SUCCEEDED"},
+        {"when": {"items": "?", "outcome": "-"}, "action": "BLOCKED", "reason": "EMPTY_OBJECT_PAGE", "tool": "ouf.ingestion.status", "message": "La lettura non contiene oggetti. Controlla il completamento del caricamento."}
+      ]
+    },
+    "permission": {
+      "read": "authorization.proposal.read",
+      "rules": [
+        {"when": {"state|status": "PENDING|PENDING_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "GRANT_REVIEW", "tool": "authorization.proposal.read", "args": {"proposalId": "proposalId|@proposalId"}, "decision": "GRANT_PERMISSION"},
+        {"when": {"state|status": "APPROVED|PUBLISHED|REJECTED|EXPIRED"}, "action": "BLOCKED", "reason": "CHECK_GRANTS", "tool": "authorization.permissions.read", "message": "Verifica i permessi effettivi prima di riprendere."}
+      ]
+    },
+    "urban.object.related_search": {
+      "read": "urban.object.related_search",
+      "rules": [
+        {"when": {"hits": "?"}, "action": "BLOCKED", "reason": "RELATED_OBJECTS_READ", "tool": "urban.object.related_search", "message": "Verifica gli oggetti collegati all’oggetto di partenza."}
+      ]
+    },
+    "ouf.system.status": {
+      "read": "ouf.system.status",
+      "rules": [
+        {"when": {"status": "DEGRADED|RECOVERING"}, "action": "CALL_TOOL", "reason": "READ_INCIDENTS", "tool": "ouf.operations.incidents", "args": {}},
+        {"when": {"status": "HEALTHY"}, "action": "DONE", "reason": "STATUS_READ", "outcome": "SUCCEEDED", "message": "La lettura dello stato operativo è completata."}
+      ]
+    },
+    "ouf.ingestion.history": {
+      "read": "ouf.ingestion.status",
+      "rules": [
+        {"when": {"items": "?", "@sourceId": "?"}, "action": "CALL_TOOL", "reason": "CURRENT_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "ouf.operations.incidents": {
+      "read": "ouf.operations.incidents",
+      "rules": [
+        {"when": {"nextCursor": "?"}, "action": "CALL_TOOL", "reason": "INCIDENT_PAGE", "tool": "ouf.operations.incidents", "args": {"cursor": "nextCursor"}},
+        {"when": {"partial": "true|false"}, "action": "BLOCKED", "reason": "INCIDENTS_OBSERVED", "tool": "ouf.operations.explain", "message": "Scegli la segnalazione da approfondire."}
+      ]
+    },
+    "ouf.operations.explain": {
+      "read": "ouf.operations.explain",
+      "rules": [
+        {"when": {"lifecycle_state|lifecycleState|classification": "?"}, "action": "BLOCKED", "reason": "INCIDENT_OBSERVED", "tool": "ouf.operations.incidents", "message": "Consulta le segnalazioni per gli aggiornamenti."}
+      ]
+    },
+    "ouf.operations.summary": {
+      "read": "ouf.operations.summary",
+      "rules": [
+        {"when": {"partial": "true|false"}, "action": "CALL_TOOL", "reason": "READ_INCIDENTS", "tool": "ouf.operations.incidents", "args": {}}
+      ]
+    },
+    "authorization.permissions.read": {
+      "read": "authorization.permissions.read",
+      "rules": [
+        {"when": {"grants": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
+        {"when": {"roles": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
+        {"when": {"capabilities": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."}
+      ]
+    },
+    "semantic.search": {
+      "read": "semantic.get",
+      "rules": [
+        {"when": {"items.0.semanticId": "?", "items.1": "-"}, "action": "CALL_TOOL", "reason": "SEMANTIC_MATCH", "tool": "semantic.get", "args": {"semanticId": "items.0.semanticId", "revisionId": "items.0.revisionId", "publicationSetId": "items.0.publicationSetId"}},
+        {"when": {"items": "?"}, "action": "BLOCKED", "reason": "SEMANTIC_SELECTION_REQUIRED", "tool": "semantic.get", "message": "Seleziona il riferimento semantico da esaminare."},
+        {"when": {"legacyList": "true"}, "action": "BLOCKED", "reason": "SEMANTIC_SELECTION_REQUIRED", "tool": "semantic.get", "message": "Seleziona il riferimento semantico da esaminare."}
+      ]
+    },
+    "semantic.get": {
+      "read": "semantic.get",
+      "rules": [
+        {"when": {"semanticId": "?"}, "action": "BLOCKED", "reason": "SEMANTIC_REFERENCE_READ", "tool": "source.onboarding.create", "message": "Completa il mapping con il riferimento semantico letto."}
+      ]
+    },
+    "ouf.ingestion.acquisition.read": {
+      "read": "ouf.ingestion.acquisition.read",
+      "rules": [
+        {"when": {"nextLineageId": "?"}, "action": "CALL_TOOL", "reason": "LINEAGE_PAGE", "tool": "ouf.ingestion.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "afterLineageId": "nextLineageId"}},
+        {"when": {"items": "?"}, "action": "CALL_TOOL", "reason": "CHECK_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "urban.acquisition.read": {
+      "read": "urban.acquisition.read",
+      "vocabulary": {"outcome": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL", "MATERIALIZATION_PENDING"]},
+      "rules": [
+        {"when": {"outcome": "MATERIALIZATION_PENDING"}, "action": "POLL", "reason": "MATERIALIZATION_PENDING", "tool": "urban.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "limit": "@limit", "afterHandoffId": "@afterHandoffId"}, "terminal": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL"]},
+        {"when": {"outcome": "PARTIAL", "nextHandoffId": "?"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "limit": "@limit", "afterHandoffId": "nextHandoffId"}},
+        {"when": {"outcome": "INCOMPLETE|NO_OBJECTS|PARTIAL"}, "action": "BLOCKED", "reason": "UDP_OBSERVATION_INCOMPLETE", "tool": "urban.acquisition.read", "message": "Verifica la visibilità e la materializzazione degli oggetti."},
+        {"when": {"outcome": "COMPLETE"}, "action": "BLOCKED", "reason": "ACQUISITION_OBSERVED", "tool": "urban.object.search", "message": "Per leggere gli oggetti occorre il tipo della pubblicazione."},
+        {"when": {"outcome": "-", "items": "?"}, "action": "CALL_TOOL", "reason": "CHECK_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "ouf.wait": {
+      "read": "source.onboarding.read",
+      "rules": [
+        {"when": {"changed": "true|false"}, "action": "BLOCKED", "reason": "WORKFLOW_CONTEXT_REQUIRED", "tool": "source.onboarding.read", "message": "Serve il contesto della fonte per scegliere il passo successivo."}
+      ]
+    }
+  },
   "capabilities": [
     {
       "toolName": "urban.object.related_search",
+      "nextPolicy": "urban.object.related_search",
       "capabilityId": "urban.object.related_search",
       "purpose": "Find objects connected to a known anchor through governed relationship rules",
       "useWhen": [
@@ -102,6 +364,7 @@
     },
     {
       "toolName": "ouf.system.status",
+      "nextPolicy": "ouf.system.status",
       "capabilityId": "ouf.system.status",
       "purpose": "Read bounded current OUF MCP operational health from authoritative persisted recovery, debt, evidence and security state",
       "useWhen": [
@@ -149,6 +412,7 @@
     },
     {
       "toolName": "ouf.ingestion.status",
+      "nextPolicy": "ingestion",
       "capabilityId": "ouf.ingestion.status",
       "purpose": "Read the current authorized ingestion/source operational state without raw logs",
       "useWhen": [
@@ -207,6 +471,7 @@
     },
     {
       "toolName": "ouf.ingestion.history",
+      "nextPolicy": "ouf.ingestion.history",
       "capabilityId": "ouf.ingestion.history",
       "purpose": "Read bounded historical ingestion runs including failures, retries and recovery context",
       "useWhen": [
@@ -269,6 +534,7 @@
     },
     {
       "toolName": "ouf.operations.incidents",
+      "nextPolicy": "ouf.operations.incidents",
       "capabilityId": "ouf.operations.incidents",
       "purpose": "List authorized persisted operational incidents, including incidents that occurred while the chatbot was offline",
       "useWhen": [
@@ -529,6 +795,7 @@
     },
     {
       "toolName": "ouf.operations.explain",
+      "nextPolicy": "ouf.operations.explain",
       "capabilityId": "ouf.operations.explain",
       "purpose": "Explain one authorized operational incident using safe owner-provided classification and evidence references",
       "useWhen": [
@@ -584,6 +851,7 @@
     },
     {
       "toolName": "ouf.operations.summary",
+      "nextPolicy": "ouf.operations.summary",
       "capabilityId": "ouf.operations.summary",
       "purpose": "Summarize significant authorized operational events in a bounded time window for chatbot catch-up",
       "useWhen": [
@@ -696,6 +964,7 @@
     },
     {
       "toolName": "authorization.permissions.read",
+      "nextPolicy": "authorization.permissions.read",
       "capabilityId": "authorization.permissions.read",
       "purpose": "Inspect configured grants, the tenant role catalogue, or active HUMAN-compatible capability descriptors; view CAPABILITIES supports complete role proposals",
       "useWhen": [
@@ -1060,6 +1329,7 @@
     },
     {
       "toolName": "authorization.permissions.propose",
+      "nextPolicy": "permission",
       "capabilityId": "authorization.permissions.propose",
       "purpose": "Prepare a grant change or a complete replacement of the tenant OUF role catalogue for human THS review; read view ROLES first and preserve unrelated entries. Never publishes permissions.",
       "useWhen": [
@@ -2451,6 +2721,7 @@
     },
     {
       "toolName": "authorization.proposal.read",
+      "nextPolicy": "permission",
       "capabilityId": "authorization.proposal.read",
       "purpose": "Read the outcome of a permission proposal created by the authenticated caller",
       "useWhen": [
@@ -2504,6 +2775,7 @@
     },
     {
       "toolName": "semantic.discovery.adopt",
+      "nextPolicy": "proposal",
       "capabilityId": "ouf.semantic.discovery.adopt",
       "purpose": "Adopt the selected discovery candidate as one semantic DRAFT",
       "useWhen": [
@@ -2580,6 +2852,7 @@
     },
     {
       "toolName": "semantic.propose",
+      "nextPolicy": "proposal",
       "capabilityId": "ouf.semantic.propose",
       "purpose": "Create one native semantic DRAFT or bounded Turtle ontology DRAFT with a durable caller-scoped receipt",
       "useWhen": [
@@ -3097,6 +3370,7 @@
     },
     {
       "toolName": "semantic.review.prepare",
+      "nextPolicy": "validation",
       "capabilityId": "ouf.semantic.review.prepare",
       "purpose": "Validate the exact DRAFT row version and retain errors and warnings",
       "useWhen": [
@@ -3164,6 +3438,7 @@
     },
     {
       "toolName": "semantic.approval.request",
+      "nextPolicy": "semanticDecision",
       "capabilityId": "ouf.semantic.approval.request",
       "purpose": "Request a THS review challenge for the current green validated DRAFT",
       "useWhen": [
@@ -3236,6 +3511,7 @@
     },
     {
       "toolName": "semantic.proposal.read",
+      "nextPolicy": "semanticDecision",
       "capabilityId": "ouf.semantic.proposal.read",
       "purpose": "Read this caller’s durable semantic command receipt after interruption",
       "useWhen": [
@@ -3286,12 +3562,17 @@
           "commandKey": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+          },
+          "expectedVersion": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           }
         }
       }
     },
     {
       "toolName": "urban.object.search",
+      "nextPolicy": "udp",
       "capabilityId": "urban.object.search",
       "purpose": "Search urban objects of one exact canonical type with bounded owner-authorized pagination",
       "useWhen": [
@@ -3360,6 +3641,7 @@
     },
     {
       "toolName": "source.file.upload",
+      "nextPolicy": "upload",
       "capabilityId": "ouf.managed-source.file.upload",
       "purpose": "Stage an authenticated user's CSV through the governed Gateway",
       "useWhen": [
@@ -3436,6 +3718,7 @@
     },
     {
       "toolName": "source.file.profile",
+      "nextPolicy": "profile",
       "capabilityId": "ouf.managed-source.file.profile",
       "purpose": "Queue profiling of a managed file owned by the authenticated human",
       "useWhen": [
@@ -3491,6 +3774,7 @@
     },
     {
       "toolName": "source.file.preview",
+      "nextPolicy": "preview",
       "capabilityId": "ouf.managed-source.preview",
       "purpose": "Read an owned profile/job or bounded immutable schema pages (up to 1024 columns)",
       "useWhen": [
@@ -3574,7 +3858,8 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "assetId"
+              "assetId",
+              "profileId"
             ],
             "properties": {
               "assetId": {
@@ -3584,34 +3869,26 @@
               "profileId": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assetId",
+              "jobId"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
               },
               "jobId": {
                 "type": "string",
                 "format": "uuid"
               }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "profileId"
-                ],
-                "not": {
-                  "required": [
-                    "jobId"
-                  ]
-                }
-              },
-              {
-                "required": [
-                  "jobId"
-                ],
-                "not": {
-                  "required": [
-                    "profileId"
-                  ]
-                }
-              }
-            ]
+            }
           },
           {
             "type": "object",
@@ -3671,6 +3948,7 @@
     },
     {
       "toolName": "source.onboarding.create",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.create",
       "purpose": "Create an idempotent INTERNAL_MANAGED onboarding DRAFT from a reviewed file profile and pinned semantic references",
       "useWhen": [
@@ -4391,6 +4669,7 @@
     },
     {
       "toolName": "semantic.search",
+      "nextPolicy": "semantic.search",
       "capabilityId": "ouf.semantic.search",
       "purpose": "Search current published semantic artifacts for assisted source mapping",
       "useWhen": [
@@ -4481,6 +4760,7 @@
     },
     {
       "toolName": "semantic.get",
+      "nextPolicy": "semantic.get",
       "capabilityId": "ouf.semantic.consultation.read",
       "purpose": "Read one exact published semantic reference including its definition and constraints",
       "useWhen": [
@@ -4549,6 +4829,7 @@
     },
     {
       "toolName": "source.onboarding.review.prepare",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.review.prepare",
       "purpose": "Prepare a validated source version for trusted human review with durable command reconciliation",
       "useWhen": [
@@ -4964,6 +5245,7 @@
     },
     {
       "toolName": "source.onboarding.read",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.read",
       "purpose": "Read an owned exact source version or recover its latest version and trusted review progress",
       "useWhen": [
@@ -5017,6 +5299,10 @@
           },
           "view": {
             "const": "LATEST"
+          },
+          "ifObservationVersion": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
           }
         },
         "oneOf": [
@@ -5035,6 +5321,10 @@
               "onboardingVersionId": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "ifObservationVersion": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
               }
             }
           },
@@ -5052,6 +5342,10 @@
               },
               "view": {
                 "const": "LATEST"
+              },
+              "ifObservationVersion": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
               }
             }
           }
@@ -5060,6 +5354,7 @@
     },
     {
       "toolName": "source.onboarding.revision.prepare",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.onboarding.revision.prepare",
       "purpose": "Prepare a revision of an ACTIVE source for native human review",
       "useWhen": [
@@ -5848,6 +6143,7 @@
     },
     {
       "toolName": "source.onboarding.revision.read",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.onboarding.revision.read",
       "purpose": "Read property rules of a source version, or reconcile an exact revision command after a lost response",
       "useWhen": [
@@ -5948,6 +6244,7 @@
     },
     {
       "toolName": "ouf.ingestion.acquisition.read",
+      "nextPolicy": "ouf.ingestion.acquisition.read",
       "capabilityId": "ouf.ingestion.acquisition.read",
       "purpose": "Read minimized acquisition evidence for one exact existing source and run",
       "useWhen": [
@@ -6020,6 +6317,7 @@
     },
     {
       "toolName": "urban.acquisition.read",
+      "nextPolicy": "urban.acquisition.read",
       "capabilityId": "urban.acquisition.read",
       "purpose": "Read minimized acquisition evidence for one exact existing source and run",
       "useWhen": [
@@ -6092,6 +6390,7 @@
     },
     {
       "toolName": "semantic.discovery.request",
+      "nextPolicy": "discovery",
       "capabilityId": "ouf.semantic.discovery",
       "purpose": "Start a bounded national semantic discovery job for assisted source mapping",
       "useWhen": [
@@ -6176,6 +6475,7 @@
     },
     {
       "toolName": "semantic.discovery.status",
+      "nextPolicy": "discovery",
       "capabilityId": "ouf.semantic.discovery.status",
       "purpose": "Read the state of one caller-owned semantic discovery job",
       "useWhen": [
@@ -6233,6 +6533,7 @@
     },
     {
       "toolName": "semantic.discovery.candidates",
+      "nextPolicy": "candidates",
       "capabilityId": "ouf.semantic.discovery.candidates",
       "purpose": "Read unexpired candidates from one caller-owned national discovery job",
       "useWhen": [
@@ -6290,6 +6591,7 @@
     },
     {
       "toolName": "source.analysis.plan",
+      "nextPolicy": "analysis",
       "capabilityId": "ouf.source.analysis.plan",
       "purpose": "Plan finite semantic evidence work using the authoritative owned profile; budget is the sum of unique planned calls",
       "useWhen": [
@@ -6408,6 +6710,7 @@
     },
     {
       "toolName": "source.analysis.read",
+      "nextPolicy": "analysis",
       "capabilityId": "ouf.source.analysis.read",
       "purpose": "Read durable per-column evidence progress, cumulative consumption and bounded task pages",
       "useWhen": [
@@ -6480,6 +6783,7 @@
     },
     {
       "toolName": "source.analysis.step",
+      "nextPolicy": "step",
       "capabilityId": "ouf.source.analysis.step",
       "purpose": "Execute or resume one planned semantic evidence task through existing governed admission",
       "useWhen": [
@@ -6541,6 +6845,57 @@
           "taskId": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.wait",
+      "nextPolicy": "ouf.wait",
+      "capabilityId": "ouf.wait",
+      "purpose": "Wait for a change to an authorized owner observation",
+      "useWhen": [
+        "next supplies an opaque waitRef"
+      ],
+      "doNotUseWhen": [
+        "starting or extending a human decision"
+      ],
+      "preferredAlternatives": [
+        "read the bound owner capability"
+      ],
+      "operationalLimits": {
+        "minIntervalSeconds": 5,
+        "maxDurationSeconds": 45
+      },
+      "resultSemantics": "Changed flag, current observation and next action",
+      "securityNotes": [
+        "Every observation requires current delegated read authority"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "mcp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "BOUND_READ",
+      "gatewayBindingRef": "capability://ouf.wait",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 45000
+      },
+      "conditionalOutcomeCost": {
+        "maximumOwnerReads": 9
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "waitRef"
+        ],
+        "properties": {
+          "waitRef": {
+            "type": "string",
+            "minLength": 32, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$"
           }
         }
       }

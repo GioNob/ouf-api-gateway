@@ -10,7 +10,10 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.apisix_request_schema import dispatch_validation
-from tools.mcp_dispatch_contract import EXECUTE_PATH, capability_contracts, envelope_refs, result_ceiling
+from tools.mcp_dispatch_contract import (
+    EXECUTE_PATH, RECOVERY_LINK_ID, RECOVERY_LINK_PATH, capability_contracts,
+    envelope_refs, manifest_execute_uri, result_ceiling,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json", "McpMediationBinding": "mcp-mediation-binding-v1.json"}
@@ -24,17 +27,65 @@ def load_documents(config_root):
     documents=[]
     for path in sorted(config_root.rglob("*.yaml")):
         doc=yaml.safe_load(path.read_text())
-        kind=doc.get("kind") if isinstance(doc,dict) else None
-        if kind not in SCHEMAS: raise ConfigError(f"{path}: unsupported kind {kind!r}")
-        schema=json.loads((ROOT/"schemas"/SCHEMAS[kind]).read_text())
-        errors=sorted(Draft202012Validator(schema).iter_errors(doc),key=lambda e:list(e.path))
-        if errors: raise ConfigError(f"{path}: {errors[0].message}")
+        validate_document(path, doc)
         documents.append((path,doc))
     return documents
 
+
+def validate_document(path, doc):
+    kind=doc.get("kind") if isinstance(doc,dict) else None
+    if kind not in SCHEMAS: raise ConfigError(f"{path}: unsupported kind {kind!r}")
+    schema=json.loads((ROOT/"schemas"/SCHEMAS[kind]).read_text())
+    errors=sorted(Draft202012Validator(schema).iter_errors(doc),key=lambda e:list(e.path))
+    if errors: raise ConfigError(f"{path}: {errors[0].message}")
+
+
+def recovery_link_documents(config_root, contracts):
+    path = config_root / 'routes/northbound' / f'{RECOVERY_LINK_ID}.json'
+    if not path.is_file():
+        return []
+    spec = json.loads(path.read_bytes())
+    cap = spec.pop('capabilityId')
+    # D-085 activation requires the exact capability ID selected from the MCP
+    # snapshot. An incomplete declaration cannot become a routable binding.
+    if cap is None:
+        return []
+    contract = contracts.get(cap)
+    fields = {'sourceId', 'runId', 'expectedVersion'}
+    if (not contract or contract['owner'] != 'onboarding'
+            or contract.get('publicationState') != 'ACTIVE'
+            or contract['inputSchema'].get('additionalProperties') is not False
+            or set(contract['inputSchema'].get('properties', {})) != fields
+            or set(contract['inputSchema'].get('required', [])) != fields
+            or spec['backendBinding']['path'] != RECOVERY_LINK_PATH):
+        raise ConfigError(f'{path}: MCP recovery-link capability missing or inconsistent')
+    try:
+        uri = manifest_execute_uri(contract['gatewayBindingRef'])
+    except ValueError as exc:
+        raise ConfigError(f'{path}: {exc}') from exc
+    version = {'version': '1.0.0', 'status': 'ACTIVE'}
+    capability = {
+        'apiVersion': 'ouf.trieste.it/v1', 'kind': 'Capability',
+        'metadata': {'id': cap, **version},
+        'spec': {'owner': contract['owner'], 'operationType': contract['operationClass'],
+                 'scope': contract['requiredAuthorizationCapability'],
+                 'classification': ['SECURITY_SENSITIVE'], 'mcp': {'toolEligible': contract['toolEligible']}},
+    }
+    binding = {
+        'apiVersion': 'ouf.trieste.it/v1', 'kind': 'RouteBinding',
+        'metadata': {'id': RECOVERY_LINK_ID, **version},
+        'spec': {**spec, 'direction': 'northbound', 'exposure': 'internal',
+                 'capabilityRef': cap + '@' + version['version'],
+                 'match': {'method': 'POST', 'path': uri}},
+    }
+    for doc in (capability, binding):
+        validate_document(path, doc)
+    return [(path, capability), (path, binding)]
+
+
 def compile_config(config_root):
-    docs=load_documents(config_root)
     contracts = capability_contracts()
+    docs = load_documents(config_root) + recovery_link_documents(config_root, contracts)
     indexed={}
     for path,doc in docs:
         key=(doc["kind"],ref(doc))

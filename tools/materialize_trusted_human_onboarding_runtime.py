@@ -61,7 +61,7 @@ def human_guard():
         "end"
     )
 
-def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False):
+def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False,*,strip_all_ouf_headers=False):
     labels=route.get("labels") or {}
     policy=route.get("x-ouf-policy")
     backend=route.get("x-ouf-backend-binding")
@@ -96,11 +96,17 @@ def materialize_route(route,installation,oidc_secret_ref,streaming_runtime=False
     wildcard="*" in uri
     if wildcard and (not uri.endswith("/*") or uri.count("*")!=1 or backend_path!=uri):
         raise MaterializationError("wildcard HUMAN route must preserve bounded namespace")
+    strip_headers = strip_untrusted_headers()
+    if strip_all_ouf_headers:
+        strip_headers = (
+            "return function() for name,_ in pairs(ngx.req.get_headers(0)) do "
+            "if name:lower():sub(1,6)=='x-ouf-' then ngx.req.clear_header(name) end end end"
+        )
     plugins={
         "request-id":(route.get("plugins") or {}).get("request-id",{}),
         "limit-count":(route.get("plugins") or {}).get("limit-count",{}),
         "client-control":{"max_body_size":int(policy.get("maxRequestBytes",5242880))},
-        "serverless-pre-function":{"phase":"rewrite","functions":[strip_untrusted_headers()]},
+        "serverless-pre-function":{"phase":"rewrite","functions":[strip_headers]},
         "openid-connect":{
             "client_id":audience,
             "client_secret":oidc_secret_ref,

@@ -16,12 +16,14 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as source_revision
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, MANIFEST, NEXT_RESULT_HEADROOM_BYTES,
-    bound_capability, capability_contracts, envelope_refs,
+    RECOVERY_LINK_ID, RECOVERY_LINK_PATH, bound_capability, capability_contracts, envelope_refs,
 )
 
 HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
 REVIEW_READ_URI = EXECUTE_PATH + '/managed.file/review-read'
-MANIFEST_SHA256 = '198487a5182e51abdfaacbf4f109ddc9532a3deee7d5f0921a3bd9aea77dfedd'
+PREVIEW_URI = EXECUTE_PATH + '/managed.file/preview'
+SEMANTIC_READ_URI = EXECUTE_PATH + '/semantic/read'
+MANIFEST_SHA256 = '78cee1486d8860f9fdf419ab71bdbc4b9ca73c917358fc3673c7fe11a30a5d41'
 
 
 def dispatch_profiles():
@@ -124,5 +126,66 @@ def test_review_read_forms_in_manifest_and_inline():
         (exact, True), (latest, True), (dict(exact, view='LATEST'), False),
         ({'sourceId': exact['sourceId']}, False), (dict(latest, view='LATEST_APPROVED'), False),
         (dict(latest, approvedBy='agent'), False), (dict(exact, onboardingVersionId='bad'), False),
+        (dict(exact, ifObservationVersion='sha256:' + 'f' * 64), True),
+        (dict(latest, ifObservationVersion='sha256:' + 'f' * 64), True),
+        (dict(latest, ifObservationVersion='private-source-value'), False),
     ]:
         assert gateway.is_valid(dict(body, Arguments=args)) == tool.is_valid(args) == allowed
+
+
+def wave2_dispatch_cases(routes=()):
+    exact = review_request('review-read')['Arguments']
+    latest = {'sourceId': exact['sourceId'], 'view': 'LATEST'}
+    checksum = 'a' * 64
+    condition = {'ifObservationVersion': 'sha256:' + checksum}
+    asset = '11111111-1111-4111-8111-111111111111'
+    other = '22222222-2222-4222-8222-222222222222'
+    cases = {
+        PREVIEW_URI: (
+            '/api/internal/v1/onboarding/managed-file-mcp/preview',
+            [{'assetId': asset, 'profileId': other}, {'assetId': asset, 'jobId': other}],
+            [{'assetId': asset, 'profileId': other, 'jobId': other}],
+        ),
+        REVIEW_READ_URI: (
+            '/api/internal/v1/onboarding/managed-file-mcp/review-read',
+            [exact, latest, dict(exact, **condition), dict(latest, **condition)],
+            [dict(exact, view='LATEST'), {'sourceId': exact['sourceId']},
+             dict(latest, view='private-source-value'), dict(exact, onboardingVersionId='private-source-value'),
+             dict(latest, ifObservationVersion='private-source-value')],
+        ),
+        SEMANTIC_READ_URI: (
+            '/api/semantic/v1/proposal-commands/read',
+            [{'commandKey': 'idem'}, {'commandKey': 'idem', 'expectedVersion': checksum}],
+            [{'commandKey': 'idem', 'expectedVersion': 'private-source-value'}],
+        ),
+    }
+    contracts = capability_contracts()
+    for uri, cap, argument in [
+        (PREVIEW_URI, 'ouf.managed-source.preview', 'distinctValuesCursor'),
+        (SEMANTIC_READ_URI, 'ouf.semantic.proposal.read', 'includeState'),
+    ]:
+        if argument not in contracts[cap]['inputSchema']['properties']:
+            _, accepted, rejected = cases[uri]
+            rejected.append(dict(accepted[0], **{argument: 'private-source-value'}))
+    for route in routes:
+        if route['id'] == RECOVERY_LINK_ID:
+            args = {'sourceId': 'teatri', 'runId': asset, 'expectedVersion': 7}
+            cases[route['uri']] = (RECOVERY_LINK_PATH, [args], [dict(args, runId='private-source-value')])
+    return cases
+
+
+def test_wave2_dispatch_cases_match_the_pinned_manifest():
+    _, profiles = dispatch_profiles()
+    routes = {route['uri']: route for route in profiles}
+    for uri, (owner, accepted, rejected) in wave2_dispatch_cases(profiles).items():
+        route = routes[uri]
+        assert route['plugins']['proxy-rewrite']['uri'] == owner
+        validation = route['plugins']['request-validation']
+        assert validation['rejected_msg'] == INVALID_TOOL_ARGUMENTS
+        schema = validation['body_schema']
+        gateway = Draft7Validator(schema, format_checker=FormatChecker())
+        tool = Draft7Validator(capability_contracts()[bound_capability(schema)]['inputSchema'],
+                               format_checker=FormatChecker())
+        for allowed, arguments_list in [(True, accepted), (False, rejected)]:
+            for arguments in arguments_list:
+                assert gateway.is_valid(dispatch_body(schema, arguments)) == tool.is_valid(arguments) == allowed

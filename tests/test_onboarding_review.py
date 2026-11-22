@@ -57,8 +57,10 @@ def test_review_does_not_inherit_old_scope_or_confer_confirmation(case):
 def test_additive_review_and_first_party_browser_boundary():
     rt, existing = retained_installation();before = copy.deepcopy(existing)
     result = materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
-    assert existing == before and result['routes'][:-6] == before['routes']
-    for route in result['routes'][-6:-4]:
+    assert existing == before and result['routes'][:len(before['routes'])] == before['routes']
+    indexed = {route['id']: route for route in result['routes']}
+    for mode in MODES:
+        route = indexed['mcp-managed-file-' + mode]
         mode = route['uri'].rsplit('/', 1)[1]
         validator = Draft202012Validator(route['plugins']['request-validation']['body_schema'], format_checker=FormatChecker())
         assert validator.is_valid(request(mode))
@@ -67,13 +69,13 @@ def test_additive_review_and_first_party_browser_boundary():
             assert not validator.is_valid(bad)
         assert route['upstream']['retries'] == 0
         assert route['plugins']['openid-connect']['bearer_only'] is True
-    page = result['routes'][-4]
+    page = indexed['trusted-human-onboarding-review']
     assert page['uri'] == '/trusted-human/onboarding/*'
     assert page['methods'] == ['GET', 'POST'] and page['upstream']['nodes'] == {'ouf-onboarding:8080': 1}
     assert 'openid-connect' not in page['plugins']  # OAuth session/CSRF stay at existing owner.
     assert 'authorization' in page['plugins']['serverless-pre-function']['functions'][0]
     assert page['upstream']['timeout']['read'] == 60
-    assert result['routes'][-3]['uri'] == '/trusted-human/semantic/*'
+    assert indexed['trusted-human-semantic-review']['uri'] == '/trusted-human/semantic/*'
     with pytest.raises(ValueError, match='reconcile'): materialize(result, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
 
 

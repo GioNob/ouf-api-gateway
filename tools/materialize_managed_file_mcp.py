@@ -63,7 +63,7 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
             post = owner_function('execute_managed_file_retained', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
         else:
             post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
-                            use_route_labels=use_route_labels and mode == 'create')
+                            use_route_labels=use_route_labels and mode in ('create', 'preview'))
         route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
