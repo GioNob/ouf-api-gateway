@@ -38,6 +38,17 @@ if OPERATION == 'COMMAND' and e.Arguments.commandKey ~= e.IdempotencyKey then re
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
     or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end
+if CAPABILITY == 'ouf.semantic.propose' and e.Arguments.artifactType == 'VALUE_MAP' then
+    -- request-validation checks the entry shape. JSON Schema uniqueItems only
+    -- compares entire entries, so enforce uniqueness of the code before signing.
+    local seen = {}
+    for _, entry in ipairs(e.Arguments.definition.entries) do
+        if seen[entry.code] then
+            return require('apisix.core').response.exit(400, {message='INVALID_TOOL_ARGUMENTS'})
+        end
+        seen[entry.code] = true
+    end
+end
 local all, err = ngx.req.get_headers(0)
 if err then return fail(400) end
 for name, _ in pairs(all) do

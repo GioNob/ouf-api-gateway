@@ -10,6 +10,13 @@ ROUTES = {
     'source.onboarding.revision.prepare': 'source-revision-prepare-dispatch',
 }
 
+# Preserve MCP's Unicode whitespace class when APISIX matches in PCRE byte mode.
+# Each alternative matches one complete UTF-8 character.
+VALUE_MAP_SPACE_CLASS = '[ \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+VALUE_MAP_SPACE_ALTERNATIVES = '(?:' + '|'.join(' \u0085\u00a0\u1680' + ''.join(
+    chr(code) for code in range(0x2000, 0x200B)
+) + '\u2028\u2029\u202f\u205f\u3000') + ')'
+
 
 def envelope_refs(node):
     """The root seen by APISIX is the HTTP envelope, one level above Arguments."""
@@ -22,6 +29,8 @@ def envelope_refs(node):
                 raise ValueError('expected a local MCP schema reference')
             return {**node, '$ref': '#/properties/Arguments/' + ref[2:]}
         result = {key: envelope_refs(value) for key, value in node.items()}
+        if isinstance(result.get('pattern'), str):
+            result['pattern'] = result['pattern'].replace(VALUE_MAP_SPACE_CLASS, VALUE_MAP_SPACE_ALTERNATIVES)
         # The installation's Lua validator handles boolean propertyNames only.
         # Express MCP's closed name lists using its supported object keywords.
         if 'propertyNames' in result:
@@ -36,11 +45,18 @@ def envelope_refs(node):
 
 
 def sync(checkout, check):
-    contract = 'contracts/ouf-value-types-v1.json'
-    if (checkout / contract).read_bytes() != (ROOT / contract).read_bytes():
-        raise ValueError('VALUE_TYPES_CONTRACT_MISMATCH')
+    for contract, error in (
+        ('ouf-value-types-v1.json', 'VALUE_TYPES_CONTRACT_MISMATCH'),
+        ('ouf-value-maps-v1.json', 'VALUE_MAPS_CONTRACT_MISMATCH'),
+    ):
+        source = checkout / 'contracts' / contract
+        if not source.is_file() or source.read_bytes() != (ROOT / 'contracts' / contract).read_bytes():
+            raise ValueError(error)
     manifest = json.loads((checkout / 'internal/manifest/capabilities.json').read_bytes())
     capabilities = {row['toolName']: row for row in manifest['capabilities']}
+    proposal = capabilities['semantic.propose']['inputSchema']
+    if 'VALUE_MAP' not in proposal['properties']['artifactType']['enum']:
+        raise ValueError('VALUE_MAP_SCHEMA_MISSING')
     for name, stem in ROUTES.items():
         capability = capabilities[name]
         path = ROOT / f'schemas/mcp-gateway-{stem}-v1.json'

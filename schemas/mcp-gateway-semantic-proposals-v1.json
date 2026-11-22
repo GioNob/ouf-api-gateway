@@ -60,7 +60,8 @@
                 "VOCABULARY",
                 "CONCEPT",
                 "ONTOLOGY",
-                "DATATYPE"
+                "DATATYPE",
+                "VALUE_MAP"
               ]
             },
             "namespace": {
@@ -117,84 +118,91 @@
             },
             "definition": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "components": {
-                  "$ref": "#/properties/Arguments/$defs/datatypeComponents"
+              "anyOf": [
+                {
+                  "$ref": "#/properties/Arguments/$defs/valueMapDefinition"
                 },
-                "description": {
-                  "type": "object",
+                {
                   "additionalProperties": false,
                   "properties": {
-                    "it": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4000
+                    "components": {
+                      "$ref": "#/properties/Arguments/$defs/datatypeComponents"
                     },
-                    "en": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4000
+                    "description": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "it": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "en": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "de": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        },
+                        "sl": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 4000
+                        }
+                      },
+                      "maxProperties": 4
                     },
-                    "de": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 4000
+                    "domainRefs": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      }
                     },
-                    "sl": {
+                    "rangeRefs": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "uniqueItems": true,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      }
+                    },
+                    "datatype": {
                       "type": "string",
                       "minLength": 1,
-                      "maxLength": 4000
+                      "maxLength": 1024
+                    },
+                    "minCardinality": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000000
+                    },
+                    "maxCardinality": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000000
+                    },
+                    "vocabularyRef": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    "inverseRef": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
                     }
-                  },
-                  "maxProperties": 4
-                },
-                "domainRefs": {
-                  "type": "array",
-                  "maxItems": 32,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1024
                   }
-                },
-                "rangeRefs": {
-                  "type": "array",
-                  "maxItems": 32,
-                  "uniqueItems": true,
-                  "items": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 1024
-                  }
-                },
-                "datatype": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
-                },
-                "minCardinality": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 1000000
-                },
-                "maxCardinality": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 1000000
-                },
-                "vocabularyRef": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
-                },
-                "inverseRef": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
                 }
-              }
+              ]
             },
             "commandKey": {
               "type": "string",
@@ -490,6 +498,74 @@
               "maxItems": 32,
               "uniqueItems": true,
               "description": "Use unique component names. The Semantic Registry resolves published pins and checks cycles, depth (4) and total leaf components (256)."
+            },
+            "valueMapIri": {
+              "type": "string",
+              "format": "iri",
+              "not": {
+                "pattern": "[\\x00-\\x1F\\x7F]|(?: |\u0085|\u00a0|\u1680|\u2000|\u2001|\u2002|\u2003|\u2004|\u2005|\u2006|\u2007|\u2008|\u2009|\u200a|\u2028|\u2029|\u202f|\u205f|\u3000)"
+              },
+              "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+$"
+            },
+            "valueMapDefinition": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "targetVocabulary": {
+                  "type": "string",
+                  "not": {
+                    "pattern": "[\\x00-\\x1F\\x7F]|(?: |\u0085|\u00a0|\u1680|\u2000|\u2001|\u2002|\u2003|\u2004|\u2005|\u2006|\u2007|\u2008|\u2009|\u200a|\u2028|\u2029|\u202f|\u205f|\u3000)"
+                  },
+                  "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$"
+                },
+                "entries": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128,
+                        "not": {
+                          "pattern": "[\\x00-\\x1F\\x7F]|^(?: |\u0085|\u00a0|\u1680|\u2000|\u2001|\u2002|\u2003|\u2004|\u2005|\u2006|\u2007|\u2008|\u2009|\u200a|\u2028|\u2029|\u202f|\u205f|\u3000)|(?: |\u0085|\u00a0|\u1680|\u2000|\u2001|\u2002|\u2003|\u2004|\u2005|\u2006|\u2007|\u2008|\u2009|\u200a|\u2028|\u2029|\u202f|\u205f|\u3000)$"
+                        }
+                      },
+                      "concept": {
+                        "$ref": "#/properties/Arguments/$defs/valueMapIri"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "concept"
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 2000,
+                  "description": "Codes must be unique and are case sensitive. Concepts may repeat."
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "it": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    },
+                    "en": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 4000
+                    }
+                  }
+                }
+              },
+              "required": [
+                "targetVocabulary",
+                "entries"
+              ]
             }
           },
           "if": {
@@ -521,12 +597,42 @@
             }
           },
           "else": {
-            "properties": {
-              "definition": {
-                "not": {
+            "if": {
+              "properties": {
+                "artifactType": {
+                  "const": "VALUE_MAP"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "semanticId": {
+                  "$ref": "#/properties/Arguments/$defs/valueMapIri"
+                },
+                "definition": {
                   "required": [
-                    "components"
+                    "entries"
                   ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "definition": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "components"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "entries"
+                        ]
+                      }
+                    ]
+                  }
                 }
               }
             }

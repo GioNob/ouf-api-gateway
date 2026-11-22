@@ -25,12 +25,15 @@ Il contratto `ouf.gateway-release-bundle.v1` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
 d’installazione. Il manifest riporta commit, workflow, ID del run e digest.
 
-Su pull request il job `config-contract` genera il bundle dal commit di testa,
-ne risolve i segnaposto con un profilo di test e carica le rotte in APISIX.
-Per i termini semantici il gate verifica l’inoltro della query, i dinieghi di autorizzazione e i
-mancati match per metodo o percorso. Dopo il gate, l’artefatto
-`gateway-release-bundle-<runId>` contiene `bundle.json`, `manifest.json` e
-`SHA256SUMS`. I comandi seguenti riproducono il formato in locale con un ID di prova.
+Il job `config-contract` genera il bundle dal commit testato sia su `push` sia
+su `pull_request` e risolve i segnaposto con un profilo di test. Il gate esegue
+tre avvii indipendenti di APISIX e si ferma al primo errore. Prima dei dispatch
+attende un diniego OIDC `401` su `/mcp` e su ogni rotta di dispatch del bundle.
+Per i termini semantici verifica l’inoltro della query, i dinieghi di
+autorizzazione e i mancati match per metodo o percorso. Su pull request, a gate
+superato, l’artefatto `gateway-release-bundle-<runId>` contiene `bundle.json`,
+`manifest.json` e `SHA256SUMS`. I comandi seguenti riproducono il formato in
+locale con un ID di prova.
 
 ```sh
 python -m tools.gateway_release_bundle --output generated/gateway-release-bundle --workflow-path .github/workflows/ci.yml --run-id 33
@@ -40,11 +43,16 @@ python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_hum
 ## Dispatch MCP e tipi di valore D-084
 
 Il Gateway valida l’envelope completo e firma i byte ricevuti. Per la proposta
-semantica ammette un `DATATYPE` con 1–32 componenti. Per creazione e revisione
-ammette lettori con `transformParams`, costruttori e composizioni strutturate
-fino a quattro livelli. Un componente `MANY` accetta builder singoli in
+semantica ammette un `DATATYPE` con 1–32 componenti o un `VALUE_MAP` con pin al
+vocabolario, 1–2.000 voci `code`/`concept` ed etichette opzionali `it`/`en`.
+La rotta rifiuta codici duplicati prima di firmare la ricevuta. Il Registry
+verifica pubblicazione e appartenenza al vocabolario.
+[Contratto delle value map](../contracts/ouf-value-maps-v1.json)
+
+Per creazione e revisione il Gateway ammette lettori con `transformParams`,
+costruttori e composizioni strutturate fino a quattro livelli. Un componente `MANY` accetta builder singoli in
 `items` o un costruttore `LIST_SPLIT_V1` con i parametri del lettore degli elementi.
-Il rifiuto di uno schema restituisce `INVALID_TOOL_ARGUMENTS`.
+Le violazioni dello schema e i codici duplicati restituiscono `INVALID_TOOL_ARGUMENTS`.
 
 Il Semantic Registry verifica le definizioni e il grafo dei tipi. Onboarding
 risolve i pin, controlla cardinalità, compatibilità, appartenenza al vocabolario
@@ -71,5 +79,5 @@ Il bundle sostituisce i valori delle label prima del caricamento in APISIX.
 Per confrontare gli schemi e le tre fixture con una checkout locale del MCP,
 eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.
 Lo stesso comando senza `--check` aggiorna le copie. Il confronto verifica
-anche l’identità del contratto. La CI esegue le prove offline con
+anche l’identità di entrambi i contratti. La CI esegue le prove offline con
 `python -m pytest -q tests/test_value_type_schemas.py`.
