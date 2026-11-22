@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from tools.apisix_request_schema import inline_dispatch_schema
-from tools.delegation_functions import function
+from tools.delegation_functions import capture_original_body, function
 from tools.materialize_operational_execute import materialize as operational_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,6 +74,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             body_schema = inline_dispatch_schema(body_schema)
             route['plugins']['client-control'] = {'max_body_size': VALUE_MAP_REQUEST_BYTES}
             validation.update(max_req_body_size=VALUE_MAP_REQUEST_BYTES, rejected_msg='INVALID_TOOL_ARGUMENTS')
+            route['plugins']['serverless-pre-function']['functions'].append(capture_original_body(VALUE_MAP_REQUEST_BYTES))
         validation['body_schema'] = body_schema
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
             delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},

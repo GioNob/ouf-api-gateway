@@ -139,6 +139,28 @@ def test_mcp_dispatch_in_release(routes, name):
     assert all(not check.is_valid(body) for check in validators)
 
 
+@pytest.mark.parametrize('name', ('semantic.propose', 'source.onboarding.revision.prepare'))
+def test_dispatch_preserves_original_body(routes, name):
+    route_id, limit = ROUTES[name]
+    plugins = routes[route_id]['plugins']
+    pre = plugins['serverless-pre-function']
+    assert pre['phase'] == 'rewrite'
+    strip, capture = pre['functions']
+    assert 'ngx.req.clear_header(name)' in strip
+    assert f"require('apisix.core').request.get_body({limit})" in capture
+    assert f'if not body or #body == 0 or #body > {limit} then return ngx.exit(413) end' in capture
+    assert 'ctx.ouf_original_body = body' in capture
+
+    post = plugins['serverless-post-function']
+    assert post['phase'] == 'access'
+    execute, = post['functions']
+    assert 'local body = ctx.ouf_original_body' in execute
+    assert "if type(body) ~= 'string' then return fail(503) end" in execute
+    assert 'get_body' not in execute and 'ngx.req.read_body' not in execute
+    assert 'digest:final(body)' in execute
+    assert 'ngx.req.set_body_data(body)' in execute
+
+
 def test_value_map_definition_and_limits(routes):
     check = validator(routes, 'semantic.propose')
     body = value_map_dispatch()
@@ -260,12 +282,14 @@ def test_value_map_duplicate_code_is_rejected_before_receipt(routes, same_concep
     lua, = route['plugins']['serverless-post-function']['functions']
     ctx = matched_route_context(engine, route)
     forward = engine.lua.execute(lua.encode())
+    run_dispatch_rewrite(engine, route, ctx)
     assert forward(None, ctx) == (400, b'INVALID_TOOL_ARGUMENTS')
     receipt = b'x-ouf-semantic-proposal-receipt'
     assert receipt not in engine.headers
     entries[0]['code'] = 'A'
     entries[2]['code'] = 'B'
     engine.body = json.dumps(body).encode()
+    run_dispatch_rewrite(engine, route, ctx)
     forward(None, ctx)
     assert receipt in engine.headers
     assert json.loads(engine.body) == body
@@ -274,6 +298,11 @@ def test_value_map_duplicate_code_is_rejected_before_receipt(routes, same_concep
 def matched_route_context(engine, route):
     decode = engine.modules[b'cjson.safe'][b'decode']
     return decode(json.dumps({'matched_route': {'value': route}}).encode())
+
+
+def run_dispatch_rewrite(engine, route, ctx):
+    for lua in route['plugins']['serverless-pre-function']['functions']:
+        engine.lua.execute(lua.encode())(None, ctx)
 
 
 def test_closed_vocabularies_match_contract(routes):
@@ -412,11 +441,24 @@ def test_released_lua_signs_exact_dispatch_at_limit(routes, name, body_limit, re
     # Whitespace pads the original JSON to the exact HTTP envelope limit.
     engine.lua.execute(b"ngx.req.get_body_data=function() return nil end")
     raw = compact_json(body).ljust(body_limit)
+    preserves_body = name in ('semantic.propose', 'source.onboarding.revision.prepare')
+    if preserves_body:
+        with pytest.raises(Denied, match="503"):
+            forward(None, ctx)
+        engine.body = b''
+        with pytest.raises(Denied, match="413"):
+            run_dispatch_rewrite(engine, route, ctx)
     engine.body = raw + b" "
     with pytest.raises(Denied, match="413"):
+        if preserves_body:
+            run_dispatch_rewrite(engine, route, ctx)
         forward(None, ctx)
     assert receipt_header.encode() not in engine.headers
     engine.body = raw
+    if preserves_body:
+        run_dispatch_rewrite(engine, route, ctx)
+        # Simulate request-validation replacing the body after rewrite capture.
+        engine.body = compact_json(body)
     forward(None, ctx)
     assert engine.body == raw
     encoded, signature = engine.headers[receipt_header.encode()].split(b".")

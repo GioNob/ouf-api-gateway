@@ -13,6 +13,15 @@ INSTALLATION_LABELS = {
 }
 
 
+def capture_original_body(ceiling):
+    """Preserve the bounded envelope before APISIX request-validation re-encodes it."""
+    return f"""return function(conf, ctx)
+    local body = require('apisix.core').request.get_body({ceiling})
+    if not body or #body == 0 or #body > {ceiling} then return ngx.exit(413) end
+    ctx.ouf_original_body = body
+end"""
+
+
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *, use_route_labels=False):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file'):
         raise ValueError('unsupported installation-bound function')
@@ -89,9 +98,8 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         ceiling = PROPOSAL_REQUEST_BYTES
         reader = 'ngx.req.read_body()\nlocal body = ngx.req.get_body_data()'
         if cap == 'ouf.semantic.propose':
-            # APISIX reads valid envelopes from memory or from a buffered body file.
             ceiling = VALUE_MAP_REQUEST_BYTES
-            reader = f"local body = require('apisix.core').request.get_body({ceiling})"
+            reader = "local body = ctx.ouf_original_body\nif type(body) ~= 'string' then return fail(503) end"
         source = source.replace('-- MATERIALIZE SEMANTIC REQUEST BODY', reader)
         source = source.replace('BODY_CEILING', str(ceiling)).replace('LEGACY_CEILING', str(PROPOSAL_REQUEST_BYTES))
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + source + '\nend'

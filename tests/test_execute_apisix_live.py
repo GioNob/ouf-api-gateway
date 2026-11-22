@@ -93,6 +93,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         "source.onboarding.revision.prepare": ("source.revision/prepare", "/api/internal/v1/onboarding/source-revision-mcp/prepare"),
     }
     dispatch_calls = []
+    dispatch_bodies = {}
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path=='/discovery':
@@ -109,6 +110,7 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in {owner for _, owner in dispatch_paths.values()}:
                 dispatch_calls.append(self.path)
+                dispatch_bodies[self.path] = body
                 if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
                     self.reply({
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
@@ -319,9 +321,24 @@ def test_real_apisix_oidc_delegation_and_execute():
                         })
                         assert b'INVALID_TOOL_ARGUMENTS' in result
                         assert b'private-source-value' not in result and len(dispatch_calls) == before
-                    status, result = post(path, body, token("SERVICE"), delegation)
-                    assert status == 200 and json.loads(result)["body"] == body
+                    accepted = copy.deepcopy(body)
+                    if accepted['Arguments'].get('artifactType') == 'DATATYPE':
+                        components = accepted['Arguments']['definition']['components']
+                        title = next(component for component in components if component['name'] == 'title')
+                        title['constraints']['maxLength'] = 10_000_000_000_000_001
+                        sent = compact_json(accepted)
+                    elif suffix == 'source.revision/prepare':
+                        # The schema allows an empty array and caps expectedVersion at 2**53 - 1.
+                        accepted['Arguments'].update(compositions=[], expectedVersion=9_007_199_254_740_991)
+                        sent = compact_json(accepted)
+                    else:
+                        sent = accepted
+                    status, result = post(path, sent, token("SERVICE"), delegation)
+                    assert status == 200, (path, status)
                     assert dispatch_calls[before:] == [owner_path]
+                    if isinstance(sent, bytes):
+                        assert dispatch_bodies[owner_path] == sent
+                    assert json.loads(result)["body"] == accepted
                     if body['Arguments'].get('artifactType') == 'DATATYPE':
                         raw = compact_json(body).ljust(65536)
                         assert post(path, raw, token('SERVICE'), delegation)[0] == 200

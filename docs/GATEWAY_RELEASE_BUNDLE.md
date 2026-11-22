@@ -93,6 +93,18 @@ APISIX 3.18 rifiuta gli identificatori assoluti nello schema inline di
 catalogo conserva il `$id` per dare a ciascuno schema la propria radice quando
 viene usato come ramo di un documento più ampio.
 
+In APISIX 3.18 `request-validation` valida il body JSON contro lo schema chiuso
+e poi lo ricodifica. Le rotte `semantic.propose` e
+`source.onboarding.revision.prepare` catturano i byte originali in `rewrite`,
+prima della validazione, con limiti rispettivamente di 1 MiB e 64 KiB. In
+`access` usano quei byte per i controlli dell'envelope, l'hash della ricevuta e
+l'inoltro all'owner, preservando la precisione numerica e la rappresentazione
+JSON. Per `semantic.propose` il limite rimane 64 KiB per gli artefatti diversi
+da `VALUE_MAP`. Entrambi gli owner rifiutano le chiavi duplicate. Semantic
+Registry usa `STRICT_DUPLICATE_DETECTION` in `SemanticProposalReceiptVerifier`.
+Source Onboarding usa `FAIL_ON_READING_DUP_TREE_KEY` in `SourceRevisionApi`
+quando legge l'envelope con `readTree`.
+
 Per confrontare gli schemi e le tre fixture con una checkout locale del MCP,
 eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.
 Lo stesso comando senza `--check` aggiorna le copie. Il confronto verifica

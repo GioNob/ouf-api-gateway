@@ -35,8 +35,11 @@ def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, d
     engine = Engine(workload() if claims is None else claims, h, e, key=key)
     engine.modules[b'resty.openssl.digest'] = engine.lua.table_from({b'new': lambda _: engine.lua.table_from({b'final': lambda _, data: hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string'] = engine.lua.table_from({b'to_hex': lambda data: data.hex().encode()})
+    ctx = engine.lua.table()
+    if cap == 'ouf.semantic.propose':
+        ctx[b'ouf_original_body'] = engine.body
     engine.lua.execute(function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'OWNER_KEY',
-        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, None)
+        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, ctx)
     return engine
 
 @pytest.mark.parametrize('cap', CAPABILITIES)
