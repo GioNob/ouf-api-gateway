@@ -10,6 +10,7 @@ if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.apisix_request_schema import dispatch_validation
+from tools.r2b_limits import ROUTE_CLASSES, limit_count
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts,
     envelope_refs, manifest_execute_uri, result_ceiling, ths_link_schema_matches,
@@ -131,6 +132,8 @@ def compile_config(config_root):
             if uri_regex != "^" + literal + "$":
                 raise ConfigError(f"{path}: URI regex must match the exact path")
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
+        if route["metadata"]["id"] in ROUTE_CLASSES:
+            plugins["limit-count"] = limit_count(route["metadata"]["id"])
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         capability_id = capability[1]["metadata"]["id"]

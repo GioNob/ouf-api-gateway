@@ -8,7 +8,7 @@ def test_runtime_writes_are_workload_only_and_namespace_reads_preserve_uri():
     for name in ('r2b-lake-write','r2b-handoff-write'):
         r=routes[name]
         assert r['methods']==['POST']
-        assert r['x-ouf-policy']['allowedServiceIdentities']==['ouf-ingestion-runtime']
+        assert r['x-ouf-policy']['allowedServiceIdentities']==['installation://iam.workloadClients.ingestion']
         assert not r['x-ouf-capability']['toolEligible']
     for name in ('r2b-publication-resolution','r2b-object-read'):
         assert 'proxy-rewrite' not in routes[name]['plugins']

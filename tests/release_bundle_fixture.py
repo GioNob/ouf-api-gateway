@@ -6,13 +6,16 @@ import re
 
 RELEASE_ROUTE_IDS = [
     'mcp-managed-file-create', 'mcp-managed-file-preview', 'mcp-managed-file-review-read',
-    'mcp-source-revision-prepare', 'semantic-human-terms', 'semantic-proposal-create',
+    'mcp-source-revision-prepare',
+    'r2b-handoff-write', 'r2b-lake-write', 'r2b-publication-feed', 'r2b-publication-resolution',
+    'r2b-semantic-reference', 'r2b-semantic-reference-batch', 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
     'trusted-human-resolution-review',
 ]
 
+RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication')
 
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
@@ -96,6 +99,10 @@ def ci_profile(installation, port):
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
+        'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
+        'iam.workloadClients.udp': installation.get('udpServiceIdentity', 'test-udp'),
+        **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
+           for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
         'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',

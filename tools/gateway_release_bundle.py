@@ -12,6 +12,8 @@ from ops.apisix.deploy_semantic_human import validate
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
+from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
+from tools.r2b_limits import ROUTE_CLASSES
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
 from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
@@ -58,7 +60,8 @@ def placeholder_names(value):
 
 
 def placeholder_type(name):
-    if name.startswith('services.ports.'):
+    if (name.startswith('services.ports.') or
+            name.startswith('gateway.rateLimits.') and name.endswith(('.count', '.timeWindowSeconds'))):
         return 'integer'
     # References and environment bindings for signing keys are sensitive too.
     if 'Secret' in name or 'Key' in name:
@@ -85,6 +88,17 @@ def release_resources():
     routes = validate(materialize(runtime, secret_ref))
     terms, = (r for r in routes if r['id'] == 'semantic-human-terms')
     resources = [route_resource(terms, 'ouf-semantic-registry')]
+    bindings = {route['id']: route for route in runtime['routes']}
+    for route_id in ROUTE_CLASSES:
+        binding = bindings[route_id]
+        route = internal_m2m(binding, runtime['x-ouf-installation'], secret_ref, release_template=True)
+        for role in ('ingestion', 'udp'):
+            label = f'ouf-{role}-workload'
+            if label in route['labels']:
+                route['labels'][label] = installation(f'iam.workloadClients.{role}')
+        route['plugins']['openid-connect']['claim_validator']['issuer'] = {
+            'valid_issuers': [installation('gateway.issuerUrl')]}
+        resources.append(route_resource(route, binding['x-ouf-backend-binding']['service']))
     for route in resolution(runtime, secret_ref):
         service = 'ouf-onboarding' if route['id'] == 'trusted-human-resolution-review' else UDP
         resources.append(route_resource(route, service))

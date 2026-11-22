@@ -73,19 +73,10 @@ in JSON canonico UTF-8 e firma il percorso owner e l'hash dei byte inoltrati
 nella ricevuta managed-file. Entrambi i link applicano un limite di richiesta
 di 65.536 byte, timeout upstream di 3 secondi e `retries: 0`.
 
-Le dichiarazioni in `ouf-config/routes/northbound/` hanno entrambe
-`capabilityId: null`. Il manifest MCP fissato a
-`da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo delle due capability.
-Dopo aver sincronizzato il manifest del ramo `sprint-03/task-50-next-step`,
-impostare il `capabilityId` di ogni dichiarazione con il relativo ID
-effettivo. Il Gateway deriva lo schema e l'URI di dispatch dal manifest,
-rimuovendo il prefisso `capability://` da `gatewayBindingRef` per ottenere il
-segmento finale dell'URI. Ogni rotta resta assente dal bundle finché la sua
-dichiarazione è incompleta. Il test
-`test_ths_link_capability_is_present_in_pinned_manifest` usa uno
-`xfail(strict=True)` indipendente per ciascun link. L'URI effettivo con il
-client MCP, la ricevuta con il verificatore Onboarding reale e il rollout
-D-086 richiedono la prova integrata.
+Le due dichiarazioni usano gli ID del manifest MCP. Il Gateway deriva lo schema
+e l'URI di dispatch da quel manifest. Il task 51d sincronizza lo snapshot dal
+commit MCP `f81e9611e73fef4ee7673e8e1f224a1c95e6e261`. Cambia
+`nextPolicies` e la sezione `capabilities` conserva gli stessi schemi.
 
 ## Dispatch MCP e tipi di valore D-084
 
@@ -157,3 +148,41 @@ eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.
 Lo stesso comando senza `--check` aggiorna le copie. Il confronto verifica
 anche l’identità di entrambi i contratti. La CI esegue le prove offline con
 `python -m pytest -q tests/test_value_type_schemas.py`.
+
+## Limiti R2B d'installazione
+
+Ogni prefisso in tabella richiede tre valori nel profilo privato. Il campo
+`.count` è il numero di richieste per finestra, `.timeWindowSeconds` è la
+durata in secondi ed entrambi sono interi positivi. Il campo `.key` è il nome
+di una variabile APISIX, stringa senza prefisso `$`. Le due letture delle
+pubblicazioni condividono il profilo. Scrittura lake, handoff, lettura
+puntuale e lettura a lotti hanno costi e frequenze distinti.
+
+| Prefisso esatto | Rotta |
+|---|---|
+| `gateway.rateLimits.r2bLakeWrite` | Lake |
+| `gateway.rateLimits.r2bHandoffWrite` | Handoff |
+| `gateway.rateLimits.r2bSemanticGet` | Risoluzione GET dei runtime precedenti |
+| `gateway.rateLimits.r2bSemanticBatch` | Risoluzione POST a lotti |
+| `gateway.rateLimits.r2bPublication` | Feed e risoluzione della pubblicazione |
+
+Il bundle contiene soltanto segnaposto tipizzati. Per lo sviluppo locale il
+frammento `config/development/r2b-rate-limits.yaml` fornisce
+il blocco `gateway.rateLimits` da unire alla proiezione. Test e produzione
+richiedono un profilo esplicito. Per la qualifica è proposta la variabile
+`remote_addr`. Caddy aggrega i chiamanti sullo stesso indirizzo. APISIX applica
+la quota per rotta e restituisce `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+e `X-RateLimit-Reset`. Il budget di produzione dipende dalla qualifica R-043.
+[Contratto delle rotte e ordine dei plugin](R2B_OWNER_ROUTES.md)
+
+**Registro D-065 · gateway.r2b-rate-limits.v1.** Il Gateway possiede i 15
+campi di configurazione pubblicamente censiti in `config/runtime-catalog-v1.yaml`.
+Il profilo d'installazione privato ne conserva i valori. La quota non contiene
+segreti. La cattura privata associa i valori alla revisione, al digest del
+bundle e alle sei risorse del prefisso APISIX routes in etcd. Per il ripristino
+si ripristinano prima IAM, riferimenti OIDC e binding dei servizi, poi il profilo
+e il bundle della revisione, con confronto del plan e readback delle rotte.
+La prova di ripristino deve verificare chiamata autorizzata, diniego e 429 con
+i tre header. I contatori locali in memoria ripartono sulla nuova istanza.
+La CI esercita la risoluzione del bundle e il transito HTTP. La ricevuta su un
+secondo host compete alla qualifica dell'installazione.

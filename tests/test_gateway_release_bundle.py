@@ -2,7 +2,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
@@ -12,7 +12,8 @@ def test_published_terms_release(tmp_path):
     commit = '1' * 40
     generate(tmp_path, commit, workflow, '33')
     profile = ci_profile({'installationId': 'fixture', 'revision': 3, 'gatewayAudience': 'reviewer',
-                          'issuerUrl': 'https://issuer.invalid', 'mcpServiceIdentity': 'test-mcp'}, 18080)
+                          'issuerUrl': 'https://issuer.invalid', 'mcpServiceIdentity': 'test-mcp',
+                          'ingestionServiceIdentity': 'test-ingestion', 'udpServiceIdentity': 'test-udp'}, 18080)
     routes = load_release_routes(tmp_path, commit, workflow, '33', profile)
     required_routes = [route['id'] for route in routes if route['id'] not in THS_LINK_ROUTE_KEYS]
     assert required_routes == RELEASE_ROUTE_IDS
@@ -41,6 +42,9 @@ def test_published_terms_release(tmp_path):
     bundle = json.loads((tmp_path / 'bundle.json').read_bytes())
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
+        'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
+           for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
         'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',

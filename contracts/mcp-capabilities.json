@@ -241,9 +241,7 @@
     "authorization.permissions.read": {
       "read": "authorization.permissions.read",
       "rules": [
-        {"when": {"grants": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
-        {"when": {"roles": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
-        {"when": {"capabilities": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."}
+        {"when": {}, "action": "DONE", "reason": "PERMISSIONS_READ", "outcome": "SUCCEEDED", "message": "La lettura dei permessi è completata."}
       ]
     },
     "semantic.search": {
