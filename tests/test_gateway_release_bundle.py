@@ -2,7 +2,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-from tests.release_bundle_fixture import ci_profile, load_release_routes
+from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 
 
@@ -11,7 +11,9 @@ def test_published_terms_release(tmp_path):
     commit = '1' * 40
     generate(tmp_path, commit, workflow, '33')
     profile = ci_profile({'installationId': 'fixture', 'revision': 3, 'gatewayAudience': 'reviewer'}, 18080)
-    route, = load_release_routes(tmp_path, commit, workflow, '33', profile)
+    routes = load_release_routes(tmp_path, commit, workflow, '33', profile)
+    assert [route['id'] for route in routes] == RELEASE_ROUTE_IDS
+    route = routes[0]
     assert route['id'] == 'semantic-human-terms'
     assert route['labels']['ouf-surface'] == 'TRUSTED_HUMAN_SEMANTIC'
     oidc = route['plugins']['openid-connect']
@@ -38,4 +40,6 @@ def test_published_terms_release(tmp_path):
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',
+        'services.bindings.ouf-onboarding': 'string', 'services.ports.ouf-onboarding': 'integer',
+        'services.bindings.ouf-udp-object-resolution': 'string', 'services.ports.ouf-udp-object-resolution': 'integer',
     }

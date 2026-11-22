@@ -20,10 +20,19 @@ python -m pytest -q tests/test_ths_page_route_contract.py
 
 Impostare il percorso sulla checkout di Onboarding da confrontare. Il test legge i sei HTML e confronta gli script e i fogli di stile con il contratto. Senza la variabile, il controllo di routing si esegue comunque per ogni voce del JSON.
 
-Il test compila `ouf-config` con la proiezione di laboratorio, esegue i materializzatori di permission proposals, onboarding review e managed-file THS e usa i selettori APISIX del picker e del login. Per ciascuna richiesta controlla il metodo e gli indirizzi generati in `uri` o `uris`. Un indirizzo esatto copre solo quel percorso. Un jolly finale copre il prefisso anche su più segmenti. Se una futura rotta richiede condizioni aggiuntive (per esempio `vars`), occorre verificarle prima di considerarla coperta. Ogni voce scoperta produce un fallimento con superficie, metodo e percorso. [Test del contratto](../tests/test_ths_page_route_contract.py)
+Il test compila `ouf-config` con la proiezione di laboratorio, esegue i materializzatori di permission proposals, onboarding review, managed-file THS e resolution THS e usa i selettori APISIX del picker e del login. Per ciascuna richiesta controlla il metodo e gli indirizzi generati in `uri` o `uris`. Un indirizzo esatto copre solo quel percorso. Un jolly finale copre il prefisso anche su più segmenti. Se una futura rotta richiede condizioni aggiuntive (per esempio `vars`), occorre verificarle prima di considerarla coperta. Ogni voce scoperta produce un fallimento con superficie, metodo e percorso. [Test del contratto](../tests/test_ths_page_route_contract.py)
+
+## Superficie di risoluzione
+
+Il Gateway materializza e distribuisce le tre rotte di risoluzione. `trusted-human-resolution-review` inoltra a Onboarding le cinque richieste browser sotto `/trusted-human/resolution/`, preservando il percorso e la sessione della pagina. Per le chiamate da Onboarding a UDP, `ths-resolution-package-read` richiede lo scope `resolution.issue.read` e `ths-resolution-package-confirm` richiede `resolution.match.approve`. Entrambe verificano il bearer OIDC dell’attore HUMAN. [Inventario del bundle](GATEWAY_RELEASE_BUNDLE.md)
+
+Il piano `ouf-deploy/tools/resolution_ths_update` resta come storico dell’installazione originale. Il test applica una copia di `compile_routes` alle rotte Gateway di onboarding e preflight UDP e confronta ogni campo con la materializzazione corrente e con il bundle risolto. Con una checkout locale di Deploy confronta anche la funzione e le costanti della copia con il sorgente originale ed esegue il verificatore del bundle. [Test di equivalenza](../tests/test_resolution_ths.py)
+
+```powershell
+$env:OUF_DEPLOY_CHECKOUT = 'C:\dev\ouf\ouf-deploy'
+python -m pytest -q tests/test_resolution_ths.py
+```
 
 ## Regressione del 21 novembre
 
 L'HTML precedente al task 31 caricava `/trusted-human/authorization/session.js`. La lista di indirizzi esatti di authorization escludeva quello script. Dal commit Onboarding `4e3dd7a`, l'owner incorpora i byte di `session.js` nello script di ciascuna pagina. Il fixture browser `tests/browser/ths-asset.cjs` riproduce questa composizione. Se un HTML torna a richiedere lo script separatamente, il confronto con la checkout segnala il nuovo asset. Inserirlo nel JSON rende verificabile la sua copertura anche nella CI del solo Gateway.
-
-Alla revisione iniziale del contratto, le cinque richieste di `resolution` risultano scoperte nei documenti prodotti da questo repository. Il piano in `ouf-deploy/tools/resolution_ths_update/plan.py` genera separatamente `/trusted-human/resolution/*`. L'esito del test riguarda i materializzatori locali. La verifica di una specifica installazione richiede evidenza distinta.

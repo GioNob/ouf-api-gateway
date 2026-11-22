@@ -13,6 +13,7 @@ from tools.compile_config import compile_config
 from tools.materialize_managed_file_ths import materialize as picker
 from tools.materialize_onboarding_review import materialize as review
 from tools.materialize_permission_proposals import materialize as permissions
+from tools.materialize_resolution_ths import materialize as resolution
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / "config/ths-page-route-contract-v1.json").read_text(encoding="utf-8"))
@@ -39,7 +40,7 @@ def routes():
     existing = permissions(runtime, "$ENV://OIDC_SECRET", "DELEGATION_KEY", "AUTHORIZATION_OWNER_KEY")
     workflows = review(existing, runtime, "DELEGATION_KEY", "ONBOARDING_OWNER_KEY")
     managed = picker(runtime)
-    return [*workflows["routes"], select(managed), select_login(managed)]
+    return [*workflows["routes"], select(managed), select_login(managed), *resolution(runtime, "$ENV://OIDC_SECRET")]
 
 
 def covers(route, method, path):
