@@ -6,6 +6,8 @@ materialization keeps HTTPS discovery with certificate verification enabled.
 import base64
 import copy
 import contextlib
+import hashlib
+import hmac
 import json
 import os
 import socket
@@ -107,7 +109,13 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in {owner for _, owner in dispatch_paths.values()}:
                 dispatch_calls.append(self.path)
-                self.reply({"body": json.loads(body)})
+                if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
+                    self.reply({
+                        'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
+                        'receipt': self.headers.get('X-OUF-Semantic-Proposal-Receipt'),
+                    })
+                else:
+                    self.reply({"body": json.loads(body)})
             elif self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
@@ -135,7 +143,8 @@ def test_real_apisix_oidc_delegation_and_execute():
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin'}
         if bearer:headers['Authorization']='Bearer '+bearer
         if proof:headers['X-OUF-Delegation']=proof
-        req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=json.dumps(body).encode(),headers=headers)
+        data = body if isinstance(body, bytes) else json.dumps(body).encode()
+        req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=data,headers=headers)
         try:res=urllib.request.urlopen(req,timeout=5)
         except urllib.error.HTTPError as e:res=e
         with res:return res.status,res.read()
@@ -149,7 +158,6 @@ def test_real_apisix_oidc_delegation_and_execute():
             owner_port, owner_db = owners.enter_context(java_owner(os.environ['OUF_GATEWAY_OWNER_JAR'], folder, installation))
         udp_port=None
         if os.environ.get('OUF_UDP_JAR'):
-            import hashlib
             from datetime import datetime, timedelta, timezone
             with socket.socket() as sock:sock.bind(('127.0.0.1',0));udp_port=sock.getsockname()[1]
             now=datetime.now(timezone.utc)
@@ -266,7 +274,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                         if expected == 200:
                             assert json.load(response)['target'] == target
                 assert terms_calls == [target]
-                from tests.test_value_type_schemas import value_map_dispatch
+                from tests.test_value_type_schemas import (
+                    compact_json, value_map_at_definition_limit, value_map_dispatch,
+                )
                 dispatch_cases = [(dispatch(tool), suffix, owner) for tool, (suffix, owner) in dispatch_paths.items()]
                 dispatch_cases.append((value_map_dispatch(), *dispatch_paths['semantic.propose']))
                 for body, suffix, owner_path in dispatch_cases:
@@ -293,6 +303,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                         duplicate_entries = duplicate['Arguments']['definition']['entries']
                         duplicate_entries[0]['code'] = duplicate_entries[1]['code'] = 'private-source-value'
                         invalid_bodies.append(duplicate)
+                        for invalid_code in ('private-source-value\x80', '\u202fprivate-source-value'):
+                            invalid_code_body = copy.deepcopy(body)
+                            invalid_code_body['Arguments']['definition']['entries'][0]['code'] = invalid_code
+                            invalid_bodies.append(invalid_code_body)
                         args['definition']['entries'][0]['code'] = 'private-source-value\x7f'
                     else:
                         args['compositions'][0]['kind'] = 'private-source-value'
@@ -306,6 +320,34 @@ def test_real_apisix_oidc_delegation_and_execute():
                     status, result = post(path, body, token("SERVICE"), delegation)
                     assert status == 200 and json.loads(result)["body"] == body
                     assert dispatch_calls[before:] == [owner_path]
+                    if body['Arguments'].get('artifactType') == 'DATATYPE':
+                        raw = compact_json(body).ljust(65536)
+                        assert post(path, raw, token('SERVICE'), delegation)[0] == 200
+                        assert post(path, raw + b' ', token('SERVICE'), delegation)[0] == 413
+                        assert dispatch_calls[before:] == [owner_path, owner_path]
+                    if body['Arguments'].get('artifactType') == 'VALUE_MAP':
+                        large = value_map_at_definition_limit()
+                        for field in ('Identity', 'AttemptID', 'IdempotencyKey', 'CorrelationID'):
+                            large[field] = body[field]
+                        large['Arguments']['commandKey'] = large['IdempotencyKey']
+                        raw = compact_json(large).ljust(1048576)
+                        status, result = post(path, raw, token('SERVICE'), delegation)
+                        assert status == 200, (path, status)
+                        owner = json.loads(result)
+                        body_hash = hashlib.sha256(raw).hexdigest()
+                        assert owner['bodyBytes'] == len(raw) and owner['bodyHash'] == body_hash
+                        assert owner['receipt']
+                        encoded, signature = (part.encode() for part in owner['receipt'].split('.'))
+                        assert hmac.compare_digest(
+                            base64.urlsafe_b64decode(signature + b'=='),
+                            hmac.digest(('cd' * 32).encode(), b'ouf-semantic-proposal-owner-v1.' + encoded, 'sha256'),
+                        )
+                        receipt = json.loads(base64.urlsafe_b64decode(encoded + b'=='))
+                        assert receipt['path'] == owner_path and receipt['bodyHash'] == body_hash
+                        assert receipt['capability'] == body['CapabilityID']
+                        # Oversized bodies can be rejected by nginx or request-validation.
+                        assert post(path, raw + b' ', token('SERVICE'), delegation)[0] in (400, 413)
+                        assert dispatch_calls[before:] == [owner_path, owner_path]
             code,raw=post('/mcp',{},token(externalRoleRefs=['ouf:viewer']),proof='forged')
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
@@ -330,7 +372,6 @@ def test_real_apisix_oidc_delegation_and_execute():
             delegated=json.loads(raw)['proof']
             code,raw=post('/internal/capabilities/v1/execute/authorization/propose',permission_request(),token('SERVICE'),delegated)
             assert code==200,(code,raw)
-            import hashlib,hmac
             data=json.loads(raw);encoded,signature=data['receipt'].split('.');pad=lambda s:s+'='*((4-len(s)%4)%4)
             assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('cd'*32).encode(),('ouf-authorization-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
             receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))

@@ -18,19 +18,19 @@ CONTRACT = ROOT / "contracts" / "ouf-value-types-v1.json"
 
 def test_value_types_contract_digest():
     assert hashlib.sha256(CONTRACT.read_bytes()).hexdigest() == (
-        "4b90e85ecd1573404612ef0a0ee627feffaa9c189fe4363e82079bd07824c333"
+        "3b85052e253b985f1082527eb595d2f02e5336047203deb3503a9766c1324295"
     )
 
 
 def test_value_maps_contract_digest():
     contract = ROOT / 'contracts' / 'ouf-value-maps-v1.json'
     assert hashlib.sha256(contract.read_bytes()).hexdigest() == (
-        '2f4528eb4c9c6bd9d2c6345464c8292f0cb3f36834cb2f54f81ae20e3dbe4a71'
+        '40b247ad3422e09245a8314fdcc59ffe0b039e25733a2ca8f31aa6ba03ff2d2e'
     )
 
 
 ROUTES = {
-    "semantic.propose": ("semantic-proposal-create", 65536),
+    "semantic.propose": ("semantic-proposal-create", 1048576),
     "source.onboarding.create": ("mcp-managed-file-create", 3145728),
     "source.onboarding.revision.prepare": ("mcp-source-revision-prepare", 65536),
 }
@@ -58,6 +58,29 @@ def value_map_dispatch():
     return body
 
 
+def compact_json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+
+
+def value_map_at_definition_limit():
+    body = value_map_dispatch()
+    args = body['Arguments']
+    args['rationale'] = {'sourceColumn': {'fieldName': 'field', 'sourceId': 'source'}}
+    definition = args['definition']
+    entries = definition['entries'] = [
+        {'code': f'{index:04d}' + 'c' * 124, 'concept': 'urn:example:concept:x'}
+        for index in range(2000)
+    ]
+    # Maximizing both fields in every entry would exceed even the HTTP ceiling.
+    entries[0]['concept'] = entries[0]['concept'].ljust(512, 'x')
+    remaining = 786432 - len(compact_json(definition))
+    extra, remainder = divmod(remaining, len(entries) - 1)
+    for index, entry in enumerate(entries[1:]):
+        entry['concept'] += 'x' * (extra + (index < remainder))
+    assert len(compact_json(definition)) == 786432
+    return body
+
+
 @pytest.fixture(scope="module")
 def routes(tmp_path_factory):
     directory = tmp_path_factory.mktemp("release")
@@ -81,7 +104,7 @@ def test_mcp_dispatch_in_release(routes, name):
     validation = route["plugins"]["request-validation"]
     Draft202012Validator.check_schema(validation["body_schema"])
     validator(routes, name).validate(body)
-    assert validation["max_req_body_size"] == limit
+    assert validation["max_req_body_size"] == route["plugins"]["client-control"]["max_body_size"] == limit
     assert validation["rejected_msg"] == "INVALID_TOOL_ARGUMENTS"
     assert route["upstream"]["retries"] == 0
     body["Owner"] = "unexpected"
@@ -104,6 +127,7 @@ def test_value_map_definition_and_limits(routes):
         {'entries': [{'code': 'B'}]}, {'entries': [{'concept': 'urn:example:concept'}]},
         {'entries': [{'code': 'x', 'concept': 'relative'}]},
         {'entries': [{'code': 'x', 'concept': 'urn:bad%xx'}]},
+        {'entries': [{'code': 'x', 'concept': 'urn:' + 'x' * 509}]},
         {'entries': [dict(definition['entries'][0], extra=True)]},
         {'labels': {'de': 'Codes'}}, {'labels': {'it': 'x' * 4001}},
         {'extra': True}, {'components': []},
@@ -134,16 +158,55 @@ def test_value_map_definition_and_limits(routes):
     assert not check.is_valid(body)
 
 
+def test_value_map_rationale_is_optional_and_closed(routes):
+    check = validator(routes, 'semantic.propose')
+    body = value_map_dispatch()
+    args = body['Arguments']
+    check.validate(body)
+    args['rationale'] = {'sourceColumn': {'fieldName': 'x' * 256}}
+    check.validate(body)
+    args['rationale']['sourceColumn']['sourceId'] = 'reference'
+    check.validate(body)
+    for rationale in (
+        {}, {'sourceColumn': {}}, {'sourceColumn': {'fieldName': ''}},
+        {'sourceColumn': {'fieldName': 'x' * 257}},
+        {'sourceColumn': {'fieldName': 'x', 'sourceId': 123}},
+        {'sourceColumn': {'fieldName': 'x', 'values': ['source-value']}},
+        {'sourceColumn': {'fieldName': 'x'}, 'values': []},
+    ):
+        args['rationale'] = rationale
+        assert not check.is_valid(body)
+    legacy = dispatch('semantic.propose')
+    legacy['Arguments']['rationale'] = {'sourceColumn': {'fieldName': 'field'}}
+    assert not check.is_valid(legacy)
+
+
 @pytest.mark.parametrize('code,valid', [
     ('x', True), ('\u00e9' * 128, True), ('a b\u2003c', True),
     ('', False), ('x' * 129, False), ('\u00e9' * 129, False),
     (' x', False), ('x ', False), ('x\n', False), ('x\u00a0', False), ('\u2003x', False),
     ('a\0b', False), ('a\x1fb', False), ('a\x7fb', False),
+    ('a\ufeff', True), ('\u200bcode', True), ('a\u0100b', True), ('\U0001f30d' * 128, True),
 ])
 def test_value_map_code_syntax(routes, code, valid):
     body = value_map_dispatch()
     body['Arguments']['definition']['entries'][0]['code'] = code
     assert validator(routes, 'semantic.propose').is_valid(body) is valid
+
+
+def test_value_map_code_white_space_and_controls(routes):
+    body = value_map_dispatch()
+    entry = body['Arguments']['definition']['entries'][0]
+    check = validator(routes, 'semantic.propose')
+    spaces = (*range(0x09, 0x0E), 0x20, 0x85, 0xA0, 0x1680,
+              *range(0x2000, 0x200B), 0x2028, 0x2029, 0x202F, 0x205F, 0x3000)
+    for char in map(chr, spaces):
+        for code in (char + 'x', 'x' + char):
+            entry['code'] = code
+            assert not check.is_valid(body), hex(ord(char))
+    for code_point in (*range(0x20), *range(0x7F, 0xA0)):
+        entry['code'] = 'x' + chr(code_point) + 'y'
+        assert not check.is_valid(body), hex(code_point)
 
 
 @pytest.mark.parametrize('same_concept', [False, True])
@@ -283,21 +346,22 @@ def test_composition_only_revision(routes):
     validator(routes, name).validate(body)
 
 
-@pytest.mark.parametrize("name,receipt_header,domain", [
-    ("semantic.propose", "x-ouf-semantic-proposal-receipt", "ouf-semantic-proposal-owner-v1."),
-    ("source.onboarding.create", "x-ouf-managed-file-receipt", "ouf-managed-file-owner-v1."),
-    ("source.onboarding.revision.prepare", "x-ouf-source-revision-receipt", "ouf-source-revision-owner-v1."),
+@pytest.mark.parametrize("name,body_limit,receipt_header,domain", [
+    ("semantic.propose", 65536, "x-ouf-semantic-proposal-receipt", "ouf-semantic-proposal-owner-v1."),
+    ("semantic.propose", 1048576, "x-ouf-semantic-proposal-receipt", "ouf-semantic-proposal-owner-v1."),
+    ("source.onboarding.create", 3145728, "x-ouf-managed-file-receipt", "ouf-managed-file-owner-v1."),
+    ("source.onboarding.revision.prepare", 65536, "x-ouf-source-revision-receipt", "ouf-source-revision-owner-v1."),
 ])
-def test_released_lua_signs_exact_dispatch_at_limit(routes, name, receipt_header, domain):
-    body = dispatch(name)
+def test_released_lua_signs_exact_dispatch_at_limit(routes, name, body_limit, receipt_header, domain):
+    body = value_map_at_definition_limit() if body_limit == 1048576 else dispatch(name)
+    validator(routes, name).validate(body)
     identity = body["Identity"]
     claims = dict(human(), sub=identity["PrincipalID"], tenant_id=identity["TenantID"],
                   acr=identity["AuthenticationContextRef"], azp=identity["ServicePrincipalID"],
                   scope="mcp.connect " + body["CapabilityID"])
     headers = {"X-OUF-Delegation": proof(claims), "Idempotency-Key": body["IdempotencyKey"],
                "X-Correlation-ID": body["CorrelationID"], "X-Tool-Attempt-ID": body["AttemptID"]}
-    route_id, limit = ROUTES[name]
-    route = routes[route_id]
+    route = routes[ROUTES[name][0]]
     engine = Engine(dict(workload(), tenant_id=identity["TenantID"]), headers, body, uri=route["uri"])
     labels = {key.encode(): value.encode() for key, value in route["labels"].items()}
     ctx = engine.lua.table_from({b"matched_route": {b"value": {b"labels": labels}}}, recursive=True)
@@ -305,10 +369,11 @@ def test_released_lua_signs_exact_dispatch_at_limit(routes, name, receipt_header
     forward = engine.lua.execute(lua.encode())
     # Whitespace pads the original JSON to the exact HTTP envelope limit.
     engine.lua.execute(b"ngx.req.get_body_data=function() return nil end")
-    raw = engine.body.ljust(limit)
+    raw = compact_json(body).ljust(body_limit)
     engine.body = raw + b" "
     with pytest.raises(Denied, match="413"):
         forward(None, ctx)
+    assert receipt_header.encode() not in engine.headers
     engine.body = raw
     forward(None, ctx)
     assert engine.body == raw

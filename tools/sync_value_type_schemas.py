@@ -10,12 +10,17 @@ ROUTES = {
     'source.onboarding.revision.prepare': 'source-revision-prepare-dispatch',
 }
 
-# Preserve MCP's Unicode whitespace class when APISIX matches in PCRE byte mode.
-# Each alternative matches one complete UTF-8 character.
-VALUE_MAP_SPACE_CLASS = '[ \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
-VALUE_MAP_SPACE_ALTERNATIVES = '(?:' + '|'.join(' \u0085\u00a0\u1680' + ''.join(
-    chr(code) for code in range(0x2000, 0x200B)
-) + '\u2028\u2029\u202f\u205f\u3000') + ')'
+# APISIX matches in PCRE byte mode. Expand classes above ASCII into
+# alternatives that each match one complete UTF-8 character.
+VALUE_MAP_SPACE_CLASS = '[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]'
+VALUE_MAP_SPACE_ALTERNATIVES = r'(?:[\x09-\x0D ]|' + '|'.join(
+    '\u0085\u00a0\u1680' + ''.join(chr(code) for code in range(0x2000, 0x200B))
+    + '\u2028\u2029\u202f\u205f\u3000'
+) + ')'
+VALUE_MAP_CONTROL_CLASS = r'[\x00-\x1F\x7F-\x9F]'
+VALUE_MAP_CONTROL_ALTERNATIVES = r'(?:[\x00-\x1F\x7F]|' + '|'.join(
+    chr(code) for code in range(0x80, 0xA0)
+) + ')'
 
 
 def envelope_refs(node):
@@ -27,10 +32,17 @@ def envelope_refs(node):
             ref = node['$ref']
             if not ref.startswith('#/'):
                 raise ValueError('expected a local MCP schema reference')
-            return {**node, '$ref': '#/properties/Arguments/' + ref[2:]}
+            projected = {'$ref': '#/properties/Arguments/' + ref[2:]}
+            if 'maxLength' in node:
+                # Draft 7 validators ignore siblings of $ref.
+                siblings = {key: value for key, value in node.items() if key != '$ref'}
+                return {'type': 'string', **envelope_refs(siblings), 'allOf': [projected]}
+            return {**node, **projected}
         result = {key: envelope_refs(value) for key, value in node.items()}
         if isinstance(result.get('pattern'), str):
-            result['pattern'] = result['pattern'].replace(VALUE_MAP_SPACE_CLASS, VALUE_MAP_SPACE_ALTERNATIVES)
+            result['pattern'] = (result['pattern']
+                                 .replace(VALUE_MAP_SPACE_CLASS, VALUE_MAP_SPACE_ALTERNATIVES)
+                                 .replace(VALUE_MAP_CONTROL_CLASS, VALUE_MAP_CONTROL_ALTERNATIVES))
         # The installation's Lua validator handles boolean propertyNames only.
         # Express MCP's closed name lists using its supported object keywords.
         if 'propertyNames' in result:
@@ -57,6 +69,8 @@ def sync(checkout, check):
     proposal = capabilities['semantic.propose']['inputSchema']
     if 'VALUE_MAP' not in proposal['properties']['artifactType']['enum']:
         raise ValueError('VALUE_MAP_SCHEMA_MISSING')
+    if 'valueMapRationale' not in proposal['$defs']:
+        raise ValueError('VALUE_MAP_SCHEMA_REVISION_2_MISSING')
     for name, stem in ROUTES.items():
         capability = capabilities[name]
         path = ROOT / f'schemas/mcp-gateway-{stem}-v1.json'

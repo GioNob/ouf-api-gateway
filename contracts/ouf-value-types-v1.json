@@ -1,8 +1,66 @@
 {
   "schema": "ouf.value-types.v1",
   "decision": "D-084",
+  "revision": 2,
+  "revisionNotes": "Revision 2 (D-084 r2, after the review of tasks 40c, 42c, 43b, 44c, 46b): whitespace defined as the Unicode White_Space property with shared test vectors; geometry coordinates canonical as IEEE-754 binary64; WKT measure ordinates invalid; integer canonical wording fixed (no '+', never '-0'). Revision 1 had SHA-256 4b90e85ecd1573404612ef0a0ee627feffaa9c189fe4363e82079bd07824c333.",
   "principle": "Every source field maps to a base type of a closed, versioned vocabulary through a closed, versioned reader. Structured data are combinations of base types (or of other published structured types). Structured types are NOT a closed list: the agent proposes them through MCP, the human approves them in the THS, the Semantic Registry publishes them as DATATYPE artifacts, and Ingestion and UDP accept any published structured type by contract, without type-specific code.",
-  "emptyValue": "For every reader except IDENTITY, a cell that is empty or only whitespace is ABSENT: no value is produced (the property or component is omitted) and no error is raised. IDENTITY keeps the lexical cell unchanged, including empty strings, for compatibility with data already acquired. Required checks belong to the structured type component or to the mapping, not to readers.",
+  "whitespace": {
+    "definition": "Whitespace is exactly the set of code points with the Unicode White_Space property: U+0009-U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F, U+3000. 'trim' removes leading and trailing whitespace code points; 'only whitespace' means every code point of the cell is whitespace. No other code point is whitespace (U+001C-U+001F and U+FEFF are NOT).",
+    "implementation": "Implementations use this explicit set. Java String.trim(), String.strip(), String.isBlank() and Character.isWhitespace() do NOT match it and must not be used for reader trimming or emptiness.",
+    "vectors": [
+      {
+        "reader": "DECIMAL_DOT_V1",
+        "cell": " 12.50 ",
+        "result": "12.5"
+      },
+      {
+        "reader": "DECIMAL_DOT_V1",
+        "cell": " -0.0　",
+        "result": "0"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "+007 ",
+        "result": "7"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "\u001c12",
+        "result": "INVALID"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "﻿12",
+        "result": "INVALID"
+      },
+      {
+        "reader": "TEXT_NFC_TRIM_V1",
+        "cell": " Via Roma ",
+        "result": "Via Roma"
+      },
+      {
+        "reader": "TEXT_NFC_TRIM_V1",
+        "cell": "  \t",
+        "result": "ABSENT"
+      },
+      {
+        "reader": "DATE_ISO_V1",
+        "cell": " ",
+        "result": "ABSENT"
+      },
+      {
+        "reader": "VALUE_MAP_V1",
+        "cell": " A1 ",
+        "result": "concept mapped from code 'A1'"
+      },
+      {
+        "reader": "IDENTITY",
+        "cell": " A1 ",
+        "result": " A1 "
+      }
+    ]
+  },
+  "emptyValue": "For every reader except IDENTITY, a cell that is empty or only whitespace (as defined in 'whitespace') is ABSENT: no value is produced (the property or component is omitted) and no error is raised. IDENTITY keeps the lexical cell unchanged, including empty strings, for compatibility with data already acquired. Required checks belong to the structured type component or to the mapping, not to readers.",
   "invalidValue": "A value that a reader, constructor or structured type cannot accept is a DATA error with a stable code; the error never contains the source value (D-058).",
   "provenance": "When the canonical value differs from the source lexical value(s), the source lexical value(s) are preserved in provenance/evidence (PET Ingestion 10.2).",
   "baseTypes": [
@@ -14,7 +72,7 @@
     {
       "id": "integer",
       "datatype": "http://www.w3.org/2001/XMLSchema#integer",
-      "canonical": "JSON string of plain integer digits with optional leading '-', no , no leading zeros, no exponent (e.g. \"-42\"); a string, not a JSON number, so that generic JSON consumers never convert it to binary floating point; consumers parse with BigInteger/BigDecimal"
+      "canonical": "JSON string of plain integer digits with optional leading '-' (never for zero), no '+', no leading zeros, no exponent (e.g. \"-42\"); a string, not a JSON number, so that generic JSON consumers never convert it to binary floating point; consumers parse with BigInteger/BigDecimal"
     },
     {
       "id": "decimal",
@@ -39,7 +97,7 @@
     {
       "id": "geometry",
       "datatype": "http://www.opengis.net/ont/geosparql#geoJSONLiteral",
-      "canonical": "JSON object {\"crs\": \"EPSG:<n>\", \"geoJson\": <RFC 7946 geometry>} as already stored by UDP; coordinates [x, y] = [lon, lat] for EPSG:4326"
+      "canonical": "JSON object {\"crs\": \"EPSG:<n>\", \"geoJson\": <RFC 7946 geometry>} as already stored by UDP; coordinates [x, y] = [lon, lat] for EPSG:4326; every coordinate is a JSON number equal to the IEEE-754 binary64 value nearest to the source decimal, serialized in the shortest form that round-trips (ECMAScript Number::toString, as in RFC 8785). Consumers compare and store coordinates as binary64; digits beyond binary64 precision are not significant."
     },
     {
       "id": "concept",
@@ -126,7 +184,7 @@
     {
       "id": "WKT_V1",
       "output": "geometry",
-      "rule": "OGC WKT geometry text with the CRS declared in params",
+      "rule": "OGC WKT geometry text with the CRS declared in params; 2D and Z geometries only: M and ZM geometries are invalid because the canonical GeoJSON has no measure ordinate",
       "params": {
         "crs": "EPSG:<n>, required"
       }

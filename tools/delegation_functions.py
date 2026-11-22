@@ -76,9 +76,14 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         raise ValueError('invalid function')
     source = (ROOT / (kind + '.lua')).read_text()
     if kind == 'execute_semantic_proposals':
-        # DATATYPE envelopes can exceed the nginx in-memory body buffer.
-        reader = ("local body = require('apisix.core').request.get_body(65536)" if cap == 'ouf.semantic.propose'
-                  else "ngx.req.read_body()\nlocal body = ngx.req.get_body_data()")
+        from tools.materialize_semantic_proposals import PROPOSAL_REQUEST_BYTES, VALUE_MAP_REQUEST_BYTES
+        ceiling = PROPOSAL_REQUEST_BYTES
+        reader = 'ngx.req.read_body()\nlocal body = ngx.req.get_body_data()'
+        if cap == 'ouf.semantic.propose':
+            # APISIX reads valid envelopes from memory or from a buffered body file.
+            ceiling = VALUE_MAP_REQUEST_BYTES
+            reader = f"local body = require('apisix.core').request.get_body({ceiling})"
         source = source.replace('-- MATERIALIZE SEMANTIC REQUEST BODY', reader)
+        source = source.replace('BODY_CEILING', str(ceiling)).replace('LEGACY_CEILING', str(PROPOSAL_REQUEST_BYTES))
     return 'return function(conf, ctx)\n' + constants + '\n' + (ROOT/'delegation.lua').read_text() + '\n' + source + '\nend'
 

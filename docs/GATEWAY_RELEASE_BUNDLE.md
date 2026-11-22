@@ -45,7 +45,10 @@ python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_hum
 Il Gateway valida l’envelope completo e firma i byte ricevuti. Per la proposta
 semantica ammette un `DATATYPE` con 1–32 componenti o un `VALUE_MAP` con pin al
 vocabolario, 1–2.000 voci `code`/`concept` ed etichette opzionali `it`/`en`.
-La rotta rifiuta codici duplicati prima di firmare la ricevuta. Il Registry
+I codici hanno al massimo 128 punti di codice, senza spazi Unicode White_Space
+agli estremi né controlli C0 e C1. I concetti hanno al massimo 512 caratteri.
+La rotta rifiuta codici duplicati prima di firmare la ricevuta. La proposta
+può includere `rationale.sourceColumn` fuori dalla definizione. Il Registry
 verifica pubblicazione e appartenenza al vocabolario.
 [Contratto delle value map](../contracts/ouf-value-maps-v1.json)
 
@@ -61,12 +64,18 @@ dei bundle pubblicati sono nel [contratto comune](../contracts/ouf-value-types-v
 
 | Comando | Budget dichiarato da MCP | Limite Gateway sull’envelope firmato |
 | --- | --- | --- |
-| `semantic.propose` | 65.536 byte di richiesta | 65.536 byte |
+| `semantic.propose` con `VALUE_MAP` | 1.048.576 byte di argomenti | 1.048.576 byte |
+| `semantic.propose`, altri tipi | 65.536 byte di richiesta | 65.536 byte |
 | `source.onboarding.create` | 2.097.152 byte di argomenti | 3.145.728 byte |
 | `source.onboarding.revision.prepare` | 65.536 byte di argomenti | 65.536 byte |
 
-Il budget dell’envelope comprende identità, correlazione e metadati. Nel
-candidato Onboarding task-40, `ManagedFileMcpApi` ammette 3 MiB per la creazione,
+Il budget dell’envelope comprende identità, correlazione e metadati. MCP e
+Registry verificano il limite di 786.432 byte sulla definizione canonica. Il
+gate APISIX include una definizione di queste dimensioni con 2.000 codici
+da 128 caratteri, verifica la firma della ricevuta sul backend di prova e
+controlla il limite HTTP di entrambi i tipi di proposta.
+
+Nel candidato Onboarding task-40, `ManagedFileMcpApi` ammette 3 MiB per la creazione,
 ma `PermissionDelegationVerifier.verifyBound` applica 65.536 byte alla ricevuta
 sullo stesso corpo. La fascia superiore richiede una verifica pairwise dell’owner.
 

@@ -7,6 +7,8 @@ from tools.materialize_operational_execute import materialize as operational_run
 from tools.delegation_functions import function
 
 ROOT = Path(__file__).resolve().parents[1]
+PROPOSAL_REQUEST_BYTES = 65536
+VALUE_MAP_REQUEST_BYTES = 1048576
 CAPABILITIES = {
     'ouf.semantic.propose': ('create', 'COMMAND', 'ouf.semantic.propose'),
     'ouf.semantic.review.prepare': ('validate', 'COMMAND', 'ouf.semantic.review.prepare'),
@@ -56,7 +58,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             or p['identity'] != 'M2M' or p['requiredScope'] != scope
             or p['allowedActorTypes'] != (['HUMAN'] if mode == 'read' else ['HUMAN', 'AI_AGENT', 'SERVICE'])
             or p['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
-            or p['maxRequestBytes'] != 65536 or p['timeoutSeconds'] != 3):
+            or p['maxRequestBytes'] != PROPOSAL_REQUEST_BYTES or p['timeoutSeconds'] != 3):
             raise ValueError('semantic proposal binding mismatch: '+cap)
         route = copy.deepcopy(template)
         route['id'] = 'semantic-proposal-'+mode
@@ -66,7 +68,9 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
         route['plugins']['request-validation']['body_schema'] = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
         if mode == 'create':
-            route['plugins']['request-validation']['rejected_msg'] = 'INVALID_TOOL_ARGUMENTS'
+            route['plugins']['client-control'] = {'max_body_size': VALUE_MAP_REQUEST_BYTES}
+            route['plugins']['request-validation'].update(
+                max_req_body_size=VALUE_MAP_REQUEST_BYTES, rejected_msg='INVALID_TOOL_ARGUMENTS')
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
             delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
             use_route_labels=use_route_labels and mode == 'create')]
