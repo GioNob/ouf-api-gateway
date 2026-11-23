@@ -23,7 +23,7 @@ end"""
 
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
-             use_route_labels=False, ths_link=None):
+             use_route_labels=False, ths_link=None, issue_handoff=False):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
                                          'execute_managed_file_retained'):
         raise ValueError('unsupported installation-bound function')
@@ -96,6 +96,25 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         raise ValueError('invalid function')
     source = (ROOT / (kind + '.lua')).read_text()
     if kind == 'execute_managed_file':
+        file_binding = 'local binding = ths_link'
+        receipt_capability = 'e.CapabilityID'
+        if issue_handoff:
+            from tools.mcp_dispatch_contract import picker_contract
+            contract = picker_contract('mcp-managed-file-handoff-issue')
+            path = '/api/internal/v1/onboarding/managed-file-mcp/handoff-issue'
+            uri = '/internal/capabilities/v1/execute/managed.file/handoff-issue'
+            settings = {'capability': contract['capabilityId'], 'binding': contract['gatewayBindingRef'],
+                        'operation': contract['operationClass'], 'scope': contract['requiredAuthorizationCapability'],
+                        'path': path}
+            file_binding = '\n'.join((
+                f'if ngx.var.uri ~= "{uri}" and ngx.var.uri ~= "{path}" then return fail(403) end',
+                "if type(e.Arguments) ~= 'table' or e.Arguments.commandKey ~= e.IdempotencyKey then return fail(409) end",
+                'local binding = {' + ', '.join(f'{k}={json.dumps(v)}' for k, v in settings.items()) + '}',
+            ))
+            # Onboarding verifies the delegated upload authority, exact issue path and envelope hash.
+            receipt_capability = 'binding.scope'
+        source = source.replace('-- MATERIALIZE FILE BINDING', file_binding)
+        source = source.replace('OWNER_RECEIPT_CAPABILITY', receipt_capability)
         if ths_link is None:
             binding = 'nil'
         else:

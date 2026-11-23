@@ -118,6 +118,8 @@ def release_resources():
         'semantic-proposal-create': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'semantic-proposal-read': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'mcp-managed-file-create': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-handoff': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-handoff-issue': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-preview': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-review-read': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),

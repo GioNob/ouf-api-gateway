@@ -13,7 +13,8 @@ from tools.apisix_request_schema import dispatch_validation
 from tools.r2b_limits import ROUTE_CLASSES, limit_count
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts,
-    envelope_refs, manifest_execute_uri, result_ceiling, ths_link_schema_matches,
+    PICKER_ROUTES, envelope_refs, manifest_execute_uri, picker_contract,
+    result_ceiling, ths_link_schema_matches,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +98,7 @@ def compile_config(config_root):
     selected_matches=set()
     for path,route in docs:
         if route["kind"]!="RouteBinding": continue
+        route_id = route["metadata"]["id"]
         spec=route["spec"]
         capability=indexed.get(("Capability",spec["capabilityRef"]))
         source=indexed.get(("SourceRuntimeProfile",spec["sourceRef"]))
@@ -137,12 +139,22 @@ def compile_config(config_root):
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
         capability_id = capability[1]["metadata"]["id"]
-        contract = contracts.get(capability_id)
+        contract = picker_contract(route_id) if route_id in PICKER_ROUTES else contracts.get(capability_id)
         if (contract and match[0] == 'POST' and match[1].startswith(EXECUTE_PATH + '/')
                 and match[1] != EXECUTE_PATH + '/managed.file/upload'):
-            schema = json.loads((ROOT / 'schemas/mcp-gateway-dispatch-v1.json').read_bytes())
+            if route_id in PICKER_ROUTES:
+                if capability_id != contract['capabilityId']:
+                    raise ConfigError(f'{path}: picker capability differs from the MCP manifest')
+                # Preserve the installed closed HUMAN envelope (including string bounds).
+                catalog = json.loads((ROOT / 'schemas/mcp-gateway-managed-file-dispatch-v1.json').read_bytes())
+                schema, = (s for s in catalog['oneOf']
+                           if s['properties']['CapabilityID'].get('const') == 'ouf.managed-source.file.profile')
+                arguments = contract[PICKER_ROUTES[route_id][1]]
+            else:
+                schema = json.loads((ROOT / 'schemas/mcp-gateway-dispatch-v1.json').read_bytes())
+                arguments = contract['inputSchema']
             fields = schema['properties']
-            fields['Arguments'] = envelope_refs(contract['inputSchema'])
+            fields['Arguments'] = envelope_refs(arguments)
             for field, value in {
                 'CapabilityID': capability_id,
                 'GatewayBindingRef': contract['gatewayBindingRef'],

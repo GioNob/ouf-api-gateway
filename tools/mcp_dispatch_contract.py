@@ -6,6 +6,13 @@ from pathlib import Path
 
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
+PICKER_CAPABILITY = 'ouf.managed-source.file.upload'
+PICKER_ISSUE = 'ouf.managed-source.file.handoff-issue'
+PICKER_MANIFEST = MANIFEST.with_name('mcp-picker-capabilities.json')
+PICKER_ROUTES = {
+    'mcp-managed-file-handoff': (PICKER_CAPABILITY, 'handoffInputSchema', 'handoffId'),
+    'mcp-managed-file-handoff-issue': (PICKER_ISSUE, 'inputSchema', 'commandKey'),
+}
 INVALID_TOOL_ARGUMENTS = 'INVALID_TOOL_ARGUMENTS'
 NEXT_RESULT_HEADROOM_BYTES = 2048
 EXECUTE_PATH = '/internal/capabilities/v1/execute'
@@ -47,6 +54,30 @@ def capability_contracts():
     if len(by_id) != len(rows):
         raise ValueError('duplicate capability ID in MCP manifest')
     return by_id
+
+
+def picker_contract(route_id):
+    capability, schema_key, field = PICKER_ROUTES[route_id]
+    rows = json.loads(PICKER_MANIFEST.read_bytes())
+    matches = [row for row in rows if row['capabilityId'] == capability]
+    if len(matches) != 1 or schema_key not in matches[0]:
+        raise ValueError(f'{route_id}: missing or ambiguous MCP declaration {capability}.{schema_key}; '
+                         'synchronize the task-50n2 picker manifest')
+    contract, = matches
+    if (contract.get('publicationState') != 'ACTIVE' or contract.get('owner') != 'onboarding'
+            or contract.get('operationClass') != 'COMMAND'
+            or contract.get('requiredAuthorizationCapability') != PICKER_CAPABILITY
+            or contract.get('gatewayBindingRef') != 'capability://' + capability
+            or (capability == PICKER_ISSUE and contract.get('allowedActors') != ['HUMAN'])
+            or contract.get('toolEligible') is not (capability == PICKER_CAPABILITY)):
+        raise ValueError(f'{route_id}: inconsistent MCP contract for {capability}')
+    schema = contract[schema_key]
+    if (schema.get('type') != 'object' or schema.get('additionalProperties') is not False
+            or schema.get('required') != [field] or set(schema.get('properties', {})) != {field}
+            or schema['properties'][field].get('type') != 'string'
+            or schema['properties'][field].get('format') != 'uuid'):
+        raise ValueError(f'{route_id}: expected closed MCP dispatch schema with UUID {field}')
+    return contract
 
 
 def result_ceiling(capability, current):

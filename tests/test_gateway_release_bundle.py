@@ -8,6 +8,7 @@ from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_pro
 from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
+from tools import mcp_dispatch_contract
 
 
 def test_published_terms_release(tmp_path):
@@ -57,6 +58,18 @@ def test_published_terms_release(tmp_path):
         'services.bindings.ouf-ingestion-runtime': 'string', 'services.ports.ouf-ingestion-runtime': 'integer',
         'services.bindings.ouf-udp-object-resolution': 'string', 'services.ports.ouf-udp-object-resolution': 'integer',
     }
+
+
+def test_missing_picker_issue_stops_release(tmp_path, monkeypatch):
+    """GW-51I-MANIFEST. A predecessor manifest must never publish an incomplete release."""
+    manifest = tmp_path / 'picker.json'
+    rows = json.loads(mcp_dispatch_contract.PICKER_MANIFEST.read_bytes())
+    manifest.write_text(json.dumps([r for r in rows if r['capabilityId'] != mcp_dispatch_contract.PICKER_ISSUE]))
+    monkeypatch.setattr(mcp_dispatch_contract, 'PICKER_MANIFEST', manifest)
+    output = tmp_path / 'release'
+    with pytest.raises(ValueError, match=r'mcp-managed-file-handoff-issue: missing or ambiguous MCP declaration'):
+        generate(output, '1' * 40, '.github/workflows/ci.yml', '51')
+    assert not output.exists()
 
 
 RETIREMENT = {'kind': 'routes', 'id': 'legacy', 'supersededBy': 'replacement',

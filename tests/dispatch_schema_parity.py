@@ -20,7 +20,7 @@ from tools.gateway_release_bundle import generate
 from tools.materialize_object_search import materialize as object_search
 from tools.materialize_permission_proposals import materialize as permission_proposals
 from tools.mcp_dispatch_contract import (
-    DATE_TIME_WIRE_PATTERN, UUID_WIRE_PATTERN, bound_capability, capability_contracts,
+    DATE_TIME_WIRE_PATTERN, UUID_WIRE_PATTERN, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,13 +122,21 @@ def cases(routes):
     for uri, route in sorted(routes.items()):
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
-        if capability not in contracts:
+        route_id = route['id']
+        if route_id in PICKER_ROUTES:
+            _, field, _ = PICKER_ROUTES[route_id]
+            source = picker_contract(route_id)[field]
+        elif capability in contracts:
+            source = contracts[capability]['inputSchema']
+        else:
             continue
-        source = contracts[capability]['inputSchema']
         check = Draft202012Validator(source, format_checker=WIRE_FORMATS)
         for arguments in corpus(source, fixtures(capability)):
             result.append((uri, dispatch_body(schema, copy.deepcopy(arguments)), check.is_valid(arguments), 'current'))
-        if capability in previous:
+        if route_id == 'mcp-managed-file-handoff':
+            arguments = {'handoffId': '00000000-0000-4000-8000-000000000001'}
+            result.append((uri, dispatch_body(schema, arguments), True, 'predecessor'))
+        elif capability in previous:
             old = previous[capability]['inputSchema']
             old_check = Draft202012Validator(old, format_checker=WIRE_FORMATS)
             for arguments in corpus(old, fixtures(capability)):

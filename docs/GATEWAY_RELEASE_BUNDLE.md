@@ -63,6 +63,8 @@ python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_hum
 | ID rotta | Metodo e percorso | Capability o scope | Percorso owner |
 | --- | --- | --- | --- |
 | `mcp-managed-file-preview` | `POST /internal/capabilities/v1/execute/managed.file/preview` | `ouf.managed-source.preview` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/preview` |
+| `mcp-managed-file-handoff` | `POST /internal/capabilities/v1/execute/managed.file/handoff` | `ouf.managed-source.file.upload` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/handoff` |
+| `mcp-managed-file-handoff-issue` | `POST /internal/capabilities/v1/execute/managed.file/handoff-issue` | `ouf.managed-source.file.handoff-issue` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/handoff-issue` |
 | `mcp-managed-file-review-read` | `POST /internal/capabilities/v1/execute/managed.file/review-read` | `ouf.managed-source.onboarding.read` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/review-read` |
 | `semantic-proposal-read` | `POST /internal/capabilities/v1/execute/semantic/read` | `ouf.semantic.proposal.read` | Semantic `/api/semantic/v1/proposal-commands/read` |
 | `trusted-human-ingestion-run-recovery` | `GET`, `POST /trusted-human/ingestion-run-recovery/*` | Sessione THS | Onboarding, stesso percorso |
@@ -76,6 +78,22 @@ richiedono OIDC HUMAN e rimuovono gli header `x-ouf-*` del client. Il bundle
 risolve l'upstream da `services.bindings.ouf-ingestion-runtime` e
 `services.ports.ouf-ingestion-runtime`. Le rotte hanno `retries: 0`: la decisione
 versionata e il budget di recupero restano responsabilità di Ingestion.
+
+### Selettore dei file (D-087, D-089)
+
+Entrambe le rotte richiedono il workload MCP e una delega HUMAN con lo scope
+`ouf.managed-source.file.upload`. Il Gateway firma il percorso owner e l’hash
+dell’envelope. Per l’emissione verifica anche la corrispondenza del
+`commandKey` con la chiave di idempotenza. Le due rotte hanno un limite di
+65.536 byte, tre timeout upstream di 3 secondi e zero retry.
+
+Per aggiornare le sole due dichiarazioni dal checkout MCP qualificato eseguire
+`python -m tools.sync_picker_contracts <checkout-mcp>`.
+L’opzione `--check` confronta le due righe del manifest con
+`contracts/mcp-picker-capabilities.json`. Gli argomenti di lettura derivano da
+`handoffInputSchema` della capability upload e quelli di emissione da
+`inputSchema` della capability interna. I backup legacy a quattro rotte
+ripristinano profile, preview e create. Il bundle governa il ripristino della lettura.
 
 ### Link THS emessi da Onboarding (D-085 B.2 e B.4)
 

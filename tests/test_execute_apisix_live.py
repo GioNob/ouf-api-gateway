@@ -32,7 +32,7 @@ from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
-from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, bound_capability, capability_contracts
+from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
 
 
 R2B_GET = '/api/semantic/v1/references:resolve'
@@ -248,6 +248,8 @@ def test_real_apisix_oidc_delegation_and_execute():
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
     def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
+        if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
+            headers['Idempotency-Key'] = body['IdempotencyKey']
         if path.split('?')[0] in R2B_CASES:
             headers.update({'X-OUF-Gateway-Verified': 'true', 'X-OUF-Tenant-ID': 'forged-tenant',
                             'X-OUF-Service-Principal': installation['ingestionServiceIdentity']})
@@ -398,7 +400,10 @@ def test_real_apisix_oidc_delegation_and_execute():
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
-                scope = capability_contracts()[bound_capability(schema)]['requiredAuthorizationCapability']
+                route_id = changed_routes[uri]['id']
+                contract = (picker_contract(route_id) if route_id in PICKER_ROUTES
+                            else capability_contracts()[bound_capability(schema)])
+                scope = contract['requiredAuthorizationCapability']
                 status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
                 assert status == 200
                 delegation = json.loads(result)['proof']

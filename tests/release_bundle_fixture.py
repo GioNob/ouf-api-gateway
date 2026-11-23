@@ -10,7 +10,8 @@ R2B_ROUTE_IDS = (
 )
 
 RELEASE_ROUTE_IDS = [
-    'mcp-managed-file-create', 'mcp-managed-file-preview', 'mcp-managed-file-review-read',
+    'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
+    'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
     *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',

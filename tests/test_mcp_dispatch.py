@@ -30,6 +30,13 @@ def test_mcp_pairwise_dispatches_only_to_published_udp_binding():
     assert forwarded["X-OUF-Authorization-Decision-Ref"]=="decision-1"
 
 
+def test_picker_operations_are_only_reachable_via_their_governed_routes():
+    """GW-51I-DISPATCH. Neither picker operation is exposed by generic capability dispatch."""
+    published = dispatcher(FakeUpstream()).routes
+    assert 'ouf.managed-source.file.upload' not in published
+    assert 'ouf.managed-source.file.handoff-issue' not in published
+
+
 def test_pairwise_dispatch_rejects_invalid_manifest_arguments_before_owner():
     upstream = FakeUpstream()
     invalid = fixture()

@@ -24,6 +24,8 @@ BASELINE_RESOURCES_SHA256 = 'e7d669a1552f87c10cbefae3ed5013eb3a368e693fe14963795
 # Digests of the canonical arrays emitted by the unmodified 9064a5f release generator.
 TASK_51D2_RESOURCES_SHA256 = 'ecb8a08122854dbc54dd7d592ea1ceca33e97a481bb2ab3ffa8cc9e6380cb550'
 TASK_51D2_PLACEHOLDERS_SHA256 = '90a9dbc7f6d05d7f26f79a799cd24eac6e38ba50a7e51168db367617d68c5695'
+PICKER_IDS = {'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue'}
+TASK_51I_RESOURCES_SHA256 = 'c0beb3b5e2bc2282b7205f30ef586e302cfcfbafe6ef4f1755ed859ed1acaac4'
 
 # Frozen reconstruction, not a snapshot of the installation. Keep the hashes
 # independent of the materializer, including selectors, plugins, Lua and nodes.
@@ -53,9 +55,11 @@ def resources(bundle):
     return {item['id']: item['body'] for item in bundle['resources']}
 
 
-def test_release_resources_and_placeholders_match_9064a5f(bundle):
-    """GW-51D3-BASELINE-PARITY."""
-    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources'])) == TASK_51D2_RESOURCES_SHA256
+def test_picker_additions_preserve_predecessor_resources_and_placeholders(bundle):
+    """GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
+    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources'])) == TASK_51I_RESOURCES_SHA256
+    retained = [item for item in bundle['resources'] if item['id'] not in PICKER_IDS]
+    assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
     assert sha256(canonical_json(bundle['placeholders'])) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
@@ -79,6 +83,11 @@ def test_adopted_route_ids_and_unique_selectors(resources):
     """GW-51D2-ADOPTION."""
     assert set(ADOPTED_ROUTE_IDS.values()) <= resources.keys()
     assert ADOPTED_ROUTE_IDS.keys().isdisjoint(resources)
+    for route_id in PICKER_IDS:
+        mode = route_id.removeprefix('mcp-managed-file-')
+        uri = '/internal/capabilities/v1/execute/managed.file/' + mode
+        assert [key for key, body in resources.items() if uri in body.get('uris', [body.get('uri')])] == [route_id]
+        assert resources[route_id]['methods'] == ['POST'] and 'vars' not in resources[route_id]
 
     run_root = '/api/trusted-human/v1/ingestion/runs/'
     run_actions = {f'trusted-human-ingestion-run-{action}': action for action in ('abort', 'resume')}
@@ -107,7 +116,8 @@ def test_adopted_route_ids_and_unique_selectors(resources):
 def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
-    restored = [dict(item, id=original_ids.get(item['id'], item['id'])) for item in bundle['resources']]
+    restored = [dict(item, id=original_ids.get(item['id'], item['id']))
+                for item in bundle['resources'] if item['id'] not in PICKER_IDS]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

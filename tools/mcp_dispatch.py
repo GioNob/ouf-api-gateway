@@ -64,7 +64,8 @@ class MCPDispatcher:
                 capability.get("toolEligible")
                 and capability.get("capabilityId") in self.contracts
                 and route.get("uri", "").startswith(EXECUTE_PATH + '/')
-                and route.get("uri") != EXECUTE_PATH + '/managed.file/upload'
+                # The stream and the picker status operation share a capability but have distinct wire contracts.
+                and route.get("uri") not in (EXECUTE_PATH + '/managed.file/upload', EXECUTE_PATH + '/managed.file/handoff')
                 and route.get("labels", {}).get("exposure") == "internal"
                 and policy.get("identity") == "M2M"
                 and (
