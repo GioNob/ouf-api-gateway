@@ -2,7 +2,10 @@ import json
 import re
 from urllib.parse import urlsplit
 
+import pytest
+
 from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
@@ -54,3 +57,42 @@ def test_published_terms_release(tmp_path):
         'services.bindings.ouf-ingestion-runtime': 'string', 'services.ports.ouf-ingestion-runtime': 'integer',
         'services.bindings.ouf-udp-object-resolution': 'string', 'services.ports.ouf-udp-object-resolution': 'integer',
     }
+
+
+RETIREMENT = {'kind': 'routes', 'id': 'legacy', 'supersededBy': 'replacement',
+              'vars': [['uri', '~~', '^/legacy$']], 'reason': 'Duplicate route'}
+
+
+@pytest.mark.parametrize('entries, error', [
+    pytest.param({}, 'expected a list', id='list'),
+    pytest.param([{}], 'expected kind, id, supersededBy, vars and reason', id='fields'),
+    pytest.param([RETIREMENT | {'vars': []}], 'vars must be a non-empty list', id='empty-vars'),
+    pytest.param([RETIREMENT | {'vars': 'uri'}], 'vars must be a non-empty list', id='non-list-vars'),
+    pytest.param([RETIREMENT | {'vars': [['uri', 1]]}], 'vars must be a non-empty list', id='non-string-condition'),
+    pytest.param([RETIREMENT, RETIREMENT | {'id': 'earlier'}], 'sorted by ID', id='order'),
+    pytest.param([RETIREMENT, RETIREMENT], 'duplicate retired route ID', id='duplicate'),
+    pytest.param([RETIREMENT | {'kind': 'services'}], 'kind must be routes', id='kind'),
+    pytest.param([RETIREMENT | {'id': 'bad/id'}], 'invalid retired route ID', id='invalid-id'),
+    pytest.param([RETIREMENT | {'id': 123}], 'invalid retired route ID', id='non-string-id'),
+    pytest.param([RETIREMENT | {'id': 'replacement'}], 'already in resources', id='existing-route-id'),
+    pytest.param([RETIREMENT | {'id': 'service'}], 'already in resources', id='existing-service-id'),
+    pytest.param([RETIREMENT | {'supersededBy': 'absent'}], 'supersededBy must identify', id='missing-replacement'),
+    pytest.param([RETIREMENT | {'supersededBy': 'service'}], 'supersededBy must identify', id='non-route-replacement'),
+    pytest.param([RETIREMENT | {'supersededBy': []}], 'supersededBy must identify', id='non-string-replacement'),
+    pytest.param([RETIREMENT | {'reason': ' '}], 'reason must be a non-empty string', id='empty-reason'),
+])
+def test_invalid_retirements_stop_bundle_generation(tmp_path, monkeypatch, entries, error):
+    """GW-51D3-RETIRED-VALIDATION."""
+    config = tmp_path / 'retired-routes.json'
+    config.write_text(json.dumps(entries), encoding='utf-8')
+    monkeypatch.setattr(gateway_release_bundle, 'RETIRED_ROUTES_PATH', config)
+    monkeypatch.setattr(gateway_release_bundle, 'release_resources', lambda: [
+        {'kind': 'routes', 'id': 'replacement', 'body': {}},
+        {'kind': 'services', 'id': 'service', 'body': {}},
+    ])
+
+    output = tmp_path / 'release'
+    with pytest.raises(ValueError, match=error) as raised:
+        generate(output, '1' * 40, '.github/workflows/ci.yml', '33')
+    assert config.name in str(raised.value)
+    assert not output.exists()

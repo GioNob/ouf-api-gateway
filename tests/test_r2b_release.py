@@ -6,6 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
+from tests.release_bundle_fixture import canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -20,6 +21,9 @@ ADOPTED_ROUTE_IDS = {
 }
 # resourcesSha256 emitted by the unmodified 6ae4886 release generator.
 BASELINE_RESOURCES_SHA256 = 'e7d669a1552f87c10cbefae3ed5013eb3a368e693fe14963795081760ed7cf30'
+# Digests of the canonical arrays emitted by the unmodified 9064a5f release generator.
+TASK_51D2_RESOURCES_SHA256 = 'ecb8a08122854dbc54dd7d592ea1ceca33e97a481bb2ab3ffa8cc9e6380cb550'
+TASK_51D2_PLACEHOLDERS_SHA256 = '90a9dbc7f6d05d7f26f79a799cd24eac6e38ba50a7e51168db367617d68c5695'
 
 # Frozen reconstruction, not a snapshot of the installation. Keep the hashes
 # independent of the materializer, including selectors, plugins, Lua and nodes.
@@ -47,6 +51,28 @@ def bundle(tmp_path_factory):
 @pytest.fixture(scope='module')
 def resources(bundle):
     return {item['id']: item['body'] for item in bundle['resources']}
+
+
+def test_release_resources_and_placeholders_match_9064a5f(bundle):
+    """GW-51D3-BASELINE-PARITY."""
+    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources'])) == TASK_51D2_RESOURCES_SHA256
+    assert sha256(canonical_json(bundle['placeholders'])) == TASK_51D2_PLACEHOLDERS_SHA256
+
+
+def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
+    """GW-51D3-RETIRED-METADATA."""
+    legacy_run = '^/api/trusted-human/v1/ingestion/runs/' + '-'.join(
+        '[0-9A-Fa-f]{%d}' % size for size in (8, 4, 4, 4, 12))
+    assert bundle['retired'] == [
+        {'kind': 'routes', 'id': 'r4a-ingestion-human-run-read',
+         'supersededBy': 'trusted-human-ingestion-run-read',
+         'vars': [['uri', '~~', legacy_run + '$']]},
+        {'kind': 'routes', 'id': 'r4a-ingestion-human-run-resume',
+         'supersededBy': 'trusted-human-ingestion-run-resume',
+         'vars': [['uri', '~~', legacy_run + '/resume$']]},
+    ]
+    assert {entry['id'] for entry in bundle['retired']}.isdisjoint(resources)
+    assert {entry['supersededBy'] for entry in bundle['retired']} <= resources.keys()
 
 
 def test_adopted_route_ids_and_unique_selectors(resources):

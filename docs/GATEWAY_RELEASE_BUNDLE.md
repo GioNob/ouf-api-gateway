@@ -22,9 +22,26 @@ la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-pack
 
 Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
 secondo giro D-085 riportate più avanti.
-Il contratto `ouf.gateway-release-bundle.v1` usa i segnaposto D-058 per host,
+Il contratto `ouf.gateway-release-bundle.v2` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
-d’installazione. Il manifest riporta commit, workflow, ID del run e digest.
+d’installazione. Il manifest `ouf.gateway-release-manifest.v2` riporta commit,
+workflow, ID del run e digest.
+
+L’elenco `retired` dichiara due rotte create a mano che duplicano percorso,
+metodo e `vars` delle rotte Ingestion governate. Ogni voce riporta i `vars` letterali
+della rotta legacy: le classi di caratteri sono scritte in un altro ordine, con la stessa
+semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle e manifest riportano
+`retiredSha256`, lo SHA-256 del JSON canonico di `retired`.
+[Elenco versionato e motivazioni](../ouf-config/release/retired-routes.json)
+
+| Rotta da rimuovere | Rotta sostitutiva |
+| --- | --- |
+| `r4a-ingestion-human-run-read` | `trusted-human-ingestion-run-read` |
+| `r4a-ingestion-human-run-resume` | `trusted-human-ingestion-run-resume` |
+
+L’esecutore di task-51h2 mostra le rimozioni nel plan sottoposto all’operatore
+HUMAN e verifica la corrispondenza di selettori e `vars` prima di rimuovere
+ciascuna rotta. Ritorno e compensazione ricreano le rotte rimosse.
 
 Il job `config-contract` genera il bundle dal commit testato sia su `push` sia
 su `pull_request` e risolve i segnaposto con un profilo di test. Il gate esegue

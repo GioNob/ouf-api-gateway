@@ -23,9 +23,10 @@ from tools.materialize_semantic_human_runtime import materialize
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v1'
-MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v1'
+BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v2'
+MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v2'
 SOURCE_REPOSITORY = 'GioNob/ouf-api-gateway'
+RETIRED_ROUTES_PATH = ROOT / 'ouf-config/release/retired-routes.json'
 RESOURCE_KINDS = ('upstreams', 'services', 'plugin_configs', 'plugin_metadata', 'global_rules', 'routes')
 RESOURCE_ID = re.compile(r'[A-Za-z0-9._-]{1,64}')
 PLACEHOLDER_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,127}')
@@ -175,6 +176,48 @@ def ordered_resources(resources):
     return sorted(resources, key=lambda item: (RESOURCE_KINDS.index(item['kind']), item['id']))
 
 
+def load_retired_routes(path, resources):
+    try:
+        entries = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f'{path}: cannot read retired routes: {exc}') from exc
+    if not isinstance(entries, list):
+        raise ValueError(f'{path}: expected a list of retired routes')
+
+    resource_ids = {item['id'] for item in resources}
+    route_ids = {item['id'] for item in resources if item['kind'] == 'routes'}
+    retired = []
+    seen = set()
+    for index, entry in enumerate(entries):
+        location = f'{path}: retired[{index}]'
+        if not isinstance(entry, dict) or set(entry) != {'kind', 'id', 'supersededBy', 'vars', 'reason'}:
+            raise ValueError(f'{location}: expected kind, id, supersededBy, vars and reason')
+        if entry['kind'] != 'routes':
+            raise ValueError(f'{location}: kind must be routes')
+        resource_id = entry['id']
+        if not isinstance(resource_id, str) or not RESOURCE_ID.fullmatch(resource_id):
+            raise ValueError(f'{location}: invalid retired route ID')
+        if resource_id in seen:
+            raise ValueError(f'{location}: duplicate retired route ID: {resource_id}')
+        if retired and resource_id < retired[-1]['id']:
+            raise ValueError(f'{location}: retired routes must be sorted by ID')
+        if resource_id in resource_ids:
+            raise ValueError(f'{location}: retired route ID already in resources: {resource_id}')
+        replacement = entry['supersededBy']
+        if not isinstance(replacement, str) or replacement not in route_ids:
+            raise ValueError(f'{location}: supersededBy must identify a routes resource in the bundle')
+        if not isinstance(entry['reason'], str) or not entry['reason'].strip():
+            raise ValueError(f'{location}: reason must be a non-empty string')
+        route_vars = entry['vars']
+        # The executor deletes only a live route whose vars equal these literal APISIX conditions.
+        if (not isinstance(route_vars, list) or not route_vars
+                or not all(isinstance(c, list) and c and all(isinstance(x, str) for x in c) for c in route_vars)):
+            raise ValueError(f'{location}: vars must be a non-empty list of APISIX string conditions')
+        seen.add(resource_id)
+        retired.append({'kind': 'routes', 'id': resource_id, 'supersededBy': replacement, 'vars': route_vars})
+    return retired
+
+
 def generate(output, source_commit, workflow_path, run_id):
     if not re.fullmatch(r'[0-9a-f]{40}', source_commit):
         raise ValueError('expected full Git commit SHA')
@@ -188,12 +231,16 @@ def generate(output, source_commit, workflow_path, run_id):
         raise ValueError('unconverted installation input')
     names = sorted(set(placeholder_names(resources)))
     resources_sha256 = digest(encoded)
+    retired = load_retired_routes(RETIRED_ROUTES_PATH, resources)
+    retired_sha256 = digest(canonical(retired))
     source = {'sourceRepository': SOURCE_REPOSITORY, 'sourceCommit': source_commit}
     bundle = {'schema': BUNDLE_SCHEMA, **source, 'resources': resources, 'resourcesSha256': resources_sha256,
+              'retired': retired, 'retiredSha256': retired_sha256,
               'placeholders': [{'name': name, 'type': placeholder_type(name)} for name in names]}
     payload = canonical(bundle)
     manifest = {'schema': MANIFEST_SCHEMA, **source, 'workflowPath': workflow_path, 'runId': run_id,
-                'bundleSha256': digest(payload), 'resourcesSha256': resources_sha256, 'placeholders': names}
+                'bundleSha256': digest(payload), 'resourcesSha256': resources_sha256, 'retiredSha256': retired_sha256,
+                'placeholders': names}
     manifest_payload = canonical(manifest)
     sums = (f"{manifest['bundleSha256']}  bundle.json\n"
             f"{digest(manifest_payload)}  manifest.json\n").encode('ascii')

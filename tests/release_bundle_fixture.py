@@ -42,11 +42,11 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert manifest_payload == canonical_json(manifest)
     assert payload == canonical_json(bundle)
     assert set(manifest) == {'schema', 'sourceRepository', 'sourceCommit', 'workflowPath', 'runId',
-                             'bundleSha256', 'resourcesSha256', 'placeholders'}
+                             'bundleSha256', 'resourcesSha256', 'retiredSha256', 'placeholders'}
     assert set(bundle) == {'schema', 'sourceRepository', 'sourceCommit', 'resources',
-                           'placeholders', 'resourcesSha256'}
-    assert manifest['schema'] == 'ouf.gateway-release-manifest.v1'
-    assert bundle['schema'] == 'ouf.gateway-release-bundle.v1'
+                           'placeholders', 'resourcesSha256', 'retired', 'retiredSha256'}
+    assert manifest['schema'] == 'ouf.gateway-release-manifest.v2'
+    assert bundle['schema'] == 'ouf.gateway-release-bundle.v2'
     assert bundle['sourceRepository'] == manifest['sourceRepository'] == 'GioNob/ouf-api-gateway'
     assert re.fullmatch(r'[0-9a-f]{40}', commit)
     assert bundle['sourceCommit'] == manifest['sourceCommit'] == commit
@@ -55,6 +55,8 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert manifest['runId'] == run_id
     assert re.fullmatch(r'[0-9]+', run_id)
     assert manifest['bundleSha256'] == sha256(payload)
+    assert isinstance(bundle['retired'], list)
+    assert bundle['retiredSha256'] == manifest['retiredSha256'] == sha256(canonical_json(bundle['retired']))
     resources = bundle['resources']
     assert isinstance(resources, list)
     assert bundle['resourcesSha256'] == manifest['resourcesSha256'] == sha256(canonical_json(resources))
