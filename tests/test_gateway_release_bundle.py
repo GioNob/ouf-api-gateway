@@ -56,6 +56,7 @@ def test_published_terms_release(tmp_path):
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',
         'services.bindings.ouf-onboarding': 'string', 'services.ports.ouf-onboarding': 'integer',
+        'services.bindings.ouf-gateway-analysis-mandates': 'string', 'services.ports.ouf-gateway-analysis-mandates': 'integer',
         'services.bindings.ouf-ingestion-runtime': 'string', 'services.ports.ouf-ingestion-runtime': 'integer',
         'services.bindings.ouf-udp-object-resolution': 'string', 'services.ports.ouf-udp-object-resolution': 'integer',
     }

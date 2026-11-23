@@ -15,6 +15,7 @@ DISCOVERY_REVIEW_IDS = [
 ]
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
+MANDATE_IDS = tuple('mcp-analysis-mandate-' + action for action in ('issue', 'dispatch', 'revoke'))
 
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
@@ -24,7 +25,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *MANDATE_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -125,6 +126,7 @@ def ci_profile(installation, port):
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,
         'services.bindings.ouf-onboarding': '127.0.0.1', 'services.ports.ouf-onboarding': port,
+        'services.bindings.ouf-gateway-analysis-mandates': 'localhost', 'services.ports.ouf-gateway-analysis-mandates': port,
         'services.bindings.ouf-ingestion-runtime': '127.0.0.1', 'services.ports.ouf-ingestion-runtime': port,
         'services.bindings.ouf-udp-object-resolution': '127.0.0.1', 'services.ports.ouf-udp-object-resolution': port,
     }
