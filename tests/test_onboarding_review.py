@@ -149,9 +149,13 @@ def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt(dat
                          'bitemporalProperties': [], 'checkpointInterval': 1}},
                 'limits': {'maxRows': 100, 'maxColumns': 20, 'maxCellChars': 1000}}
     e = request();e['Arguments']['executionProposal'] = proposal
+    # GW-51J-WIDE. A wide source can pin a distinct semantic reference for each column.
+    pin, = proposal['semanticBindings']
+    proposal['semanticBindings'] = [dict(pin, semanticId=f'urn:fixture:column:{i}') for i in range(1024)]
     schema = json.loads((ROOT/'schemas/mcp-gateway-onboarding-review-prepare-dispatch-v1.json').read_text())
     validator = Draft202012Validator(schema, format_checker=FormatChecker())
     assert validator.is_valid(e)
+    assert not validator.is_valid(dict(e, Arguments=dict(e['Arguments'], candidateAction='WITHDRAW')))
     assert json.loads(execute('review-prepare', body=e).body) == e
     bad = copy.deepcopy(e);bad['Arguments']['executionProposal']['udp']['sql'] = 'arbitrary'
     assert not validator.is_valid(bad)

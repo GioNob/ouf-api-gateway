@@ -16,6 +16,7 @@ from tools.materialize_apisix_internal_m2m_routes import materialize_route as in
 from tools.r2b_limits import ROUTE_CLASSES
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
+from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
 from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
@@ -114,7 +115,14 @@ def release_resources():
             resources.append(route_resource(route, 'ouf-ingestion-runtime'))
     revisions = revision_prepare(reviewed, runtime, delegation, onboarding, use_route_labels=True)
     mediated = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
+    discovery = discovery_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_DISCOVERY', 'BUNDLE_INPUT_SEMANTIC')
+    mediated['routes'].extend(discovery)
     dispatch_bindings = {
+        'mcp-semantic-discovery-request': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-status': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-candidates': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-adopt': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
+        'mcp-managed-file-review-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'semantic-proposal-create': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'semantic-proposal-read': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'mcp-managed-file-create': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),

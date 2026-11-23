@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import canonical_json, sha256
+from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -55,12 +55,16 @@ def resources(bundle):
     return {item['id']: item['body'] for item in bundle['resources']}
 
 
-def test_picker_additions_preserve_predecessor_resources_and_placeholders(bundle):
-    """GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources'])) == TASK_51I_RESOURCES_SHA256
-    retained = [item for item in bundle['resources'] if item['id'] not in PICKER_IDS]
+def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
+    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
+    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources'])) == (
+        '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
+    predecessor = [row for row in bundle['resources'] if row['id'] not in DISCOVERY_REVIEW_IDS]
+    assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
+    retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
-    assert sha256(canonical_json(bundle['placeholders'])) == TASK_51D2_PLACEHOLDERS_SHA256
+    assert sha256(canonical_json([p for p in bundle['placeholders']
+                                  if p['name'] != 'gateway.semanticDiscoveryOwnerKeyEnv'])) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
 def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
@@ -117,7 +121,7 @@ def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] not in PICKER_IDS]
+                for item in bundle['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS)]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

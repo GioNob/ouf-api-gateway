@@ -6,6 +6,14 @@ from pathlib import Path
 
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
+DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+DISCOVERY_SCOPE = 'ouf.semantic.discovery'
+DISCOVERY_MODES = ('request', 'status', 'candidates', 'adopt')
+DISCOVERY_REVIEW_SCHEMAS = {
+    DISCOVERY_SCOPE + ('' if mode == 'request' else '.' + mode): 'semantic-discovery-' + mode
+    for mode in DISCOVERY_MODES
+}
+DISCOVERY_REVIEW_SCHEMAS['ouf.managed-source.onboarding.review.prepare'] = 'onboarding-review-prepare'
 PICKER_CAPABILITY = 'ouf.managed-source.file.upload'
 PICKER_ISSUE = 'ouf.managed-source.file.handoff-issue'
 PICKER_MANIFEST = MANIFEST.with_name('mcp-picker-capabilities.json')
@@ -53,7 +61,21 @@ def capability_contracts():
     by_id = {row['capabilityId']: row for row in rows}
     if len(by_id) != len(rows):
         raise ValueError('duplicate capability ID in MCP manifest')
+    subset = json.loads(DISCOVERY_REVIEW_MANIFEST.read_bytes())
+    updated = {row['capabilityId']: row for row in subset}
+    if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
+        raise ValueError('expected the five distinct discovery and review MCP declarations')
+    by_id.update(updated)
     return by_id
+
+
+def dispatch_input_schema(capability, schema):
+    """The MCP kernel consumes optional analysisId before dispatch for these tools."""
+    if capability in DISCOVERY_REVIEW_SCHEMAS and 'analysisId' in schema.get('properties', {}):
+        if 'analysisId' in schema.get('required', []):
+            raise ValueError(f'{capability}: analysisId must remain optional MCP context')
+        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
+    return schema
 
 
 def picker_contract(route_id):

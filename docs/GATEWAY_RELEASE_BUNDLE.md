@@ -1,5 +1,47 @@
 # Rilascio Gateway D-081
 
+## Discovery semantica e revisione onboarding (D-087, 51j)
+
+Il bundle v2 adotta gli ID APISIX `mcp-semantic-discovery-request`,
+`mcp-semantic-discovery-status`, `mcp-semantic-discovery-candidates`,
+`mcp-semantic-discovery-adopt` e `mcp-managed-file-review-prepare`.
+Il dispatch richiede il workload MCP autenticato e una delega HUMAN. Le prime
+tre rotte firmano con il riferimento `gateway.semanticDiscoveryOwnerKeyEnv`.
+`adopt` usa `gateway.semanticProposalOwnerKeyEnv` e `review-prepare` usa
+`gateway.sourceRevisionOwnerKeyEnv`. Il profilo privato deve associare ciascun
+riferimento alla chiave già verificata dal rispettivo owner.
+
+`contracts/mcp-discovery-review-capabilities.json` contiene le cinque righe del
+manifest MCP `868daf3` (1.15.3-next-step-v1), in ordine sorgente. Integra lo
+snapshot generale preservandone la provenienza. In `internal/kernel/kernel.go`
+il MCP esegue `delete(input, "analysisId")` prima di `json.Marshal(input)`.
+La proiezione del Gateway esclude quel contesto locale. Su `candidates`
+`requestId` è obbligatorio e `includeState` è un booleano facoltativo.
+La mediazione firma e inoltra i byte acquisiti prima della validazione.
+
+Per le prime tre discovery il massimo dell'envelope è 264.192 byte, secondo
+la derivazione 50f. Il kernel limita la chiamata Semantic a 262.144 byte.
+Su `review-prepare` il manifest consente `WITHDRAW` e `RESTART_DRAFT` in
+alternativa a `executionProposal`. I riferimenti semantici della proposta
+rientrano nel budget MCP di 2 MiB per gli argomenti e nel limite Gateway di
+3 MiB per il corpo.
+
+La delega delle quattro rotte Semantic conserva lo scope installato
+`ouf.semantic.discovery`. Il manifest dichiara scope specifici per
+`status`, `candidates` e `adopt`. La chiusura della divergenza richiede una
+verifica IAM delle deleghe emesse nell'installazione. La ricevuta di `adopt`
+identifica la capability `ouf.semantic.discovery.adopt`.
+
+I PET `GW-51J-MANIFEST`, `GW-51J-SCHEMA`, `GW-51J-FORWARD`, `GW-51J-SCOPE`,
+`GW-51J-REVIEW`, `GW-51J-IDEMPOTENCY` e `GW-51J-LEGACY` sono in
+[`test_discovery_review_release.py`](../tests/test_discovery_review_release.py).
+`GW-51J-WIDE` verifica una proposta con 1.024 riferimenti in
+[`test_onboarding_review.py`](../tests/test_onboarding_review.py).
+`GW-51J-PARITY` verifica il digest delle precedenti 24 risorse in
+[`test_r2b_release.py`](../tests/test_r2b_release.py).
+
+## Rotte del rilascio
+
 | ID rotta | Metodo e percorso | Capability | Backend logico |
 | --- | --- | --- | --- |
 | `semantic-human-terms` | `GET /api/trusted-human/v1/semantic-published-terms` | `ouf.semantic.review@1.0.0` | `ouf-semantic-registry:8080`, stesso percorso |

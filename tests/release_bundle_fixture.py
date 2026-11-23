@@ -9,7 +9,12 @@ R2B_ROUTE_IDS = (
     'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
 )
 
-RELEASE_ROUTE_IDS = [
+DISCOVERY_REVIEW_IDS = [
+    'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status',
+]
+
+RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
@@ -17,8 +22,8 @@ RELEASE_ROUTE_IDS = [
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review',
-]
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS,
+])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication')
 
@@ -111,7 +116,7 @@ def ci_profile(installation, port):
         **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
-        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY',
+        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY', 'gateway.semanticDiscoveryOwnerKeyEnv': 'DISCOVERY_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,

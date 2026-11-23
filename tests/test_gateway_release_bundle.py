@@ -50,7 +50,7 @@ def test_published_terms_release(tmp_path):
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
-        'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
+        'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',

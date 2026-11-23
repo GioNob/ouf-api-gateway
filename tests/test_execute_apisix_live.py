@@ -378,7 +378,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -390,7 +390,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         container_id = subprocess.check_output([
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
-            '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
+            '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
             'apache/apisix:3.18.0-debian',
@@ -403,7 +403,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 route_id = changed_routes[uri]['id']
                 contract = (picker_contract(route_id) if route_id in PICKER_ROUTES
                             else capability_contracts()[bound_capability(schema)])
-                scope = contract['requiredAuthorizationCapability']
+                scope = ('ouf.semantic.discovery' if route_id == 'mcp-semantic-discovery-candidates'
+                         else contract['requiredAuthorizationCapability'])
                 status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
                 assert status == 200
                 delegation = json.loads(result)['proof']
@@ -415,6 +416,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert status == 200, (uri, status, result)
                     forwarded = arguments if is_ths_link else body
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
+                    if route_id == 'mcp-semantic-discovery-candidates':
+                        assert dispatch_bodies[owner] == json.dumps(body).encode()
                     if is_ths_link:
                         canonical = json.dumps(arguments, sort_keys=True, separators=(',', ':'),
                                                ensure_ascii=False).encode('utf-8')

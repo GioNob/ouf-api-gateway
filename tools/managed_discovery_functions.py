@@ -3,9 +3,13 @@ import json
 from pathlib import Path
 import re
 
+from tools.delegation_functions import function
+
 
 def owner_function(source, installation, delegation_key_env, owner_key_env):
-    if source not in ('execute_semantic_discovery', 'execute_managed_file_retained'):
+    if source == 'execute_semantic_discovery':
+        return function(source, installation, delegation_key_env, owner_key_env)
+    if source != 'execute_managed_file_retained':
         raise ValueError('unknown owner function')
     if any(not isinstance(key, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key)
            for key in (delegation_key_env, owner_key_env)):

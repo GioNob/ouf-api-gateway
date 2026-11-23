@@ -1,0 +1,732 @@
+[
+  {
+    "toolName": "semantic.discovery.adopt",
+    "nextPolicy": "proposal",
+    "capabilityId": "ouf.semantic.discovery.adopt",
+    "purpose": "Adopt the selected discovery candidate as one semantic DRAFT",
+    "useWhen": [
+      "a human has selected a candidate from a successful discovery request"
+    ],
+    "doNotUseWhen": [
+      "approving or publishing a revision: use the Trusted Human Surface (THS)"
+    ],
+    "preferredAlternatives": [
+      "semantic.discovery.candidates",
+      "semantic.review.prepare",
+      "Trusted Human Surface"
+    ],
+    "operationalLimits": {
+      "maxArtifacts": 1,
+      "maxRequestBytes": 65536,
+      "profile": "ouf.semantic-proposal-channel.v1"
+    },
+    "resultSemantics": "The historical owner receipt includes provenance, revisionId and expectedRowVersion for validation with semantic.review.prepare.",
+    "securityNotes": [
+      "HUMAN with current discovery grant and signed delegation required",
+      "Keep commandKey stable. After an uncertain outcome use semantic.proposal.read with the original commandKey and current read and adoption grants."
+    ],
+    "mcpClass": "MCP_PROPOSAL_ONLY",
+    "owner": "semantic",
+    "operationClass": "COMMAND",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.semantic.discovery.adopt",
+    "gatewayBindingRef": "capability://ouf.semantic.discovery.adopt",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 1,
+      "hardMaxResultBytes": 262144,
+      "hardMaxElapsedMs": 3000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 0,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "candidateId",
+        "commandKey"
+      ],
+      "properties": {
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
+        "requestId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "candidateId": {
+          "$ref": "#/$defs/uuid"
+        },
+        "commandKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+        }
+      },
+      "$defs": {
+        "uuid": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        }
+      }
+    },
+    "allowedActors": [
+      "HUMAN"
+    ],
+    "requiredScope": "ouf.semantic.discovery"
+  },
+  {
+    "toolName": "source.onboarding.review.prepare",
+    "nextPolicy": "onboarding",
+    "capabilityId": "ouf.managed-source.onboarding.review.prepare",
+    "purpose": "Prepare a validated source version for trusted human review with durable command reconciliation",
+    "useWhen": [
+      "the user has prepared this owned onboarding version and needs its current review state",
+      "the owner directs the agent to withdraw an unpublished candidate or the user requests a fresh draft from an eligible rejected initial candidate"
+    ],
+    "doNotUseWhen": [
+      "approval, activation, configuration editing or access to another owner is requested"
+    ],
+    "preferredAlternatives": [
+      "source.onboarding.read"
+    ],
+    "operationalLimits": {
+      "maxArgumentsBytes": 2097152,
+      "maxResultBytes": 65536
+    },
+    "resultSemantics": "Bounded version state, configuration hash and owner-issued review link; never human approval or source activation",
+    "securityNotes": [
+      "Gateway signed HUMAN delegation and owner source access are checked",
+      "Keep the commandKey across interruptions and reconcile current owner state before retrying",
+      "No file bytes, arbitrary URLs, grants or caller-issued approval fields"
+    ],
+    "mcpClass": "MCP_PROPOSAL_ONLY",
+    "owner": "onboarding",
+    "operationClass": "COMMAND",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.managed-source.onboarding.review.prepare",
+    "gatewayBindingRef": "capability://ouf.managed-source.onboarding.review.prepare",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 1,
+      "hardMaxResultBytes": 65536,
+      "hardMaxElapsedMs": 10000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 0,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "onboardingVersionId",
+        "expectedVersion",
+        "commandKey"
+      ],
+      "not": {
+        "required": [
+          "candidateAction",
+          "executionProposal"
+        ]
+      },
+      "properties": {
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "onboardingVersionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "commandKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+        },
+        "candidateAction": {
+          "enum": [
+            "WITHDRAW",
+            "RESTART_DRAFT"
+          ],
+          "description": "Use the current lock version and a fresh commandKey. WITHDRAW retires an unpublished DRAFT, IN_REVIEW or APPROVED candidate. RESTART_DRAFT creates a draft from the latest eligible REJECTED initial candidate before first publication. Onboarding checks ownership, state and lineage."
+        },
+        "executionProposal": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:ouf:managed-file-execution-proposal:typed-csv:v2",
+          "description": "Preparation only. CSV cells remain lexical in RAW; explicitly configured string, decimal and date mappings determine materialization types. Owner checks property/access/source/tenant and exact semantic references. No approval, publication, compatibility attestation or runtime authority is issued.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "semanticBindings",
+            "semanticPublicationSetRef",
+            "udp",
+            "limits"
+          ],
+          "properties": {
+            "semanticBindings": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "semanticId",
+                  "semanticVersion",
+                  "revisionId",
+                  "publicationSetId"
+                ],
+                "properties": {
+                  "semanticId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "^[^@\\s]+$"
+                  },
+                  "semanticVersion": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "^[^@\\s]+$"
+                  },
+                  "revisionId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "publicationSetId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                }
+              }
+            },
+            "semanticPublicationSetRef": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "udp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "resolution",
+                "materialization"
+              ],
+              "properties": {
+                "resolution": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "strategyId",
+                    "strategyVersion",
+                    "policyRef",
+                    "governedIdentity"
+                  ],
+                  "properties": {
+                    "strategyId": {
+                      "const": "GOVERNED_IDENTITY"
+                    },
+                    "strategyVersion": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "policyRef": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "governedIdentity": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "ref",
+                        "version",
+                        "tenantId",
+                        "canonicalClass",
+                        "sourceId",
+                        "maxCandidates",
+                        "allowAutoNew",
+                        "signals",
+                        "sufficientRules"
+                      ],
+                      "properties": {
+                        "ref": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        "version": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        "tenantId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        "canonicalClass": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        "sourceId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        "maxCandidates": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 1000
+                        },
+                        "allowAutoNew": {
+                          "type": "boolean"
+                        },
+                        "signals": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 1024,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "semanticRef",
+                              "comparator",
+                              "excludesOnDisagreement",
+                              "uniqueWithinScope",
+                              "assertionRef"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "semanticRef": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "comparator": {
+                                "type": "string",
+                                "enum": [
+                                  "CONCEPT",
+                                  "TEXT_V1",
+                                  "DECIMAL_V1",
+                                  "JSON_V1"
+                                ]
+                              },
+                              "excludesOnDisagreement": {
+                                "const": false
+                              },
+                              "uniqueWithinScope": {
+                                "const": false
+                              },
+                              "assertionRef": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              }
+                            }
+                          }
+                        },
+                        "sufficientRules": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 32,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "signalIds",
+                              "assertionRef"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "signalIds": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 32,
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2048
+                                },
+                                "uniqueItems": true
+                              },
+                              "assertionRef": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "materialization": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "policyRef",
+                    "properties",
+                    "bitemporalProperties",
+                    "checkpointInterval"
+                  ],
+                  "properties": {
+                    "policyRef": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048
+                    },
+                    "properties": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 1024,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "sourceField",
+                          "propertyIri",
+                          "datatype",
+                          "accessLabel",
+                          "authorityOrder"
+                        ],
+                        "properties": {
+                          "sourceField": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "propertyIri": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "datatype": {
+                            "enum": [
+                              "http://www.w3.org/2001/XMLSchema#string",
+                              "http://www.w3.org/2001/XMLSchema#decimal",
+                              "http://www.w3.org/2001/XMLSchema#date"
+                            ]
+                          },
+                          "accessLabel": {
+                            "type": "string",
+                            "enum": [
+                              "OPEN",
+                              "ANONYMOUS",
+                              "PERSONAL",
+                              "SENSITIVE",
+                              "RESTRICTED"
+                            ]
+                          },
+                          "authorityOrder": {
+                            "type": "array",
+                            "minItems": 0,
+                            "maxItems": 32,
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2048
+                            },
+                            "uniqueItems": true
+                          }
+                        }
+                      }
+                    },
+                    "bitemporalProperties": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 0,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      }
+                    },
+                    "checkpointInterval": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1000000
+                    }
+                  }
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "maxRows",
+                "maxColumns",
+                "maxCellChars"
+              ],
+              "properties": {
+                "maxRows": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000
+                },
+                "maxColumns": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10000
+                },
+                "maxCellChars": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "toolName": "semantic.discovery.request",
+    "nextPolicy": "discovery",
+    "capabilityId": "ouf.semantic.discovery",
+    "purpose": "Start a bounded national semantic discovery job for assisted source mapping",
+    "useWhen": [
+      "national discovery is needed before proposing semantic mapping"
+    ],
+    "doNotUseWhen": [
+      "adoption, publication, approval or local fallback is requested"
+    ],
+    "preferredAlternatives": [
+      "semantic.search"
+    ],
+    "operationalLimits": {
+      "maxResults": 100,
+      "maxResultBytes": 262144
+    },
+    "resultSemantics": "Persisted asynchronous job state; PENDING does not prove provider success or approve mapping",
+    "securityNotes": [
+      "Gateway workload and signed HUMAN delegation required",
+      "Owner rechecks current discovery policy and caller issuer/tenant/subject",
+      "No arbitrary endpoint; discovery does not authorize adoption or publication"
+    ],
+    "mcpClass": "MCP_TOOL",
+    "owner": "semantic",
+    "operationClass": "COMMAND",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.semantic.discovery",
+    "gatewayBindingRef": "capability://ouf.semantic.discovery",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 100,
+      "hardMaxResultBytes": 262144,
+      "hardMaxElapsedMs": 3000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 1,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestedArtifactType",
+        "intent",
+        "preferredLanguages",
+        "idempotencyKey"
+      ],
+      "properties": {
+        "requestedArtifactType": {
+          "type": "string",
+          "enum": [
+            "CLASS",
+            "PROPERTY",
+            "RELATIONSHIP",
+            "VOCABULARY",
+            "CONCEPT",
+            "ONTOLOGY"
+          ]
+        },
+        "intent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "preferredLanguages": {
+          "type": "array",
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,3}$"
+          }
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{16,128}$"
+        }
+      }
+    }
+  },
+  {
+    "toolName": "semantic.discovery.status",
+    "nextPolicy": "discovery",
+    "capabilityId": "ouf.semantic.discovery.status",
+    "purpose": "Read the state of one caller-owned semantic discovery job",
+    "useWhen": [
+      "a requestId from semantic.discovery.request is known"
+    ],
+    "doNotUseWhen": [
+      "adoption, publication, approval or local fallback is requested"
+    ],
+    "preferredAlternatives": [
+      "semantic.search"
+    ],
+    "operationalLimits": {
+      "maxResults": 100,
+      "maxResultBytes": 262144
+    },
+    "resultSemantics": "Persisted owner state; FAILED remains a failure and empty results are not inferred",
+    "securityNotes": [
+      "Gateway workload and signed HUMAN delegation required",
+      "Owner rechecks current discovery policy and caller issuer/tenant/subject",
+      "No arbitrary endpoint; discovery does not authorize adoption or publication"
+    ],
+    "mcpClass": "MCP_TOOL",
+    "owner": "semantic",
+    "operationClass": "READ",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.semantic.discovery.status",
+    "gatewayBindingRef": "capability://ouf.semantic.discovery.status",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 100,
+      "hardMaxResultBytes": 262144,
+      "hardMaxElapsedMs": 3000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 1,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        }
+      }
+    }
+  },
+  {
+    "toolName": "semantic.discovery.candidates",
+    "nextPolicy": "candidates",
+    "capabilityId": "ouf.semantic.discovery.candidates",
+    "purpose": "Read unexpired candidates from one caller-owned national discovery job",
+    "useWhen": [
+      "a requestId from semantic.discovery.request is known"
+    ],
+    "doNotUseWhen": [
+      "adoption, publication, approval or local fallback is requested"
+    ],
+    "preferredAlternatives": [
+      "semantic.search"
+    ],
+    "operationalLimits": {
+      "maxResults": 100,
+      "maxResultBytes": 262144
+    },
+    "resultSemantics": "Unapproved provider candidates; these are not published semantic revisions",
+    "securityNotes": [
+      "Gateway workload and signed HUMAN delegation required",
+      "Owner rechecks current discovery policy and caller issuer/tenant/subject",
+      "No arbitrary endpoint; discovery does not authorize adoption or publication"
+    ],
+    "mcpClass": "MCP_TOOL",
+    "owner": "semantic",
+    "operationClass": "READ",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.semantic.discovery.candidates",
+    "gatewayBindingRef": "capability://ouf.semantic.discovery.candidates",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 100,
+      "hardMaxResultBytes": 262144,
+      "hardMaxElapsedMs": 3000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 1,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "analysisId": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Optional MCP analysis context, consumed locally."
+        },
+        "includeState": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+]

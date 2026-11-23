@@ -25,6 +25,7 @@ if roles == nil then return fail(403) end
 ngx.req.read_body()
 local body = ngx.req.get_body_data()
 if not body or #body > 65536 then return fail(413) end
+-- MATERIALIZE DISCOVERY ORIGINAL BODY
 local e = cjson.decode(body)
 -- request-validation enforces the closed permission envelope before this function.
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' then return fail(400) end
@@ -56,12 +57,11 @@ if name=='request' then
         count=count+1
     end
     if count~=#a.preferredLanguages then return fail(400) end
-    local allowed={requestedArtifactType=true,intent=true,preferredLanguages=true,idempotencyKey=true}
-    for k,_ in pairs(a) do if not allowed[k] then return fail(400) end end
 else
     if not uuid(a.requestId) then return fail(400) end
-    for k,_ in pairs(a) do if k~='requestId' then return fail(400) end end
 end
+-- MATERIALIZE DISCOVERY KEYS
+for k,_ in pairs(a) do if not keys[name][k] then return fail(400) end end
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
     or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end

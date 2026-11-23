@@ -16,7 +16,7 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as source_revision
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, MANIFEST, NEXT_RESULT_HEADROOM_BYTES,
-    PICKER_ROUTES, bound_capability, capability_contracts, envelope_refs, picker_contract,
+    PICKER_ROUTES, bound_capability, dispatch_input_schema, capability_contracts, envelope_refs, picker_contract,
 )
 
 HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
@@ -111,7 +111,7 @@ def test_dispatch_profiles_match_pinned_manifest():
         else:
             contract = contracts[capability]
             field = 'inputSchema'
-        projected = envelope_refs(contract[field])
+        projected = envelope_refs(dispatch_input_schema(capability, contract[field]))
         expected = inline_dispatch_schema({'properties': {'Arguments': projected}})
         assert fields['Arguments'] == expected['properties']['Arguments'], (uri, capability)
         budget = max(contract.get('operationalLimits', {}).get('maxResultBytes', 0),
@@ -119,10 +119,10 @@ def test_dispatch_profiles_match_pinned_manifest():
         assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
         (declared if compiled else materialized).add(capability)
 
-    # These bindings have no APISIX execute profile in this checkout.
+    # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
     assert declared - materialized == {
         'urban.object.related_search', 'ouf.ingestion.status', 'ouf.ingestion.history',
-        'ouf.operations.explain',
+        'ouf.operations.explain', 'ouf.semantic.discovery.adopt',
     }
 
 
@@ -155,6 +155,12 @@ def wave2_dispatch_cases(routes=()):
     asset = '11111111-1111-4111-8111-111111111111'
     other = '22222222-2222-4222-8222-222222222222'
     cases = {
+        EXECUTE_PATH + '/semantic/discovery/candidates': (
+            '/api/internal/v1/semantic/discovery/candidates',
+            [{'requestId': asset, 'includeState': True}],
+            [{'requestId': asset, 'includeState': 'true'}, {'includeState': True},
+             {'requestId': asset, 'analysisId': checksum}],
+        ),
         HANDOFF_URI: (
             '/api/internal/v1/onboarding/managed-file-mcp/handoff',
             [{'handoffId': asset}], [{}, {'handoffId': 'private-source-value'}, {'commandKey': asset}],
@@ -207,7 +213,7 @@ def test_wave2_dispatch_cases_match_the_pinned_manifest():
         gateway = Draft7Validator(schema, format_checker=FormatChecker())
         source = (picker_contract(route['id'])[PICKER_ROUTES[route['id']][1]] if route['id'] in PICKER_ROUTES
                   else capability_contracts()[bound_capability(schema)]['inputSchema'])
-        tool = Draft7Validator(source, format_checker=FormatChecker())
+        tool = Draft7Validator(dispatch_input_schema(bound_capability(schema), source), format_checker=FormatChecker())
         for allowed, arguments_list in [(True, accepted), (False, rejected)]:
             for arguments in arguments_list:
                 assert gateway.is_valid(dispatch_body(schema, arguments)) == tool.is_valid(arguments) == allowed
