@@ -55,7 +55,8 @@ def dispatch_routes(tmp_dir):
     commit, workflow = '1' * 40, '.github/workflows/ci.yml'
     generate(tmp_dir, commit, workflow, '50')
     profile = ci_profile({'installationId': 'fixture', 'revision': 1, **_install()}, 18080)
-    routes += load_release_routes(tmp_dir, commit, workflow, '50', profile)
+    # Where a legacy materializer and the release share a URI, exercise the released schema.
+    routes = load_release_routes(tmp_dir, commit, workflow, '50', profile) + routes
     unique = {}
     for route in routes:
         validation = route.get('plugins', {}).get('request-validation')

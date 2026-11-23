@@ -122,7 +122,7 @@ def test_dispatch_profiles_match_pinned_manifest():
     # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
     assert declared - materialized == {
         'urban.object.related_search', 'ouf.ingestion.status', 'ouf.ingestion.history',
-        'ouf.operations.explain', 'ouf.semantic.discovery.adopt',
+        'ouf.operations.explain', 'ouf.semantic.discovery.adopt', 'ouf.semantic.search.batch',
     }
 
 
@@ -198,6 +198,16 @@ def wave2_dispatch_cases(routes=()):
     for route in routes:
         if route['id'] in THS_LINK_DISPATCH_CASES:
             cases[route['uri']] = THS_LINK_DISPATCH_CASES[route['id']]
+        if route['id'] == 'mcp-semantic-search':
+            cases[route['uri']] = ('/api/internal/v1/semantic/consultation/search',
+                                   [{'q': 'quantità', 'type': 'DATATYPE'}],
+                                   [{'q': 'quantità', 'analysisId': checksum}, {'q': 'x', 'type': 'UNKNOWN'}])
+        if route['id'] == 'mcp-semantic-search-batch':
+            intent = {'intentId': 'i0', 'intent': 'quantità', 'context': {},
+                      'preferredLanguages': ['it', 'en'], 'requestedArtifactType': 'DATATYPE'}
+            batch = {'contract': 'ouf.semantic.published-batch.v1', 'limitPerIntent': 3, 'intents': [intent]}
+            cases[route['uri']] = ('/api/internal/v1/semantic/consultation/search-batch', [batch],
+                                   [dict(batch, limitPerIntent=9), dict(batch, intents=[dict(intent, context=None)])])
     return cases
 
 

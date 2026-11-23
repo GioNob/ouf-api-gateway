@@ -14,7 +14,7 @@ from tools.r2b_limits import ROUTE_CLASSES, limit_count
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts,
     DISCOVERY_REVIEW_SCHEMAS, PICKER_ROUTES, dispatch_input_schema, envelope_refs, manifest_execute_uri, picker_contract,
-    result_ceiling, ths_link_schema_matches,
+    SEARCH_SCOPE, SEARCH_BATCH, result_ceiling, ths_link_schema_matches,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +152,8 @@ def compile_config(config_root):
                 arguments = contract[PICKER_ROUTES[route_id][1]]
             else:
                 stem = DISCOVERY_REVIEW_SCHEMAS.get(capability_id)
+                if capability_id in (SEARCH_SCOPE, SEARCH_BATCH):
+                    stem = 'semantic-search'  # Same bounded HUMAN read envelope, distinct Arguments.
                 filename = f'mcp-gateway-{stem}-dispatch-v1.json' if stem else 'mcp-gateway-dispatch-v1.json'
                 schema = json.loads((ROOT / 'schemas' / filename).read_bytes())
                 arguments = dispatch_input_schema(capability_id, contract['inputSchema'])

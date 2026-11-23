@@ -29,7 +29,7 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -165,6 +165,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     calls=[]
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     wave2_dispatch = wave2_dispatch_cases()
+    search_receipts = {}
     recovery_page = '/trusted-human/ingestion-run-recovery/'
     recovery_run = '/api/trusted-human/v1/ingestion/runs/11111111-1111-4111-8111-111111111111'
     human_runs = {
@@ -208,6 +209,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                                {owner for _, owner in dispatch_paths.values()}):
                 dispatch_calls.append(self.path)
                 dispatch_bodies[self.path] = body
+                if self.path.startswith('/api/internal/v1/semantic/consultation/'):
+                    search_receipts[self.path] = self.headers.get('X-OUF-Semantic-Read-Receipt')
                 if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
                     self.reply({
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
@@ -378,7 +381,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'DISCOVERY_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -390,6 +393,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         container_id = subprocess.check_output([
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
+            '-e', 'READ_KEY=' + '56' * 32,
             '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
@@ -416,15 +420,23 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert status == 200, (uri, status, result)
                     forwarded = arguments if is_ths_link else body
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
-                    if route_id == 'mcp-semantic-discovery-candidates':
+                    if route_id == 'mcp-semantic-discovery-candidates' or route_id in SEARCH_IDS:
                         assert dispatch_bodies[owner] == json.dumps(body).encode()
+                    if route_id in SEARCH_IDS:
+                        encoded, signed = search_receipts[owner].encode().split(b'.')
+                        expected = hmac.digest(b'56' * 32, b'ouf-semantic-read-owner-v1.' + encoded, 'sha256')
+                        assert hmac.compare_digest(expected, base64.urlsafe_b64decode(signed + b'=='))
+                        receipt = json.loads(base64.urlsafe_b64decode(encoded + b'=='))
+                        assert receipt['path'] == owner and receipt['capability'] == body['CapabilityID']
+                        assert receipt['bodyHash'] == hashlib.sha256(dispatch_bodies[owner]).hexdigest()
                     if is_ths_link:
                         canonical = json.dumps(arguments, sort_keys=True, separators=(',', ':'),
                                                ensure_ascii=False).encode('utf-8')
                         assert dispatch_bodies[owner] == canonical
                 for arguments in rejected:
                     status, result = post(uri, dispatch_body(schema, arguments), token('SERVICE'), delegation)
-                    assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result, (uri, status, result)
+                    expected_error = 'SEM_BATCH_ARGUMENTS_INVALID' if route_id == 'mcp-semantic-search-batch' else INVALID_TOOL_ARGUMENTS
+                    assert status == 400 and expected_error.encode() in result, (uri, status, result)
                     assert b'private-source-value' not in result
                 assert dispatch_calls[before:] == [owner] * len(accepted)
 
@@ -449,7 +461,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                     schema = route['plugins']['request-validation']['body_schema']
                     invalid = dispatch_body(schema, ['private-source-value'])
                     status, result = post(route['uri'], invalid, token('SERVICE'), delegation)
-                    assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result, (route['id'], status)
+                    expected_error = route['plugins']['request-validation']['rejected_msg']
+                    assert status == 400 and expected_error.encode() in result, (route['id'], status)
                     assert b'private-source-value' not in result
 
                 target = terms_path + '?revisionIds=rev-a,rev-b'

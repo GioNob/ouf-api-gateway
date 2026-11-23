@@ -23,9 +23,10 @@ end"""
 
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
-             use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None):
+             use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None, read_mode=None):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
-                                         'execute_managed_file_retained', 'execute_semantic_discovery', 'execute_discovery_adopt'):
+                                         'execute_managed_file_retained', 'execute_semantic_discovery', 'execute_discovery_adopt',
+                                         'execute_semantic_read'):
         raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
@@ -41,6 +42,10 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         cap = 'ouf.semantic.discovery.adopt'
         values.update(CAPABILITY=cap, REQUIRED_SCOPE='ouf.semantic.discovery',
                       OPERATION='COMMAND', OWNER_PATH='/api/semantic/v1/proposal-commands/adopt')
+    if kind == 'execute_semantic_read' and use_route_labels:
+        if read_mode not in ('search', 'search-batch'):
+            raise ValueError('expected a fixed semantic search binding')
+        values['READ_MODE'] = read_mode
     if kind == 'execute_semantic_proposals':
         from tools.materialize_semantic_proposals import CAPABILITIES
         if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
@@ -96,10 +101,17 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         constants = '\n'.join(lines)
     else:
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
+        if kind == 'execute_semantic_read':
+            constants += '\nlocal READ_MODE = nil'
     if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_semantic_discovery', 'execute_discovery_adopt'):
         raise ValueError('invalid function')
     template = 'execute_semantic_proposals' if kind == 'execute_discovery_adopt' else kind
     source = (ROOT / (template + '.lua')).read_text()
+    if kind == 'execute_semantic_read':
+        from tools.mcp_dispatch_contract import SEARCH_SCOPE, capability_contracts
+        kinds = capability_contracts()[SEARCH_SCOPE]['inputSchema']['properties']['type']['enum']
+        source = source.replace('-- MATERIALIZE SEARCH TYPES',
+                                'local kinds = {' + ','.join(f'[{json.dumps(k)}]=true' for k in kinds) + '}')
     if kind == 'execute_semantic_discovery':
         from tools.mcp_dispatch_contract import DISCOVERY_SCOPE, capability_contracts, dispatch_input_schema
         original = ''

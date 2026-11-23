@@ -7,6 +7,13 @@ from pathlib import Path
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+SEARCH_SCOPE = 'ouf.semantic.search'
+SEARCH_BATCH = SEARCH_SCOPE + '.batch'
+SEARCH_BINDINGS = {
+    'mcp-semantic-search': (SEARCH_SCOPE, '/semantic/search', 'search'),
+    'mcp-semantic-search-batch': (SEARCH_BATCH, '/semantic/consultation/search-batch', 'search-batch'),
+}
+SEARCH_BATCH_CONTRACT = MANIFEST.with_name('semantic-search-batch-v1.json')
 DISCOVERY_SCOPE = 'ouf.semantic.discovery'
 DISCOVERY_MODES = ('request', 'status', 'candidates', 'adopt')
 DISCOVERY_REVIEW_SCHEMAS = {
@@ -66,12 +73,17 @@ def capability_contracts():
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
     by_id.update(updated)
+    if SEARCH_BATCH not in by_id:
+        batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
+        if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
+            raise ValueError('invalid provisional semantic batch declaration')
+        by_id[SEARCH_BATCH] = batch
     return by_id
 
 
 def dispatch_input_schema(capability, schema):
     """The MCP kernel consumes optional analysisId before dispatch for these tools."""
-    if capability in DISCOVERY_REVIEW_SCHEMAS and 'analysisId' in schema.get('properties', {}):
+    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
         if 'analysisId' in schema.get('required', []):
             raise ValueError(f'{capability}: analysisId must remain optional MCP context')
         return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
