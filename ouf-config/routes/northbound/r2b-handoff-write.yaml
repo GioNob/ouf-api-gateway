@@ -1,7 +1,7 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
 metadata:
-  id: r2b-handoff-write
+  id: r4a-udp-runtime-handoff-write
   version: 1.0.0
   status: ACTIVE
 spec:

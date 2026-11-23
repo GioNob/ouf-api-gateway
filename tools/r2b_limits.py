@@ -1,11 +1,11 @@
 """Installation fields owned by the internal R2B data-plane routes."""
 
 ROUTE_CLASSES = {
-    'r2b-lake-write': 'r2bLakeWrite',
-    'r2b-handoff-write': 'r2bHandoffWrite',
+    'r4a-udp-runtime-lake-write': 'r2bLakeWrite',
+    'r4a-udp-runtime-handoff-write': 'r2bHandoffWrite',
     'r2b-semantic-reference': 'r2bSemanticGet',
     'r2b-semantic-reference-batch': 'r2bSemanticBatch',
-    'r2b-publication-feed': 'r2bPublication',
+    'r4a-onboarding-runtime-publications-list': 'r2bPublication',
     'r2b-publication-resolution': 'r2bPublication',
 }
 

@@ -4,11 +4,15 @@ import json
 import re
 
 
+R2B_ROUTE_IDS = (
+    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
+)
+
 RELEASE_ROUTE_IDS = [
     'mcp-managed-file-create', 'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
-    'r2b-handoff-write', 'r2b-lake-write', 'r2b-publication-feed', 'r2b-publication-resolution',
-    'r2b-semantic-reference', 'r2b-semantic-reference-batch', 'semantic-human-terms', 'semantic-proposal-create',
+    *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',

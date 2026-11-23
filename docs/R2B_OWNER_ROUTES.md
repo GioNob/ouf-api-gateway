@@ -12,12 +12,14 @@ The runtime source-to-serving test exercises real Onboarding, Ingestion, UDP and
 
 | ID | Metodo e URI | Scope | Workload |
 |---|---|---|---|
-| `r2b-lake-write` | POST `/api/internal/v1/lake/objects` | `datalake.write` | Ingestion |
-| `r2b-handoff-write` | POST `/api/internal/v1/handoffs` | `udp.candidate.write` | Ingestion |
+| `r4a-udp-runtime-lake-write` | POST `/api/internal/v1/lake/objects` | `datalake.write` | Ingestion |
+| `r4a-udp-runtime-handoff-write` | POST `/api/internal/v1/handoffs` | `udp.candidate.write` | Ingestion |
 | `r2b-semantic-reference` | GET `/api/semantic/v1/references:resolve` | `ouf.semantic.read` | Ingestion, UDP |
 | `r2b-semantic-reference-batch` | POST `/api/semantic/v1/references:resolve-batch` | `ouf.semantic.read` | Ingestion, UDP |
-| `r2b-publication-feed` | GET `/api/onboarding/v1/runtime/publications` | `ouf.onboarding.configuration.read` | Ingestion, UDP |
+| `r4a-onboarding-runtime-publications-list` | GET `/api/onboarding/v1/runtime/publications` | `ouf.onboarding.configuration.read` | Ingestion, UDP |
 | `r2b-publication-resolution` | GET `/api/onboarding/v1/runtime/publications/*` | `ouf.onboarding.configuration.read` | Ingestion, UDP |
+
+Le tre rotte `r4a-` sono state create in APISIX prima della governance. Il bundle adotta gli ID in esercizio, così il rilascio aggiorna le risorse esistenti senza duplicarle. Un cambio di ID richiederebbe la cancellazione governata della vecchia rotta, un'operazione che l'esecutore oggi non esegue.
 
 Il contratto del lotto è `ouf.semantic.reference-batch.v1`. APISIX applica 262.144 byte alla richiesta, conserva query e bearer e usa i timeout di 10 secondi della GET. Il Registry verifica cardinalità, riferimenti e visibilità del tenant e compone la risposta compatta. Il Gateway configura zero retry upstream anche sulle scritture.
 
@@ -35,6 +37,8 @@ Per il primo rilascio Claude confronta il **plan governato in sola lettura** con
 |---|---|
 | GW-51D-PLAN | `python -m pytest -q -s tests/test_r2b_release.py` stampa azione e percorsi attesi per ID di rotta. |
 | GW-51D-LIVE | `tests/test_execute_apisix_live.py::test_real_apisix_oidc_delegation_and_execute` esegue `check_r2b_mixed_window` sul bundle qualificato da `config-contract`, con APISIX 3.18 e JWT firmati dalla fixture. |
+| GW-51D2-ADOPTION | `tests/test_r2b_release.py::test_adopted_route_ids_and_unique_selectors` verifica gli ID adottati e le collisioni tra selettori di rotta nel bundle. |
+| GW-51D2-RESOURCE-PARITY | `tests/test_r2b_release.py::test_release_resources_match_6ae4886_with_original_ids` ripristina i tre ID per il confronto e verifica il digest delle risorse di `6ae4886`. |
 
 Queste prove contribuiscono a PET-gateway-008 (TECH-07) e PET-gateway-040
 (GW-C12). La chiusura del primo richiede osservazione in esercizio, metrica,
