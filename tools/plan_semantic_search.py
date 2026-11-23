@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BINDINGS, bound_capability
+from tools.analysis_protocol import BASE as MANDATE_PATH
 
 
 @dataclass(frozen=True)
@@ -59,19 +60,21 @@ def inventory_routes(inventory):
     return live
 
 
-def search_plan(desired, inventory, current_revision):
+def search_plan(desired, inventory, current_revision, *, mandates=False):
     live = inventory_routes(inventory)
-    targets = [r for r in desired if r['id'] in SEARCH_BINDINGS]
+    bindings = ({'mcp-analysis-mandate-' + action: (None, MANDATE_PATH + action, None)
+                 for action in ('issue', 'dispatch', 'revoke')} if mandates else SEARCH_BINDINGS)
+    targets = [r for r in desired if r['id'] in bindings]
     installations = {(r['labels']['ouf-installation'], r['labels']['ouf-installation-revision']) for r in targets}
     if len(installations) != 1 or not all(isinstance(v, str) and v for v in next(iter(installations))):
         raise ValueError('resolved search routes must have one installation and revision')
     changes = []
-    for logical_id, (cap, suffix, owner_op) in SEARCH_BINDINGS.items():
+    for logical_id, (cap, suffix, owner_op) in bindings.items():
         target, = (r for r in targets if r['id'] == logical_id)
-        uri = EXECUTE_PATH + suffix
+        uri = suffix if mandates else EXECUTE_PATH + suffix
         if target['uri'] != uri or target['methods'] != ['POST']:
             raise ValueError(f'{logical_id}: unexpected release selector')
-        owner_path = '/api/internal/v1/semantic/consultation/' + owner_op
+        owner_path = None if mandates else '/api/internal/v1/semantic/consultation/' + owner_op
         matches = [key for key, r in live.items() if overlaps(r, uri)]
         if logical_id in live and logical_id not in matches:
             raise ValueError(f'{logical_id}: ID occupied by another route')
@@ -85,8 +88,10 @@ def search_plan(desired, inventory, current_revision):
                     or labels.get('ouf-installation-revision') != current_revision
                     or plugins.get('proxy-rewrite', {}).get('uri') != owner_path):
                 raise ValueError(f'{logical_id}: selector, owner or installation drift at {key}')
-            schema = plugins['request-validation']['body_schema']
-            if bound_capability(schema) != cap:
+            if mandates:
+                if labels.get('ouf-mediation') != 'analysis-mandate-v1':
+                    raise ValueError(f'{logical_id}: installed mandate binding drift at {key}')
+            elif bound_capability(plugins['request-validation']['body_schema']) != cap:
                 raise ValueError(f'{logical_id}: installed capability drift at {key}')
         if len(matches) > 1 and logical_id not in matches:
             raise ValueError(f'{logical_id}: ambiguous installed IDs')
@@ -102,7 +107,8 @@ def restore_plan(plan, readback):
     live = inventory_routes(readback)
     affected = {c.target_id for c in plan}
     for c in plan:
-        uri = EXECUTE_PATH + SEARCH_BINDINGS[c.logical_id][1]
+        uri = ((c.after or c.before)['uri'] if c.logical_id.startswith('mcp-analysis-mandate-')
+               else EXECUTE_PATH + SEARCH_BINDINGS[c.logical_id][1])
         if any(overlaps(r, uri) for key, r in live.items() if key not in affected):
             raise ValueError('unexpected search selector at restore')
         if next(changed_paths(c.after, live.get(c.target_id)), None) is not None:
@@ -130,10 +136,11 @@ if __name__ == '__main__':
     parser.add_argument('--resolved-routes', required=True, type=Path, help='resolved APISIX routes array')
     parser.add_argument('--inventory', required=True, type=Path, help='complete APISIX routes list response')
     parser.add_argument('--current-revision', required=True)
+    parser.add_argument('--family', choices=('semantic-search', 'analysis-mandate'), default='semantic-search')
     parser.add_argument('--restore-inventory', type=Path, help='post-apply readback for a restore plan')
     args = parser.parse_args()
     plan = search_plan(json.loads(args.resolved_routes.read_bytes()), json.loads(args.inventory.read_bytes()),
-                       args.current_revision)
+                       args.current_revision, mandates=args.family == 'analysis-mandate')
     if args.restore_inventory:
         plan = restore_plan(plan, json.loads(args.restore_inventory.read_bytes()))
     print(json.dumps([{'logicalId': c.logical_id, 'id': c.target_id, 'action': c.action,
