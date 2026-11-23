@@ -12,7 +12,7 @@ import unittest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from tests import test_analysis_mandate as fixtures
 from tests.test_analysis_mandate import ISSUER, ReservationServer
@@ -29,13 +29,23 @@ def tls_server(dispatch):
         ca = ec.generate_private_key(ec.SECP256R1())
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'fixture-ca')])
         now = datetime.now(timezone.utc)
-        def cert(subject, public):
+        issuer_id = x509.AuthorityKeyIdentifier.from_issuer_public_key(ca.public_key())
+
+        def cert(subject, public, *, is_ca=False):
+            usage = x509.KeyUsage(digital_signature=not is_ca, content_commitment=False,
+                                  key_encipherment=False, data_encipherment=False, key_agreement=False,
+                                  key_cert_sign=is_ca, crl_sign=is_ca, encipher_only=False, decipher_only=False)
             return (x509.CertificateBuilder().issuer_name(name).subject_name(subject).public_key(public)
                     .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=1))
-                    .not_valid_after(now + timedelta(hours=1)))
+                    .not_valid_after(now + timedelta(hours=1))
+                    .add_extension(x509.BasicConstraints(ca=is_ca, path_length=0 if is_ca else None), critical=True)
+                    .add_extension(usage, critical=True)
+                    .add_extension(x509.SubjectKeyIdentifier.from_public_key(public), critical=False)
+                    .add_extension(issuer_id, critical=False))
+
         pem = serialization.Encoding.PEM
-        (root/'ca').write_bytes(cert(name, ca.public_key()).add_extension(
-            x509.BasicConstraints(ca=True, path_length=0), True).sign(ca, hashes.SHA256()).public_bytes(pem))
+        ca_cert = cert(name, ca.public_key(), is_ca=True).sign(ca, hashes.SHA256())
+        (root/'ca').write_bytes(ca_cert.public_bytes(pem))
         for role in ('localhost', 'gateway'):
             key = ec.generate_private_key(ec.SECP256R1())
             subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, role)])
@@ -43,6 +53,8 @@ def tls_server(dispatch):
             if role == 'localhost':
                 names.append(x509.IPAddress(ip_address('127.0.0.1')))
             leaf = cert(subject, key.public_key()).add_extension(x509.SubjectAlternativeName(names), False)
+            purpose = ExtendedKeyUsageOID.SERVER_AUTH if role == 'localhost' else ExtendedKeyUsageOID.CLIENT_AUTH
+            leaf = leaf.add_extension(x509.ExtendedKeyUsage([purpose]), critical=False)
             (root/role).write_bytes(leaf.sign(ca, hashes.SHA256()).public_bytes(pem))
             (root/(role + '.key')).write_bytes(key.private_bytes(pem, serialization.PrivateFormat.PKCS8,
                                                                  serialization.NoEncryption()))
@@ -67,8 +79,10 @@ def tls_server(dispatch):
             server_ctx.load_cert_chain(root/'localhost', root/'localhost.key')
             server_ctx.load_verify_locations(root/'ca')
             server_ctx.verify_mode = ssl.CERT_REQUIRED
+            server_ctx.verify_flags |= ssl.VERIFY_X509_STRICT
             server.socket = server_ctx.wrap_socket(server.socket, server_side=True)
             client = ssl.create_default_context(cafile=str(root/'ca'))
+            client.verify_flags |= ssl.VERIFY_X509_STRICT
             client.load_cert_chain(root/'gateway', root/'gateway.key')
             thread = threading.Thread(target=server.serve_forever)
             thread.start()

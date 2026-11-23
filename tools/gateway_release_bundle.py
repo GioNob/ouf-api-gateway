@@ -26,10 +26,11 @@ from tools.apisix_request_schema import verify_dispatch_arguments
 from tools.mcp_dispatch_contract import SEARCH_BINDINGS, THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
+CONFIG_DIR = ROOT / 'ouf-config'
 BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v2'
 MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v2'
 SOURCE_REPOSITORY = 'GioNob/ouf-api-gateway'
-RETIRED_ROUTES_PATH = ROOT / 'ouf-config/release/retired-routes.json'
+RETIRED_ROUTES_PATH = CONFIG_DIR / 'release/retired-routes.json'
 RESOURCE_KINDS = ('upstreams', 'services', 'plugin_configs', 'plugin_metadata', 'global_rules', 'routes')
 RESOURCE_ID = re.compile(r'[A-Za-z0-9._-]{1,64}')
 PLACEHOLDER_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,127}')
@@ -87,7 +88,7 @@ def release_resources():
                     'publicApiBaseUrl': 'https://bundle-input-api.invalid',
                     'requiredAudience': 'bundle-input-audience'},
     }
-    runtime = apply_projection(compile_config(ROOT / 'ouf-config'), projection)
+    runtime = apply_projection(compile_config(CONFIG_DIR), projection)
     secret_ref = '$ENV://BUNDLE_INPUT_OIDC'
     routes = validate(materialize(runtime, secret_ref))
     terms, = (r for r in routes if r['id'] == 'semantic-human-terms')
@@ -123,6 +124,7 @@ def release_resources():
     # Use the same verified OIDC boundary as execute, preserving the raw JSON
     # (the mandate authority rejects duplicate keys before any normalization).
     execute, = (r for r in mediated['routes'] if r.get('uri') == '/internal/capabilities/v1/execute')
+    mandate_lua = (Path(__file__).parent / 'lua/analysis_mandate.lua').read_text(encoding='utf-8')
     for action in ('issue', 'dispatch', 'revoke'):
         route_id = 'mcp-analysis-mandate-' + action
         binding = bindings[route_id]
@@ -146,8 +148,7 @@ def release_resources():
                  'labels': {'ouf-mediation': 'analysis-mandate-v1', 'ouf-exposure': 'internal',
                             'ouf-installation-revision': installation('revision')},
                  'plugins': {'openid-connect': oidc, 'client-control': {'max_body_size': policy['maxRequestBytes']},
-                             'serverless-post-function': {'phase': 'access', 'functions': [
-                                 (ROOT / 'tools/lua/analysis_mandate.lua').read_text()]}},
+                             'serverless-post-function': {'phase': 'access', 'functions': [mandate_lua]}},
                  'upstream': {'scheme': 'https', 'type': 'roundrobin', 'retries': 0,
                               'timeout': dict(connect=timeout, send=timeout, read=timeout),
                               'nodes': {f"{backend['service']}:{backend['port']}": 1}}}
