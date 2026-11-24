@@ -9,6 +9,16 @@ from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BINDINGS, bound_cap
 from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH, RENEWAL_SELECTORS
 
 
+# Exact public selectors in the approved task-55c bundle (daa7351).
+_OLD_REVIEW_SEGMENT = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
+_OLD_REVIEW_PAGE = '^/trusted-human/analysis-renewal/' + _OLD_REVIEW_SEGMENT
+_OLD_RENEWAL_REGEX = {
+    'trusted-human-analysis-renewal-read': (_OLD_REVIEW_PAGE + '(?:/(?:' + _OLD_REVIEW_SEGMENT
+                                           + '/)*' + _OLD_REVIEW_SEGMENT + r'\.(?:js|css))?$'),
+    'trusted-human-analysis-renewal-decide': _OLD_REVIEW_PAGE + '/decision$',
+}
+
+
 @dataclass(frozen=True)
 class Change:
     logical_id: str
@@ -92,7 +102,14 @@ def search_plan(desired, inventory, current_revision, *, mandates=False, renewal
             r = live[key]
             labels = r.get('labels', {})
             plugins = r.get('plugins', {})
-            if (r.get('uris', [r.get('uri')]) != [uri] or r.get('methods') != [method] or (r.get('vars') or None) != selector
+            allowed_selectors = [selector]
+            if renewals and key == logical_id and key in _OLD_RENEWAL_REGEX:
+                old_selector = [['uri', '~~', _OLD_RENEWAL_REGEX[key]]]
+                old_labels = {**target['labels'], 'ouf-installation-revision': current_revision}
+                if r == {**target, 'vars': old_selector, 'labels': old_labels}:
+                    allowed_selectors.append(old_selector)
+            if (r.get('uris', [r.get('uri')]) != [uri] or r.get('methods') != [method]
+                    or (r.get('vars') or None) not in allowed_selectors
                     or any(r.get(k) for k in ('host', 'hosts', 'remote_addr', 'remote_addrs', 'filter_func'))
                     or labels.get('ouf-installation') != target['labels']['ouf-installation']
                     or labels.get('ouf-installation-revision') != current_revision

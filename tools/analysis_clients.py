@@ -7,6 +7,11 @@ from urllib.parse import urlencode, urlsplit
 from tools.analysis_protocol import Rejected, digest, exact, opaque, parse, require, seq, wire
 
 
+class InvalidEndpointResponse(Rejected):
+    def __init__(self):
+        super().__init__(503)
+
+
 class Endpoint:
     def __init__(self, url, context, timeout):
         u = urlsplit(url)
@@ -23,7 +28,8 @@ class Endpoint:
             conn.request('POST', self.path.rstrip('/') + suffix or '/', body=body, headers=headers)
             response = conn.getresponse()
             data = response.read(limit + 1)
-            require(len(data) <= limit and not 300 <= response.status < 400, 503)
+            if len(data) > limit or 300 <= response.status < 400:
+                raise InvalidEndpointResponse()
             retry = response.getheader('Retry-After')
             return response.status, data, retry
         except (OSError, http.client.HTTPException) as exc:

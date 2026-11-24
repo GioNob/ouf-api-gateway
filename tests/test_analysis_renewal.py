@@ -2,20 +2,37 @@
 import io
 import json
 import re
-from unittest.mock import Mock
+import ssl
+from unittest.mock import Mock, patch
 
 import pytest
 
 from tests import test_analysis_mandate as fixtures
-from tests.release_bundle_fixture import RENEWAL_IDS
+from tests.release_bundle_fixture import RENEWAL_IDS, canonical_json, sha256
 from tests.test_execute_delegation import Engine, human
 from tests.test_value_type_schemas import matched_route_context, routes
+from tools.analysis_clients import Endpoint
 from tools.analysis_mandate import new_ref
 from tools.analysis_protocol import BASE, RENEWALS, digest, parse, wire
 from tools.analysis_renewal import Renewals
 from tools.analysis_service import handler
 from tools.gateway_release_bundle import generate
 from tools.plan_semantic_search import restore_plan, search_plan
+
+
+REVIEW_REF = '0123456789abcdefghij_-'
+
+
+def proposal():
+    def budget(n):
+        return dict(Calls=n, Attempts=n, Objects=n, Bytes=n, Millis=n)
+
+    return dict(contract='ouf.analysis.renewal.v1', reviewRef=REVIEW_REF, analysisId='a' * 64,
+                incidentId='incident-1', mandateId=fixtures.PROFILE['assetId'], generation='1', expectedSeq='7',
+                proposalHash='e' * 64, proposalVersion=2, reason='ANALYSIS_BUDGET_EXHAUSTED', remainingOrdinals=[4, 7, 9],
+                initialMaximum=budget(12), consumed=budget(11), increment=budget(2), totalMaximum=budget(14),
+                expiresAt='2030-01-01T11:00:00Z', previous=None, requestedChanges=[], proposalState='OPEN',
+                planLabel='esempio.csv · 18 colonne')
 
 
 class Channel:
@@ -27,11 +44,11 @@ class Channel:
         pet.iam_identity.evidence.side_effect = lambda b, _: self.human if b == b'token=ths-user' else pet.claims
         self.endpoint = Mock(path='/')
         self.app = handler(pet.api, Renewals(pet.api, self.endpoint, 'ths'))
-        self.command = dict(reviewRef='review-1', proposalVersion=1, proposalHash='e' * 64, expectedSeq='7',
+        self.command = dict(reviewRef=REVIEW_REF, proposalVersion=1, proposalHash='e' * 64, expectedSeq='7',
                             decision='APPROVE', commandKey=new_ref(), items=[])
         self.check = dict(self.command, mandateId=pet.m['mandateId'], generation='1', analysisId=pet.issue['analysisId'],
                           incidentId='incident-1')
-        self.endpoint.post.return_value = (200, wire({'reviewRef': 'review-1'}), None)
+        self.endpoint.post.return_value = (200, wire(proposal()), None)
 
     def post(self, path, body, bearer='Bearer ths-user', proof=None):
         raw = body if isinstance(body, bytes) else wire(body)
@@ -84,7 +101,7 @@ def test_current_holder_and_exact_request(channel):
     assert c.authorize(proof, raw)[:2] == (200, dict(requestHash=digest(raw), decisionRef='iam-decision',
                                                     grantRef='grant1', validUntil=1017))
     for field, value in [('proposalHash', 'd' * 64), ('proposalVersion', 2), ('commandKey', new_ref()),
-                         ('reviewRef', 'review-2'), ('expectedSeq', '8'), ('items', [{'field': 'Calls', 'comment': 'x'}]),
+                         ('reviewRef', REVIEW_REF[::-1]), ('expectedSeq', '8'), ('items', [{'field': 'Calls', 'comment': 'x'}]),
                          ('incidentId', 'incident-2')]:
         assert c.authorize(proof, dict(c.check, **{field: value}))[:2] == (403, {'code': 'ANALYSIS_AUTHORITY_DENIED'})
     for wrong in (None, pet.proof(), c.proof('read')):
@@ -102,7 +119,7 @@ def test_current_holder_and_exact_request(channel):
 def test_revocation_between_read_and_confirmation(channel):
     """GW-55C-02. A late IAM allow cannot release a revoked mandate or start a new session."""
     c, pet = channel, channel.pet
-    assert c.post(RENEWALS + 'read', {'reviewRef': 'review-1'})[0] == 200
+    assert c.post(RENEWALS + 'read', {'reviewRef': REVIEW_REF})[0] == 200
     commits = []
 
     def decide(body, headers):
@@ -155,13 +172,13 @@ def test_expiry_policy_and_owner_outcomes(channel):
 @pytest.mark.parametrize('decision', ['APPROVE', 'CHANGES_REQUESTED', 'CLOSE_PARTIAL'])
 def test_decision_and_feedback_cannot_be_substituted(channel, decision):
     c = channel
-    command = dict(c.command, decision=decision, proposalVersion='2', items=[dict(field='Calls', comment='Review')])
+    command = dict(c.command, decision=decision, proposalVersion=2, items=[dict(field='Calls', comment='Review')])
     check = {**c.check, **command}
     proof = c.proof(command=command)
     assert c.authorize(proof, check)[0] == 200
     changed = 'CLOSE_PARTIAL' if decision == 'APPROVE' else 'APPROVE'
     assert c.authorize(proof, dict(check, decision=changed))[0] == 403
-    assert c.authorize(proof, dict(check, proposalVersion=2))[0] == 403
+    assert c.authorize(proof, dict(check, proposalVersion=3))[0] == 403
     assert c.authorize(proof, dict(check, items=[]))[0] == 403
     c.pet.now += c.pet.api.proof_ttl
     assert c.authorize(proof, check)[0] == 403
@@ -206,10 +223,13 @@ def test_receipt_replay_returns_to_mcp_for_read_authorization(channel):
 def test_bundle_selectors_scopes_and_assets(routes):
     """GW-55C-03. Page, assets and decision reach only their owner on the declared method."""
     root = '/trusted-human/analysis-renewal/'
-    for method, path, expected in [('GET', 'review-1', 'read'), ('GET', 'review.js', 'read'),
-                                   ('GET', 'assets/review.css', 'read'), ('POST', 'review-1/decision', 'decide'),
-                                   ('POST', 'review-1', None), ('GET', 'review-1/decision', None),
-                                   ('POST', 'a/b/decision', None), ('PUT', 'review-1/decision', None)]:
+    for method, path, expected in [('GET', REVIEW_REF, 'read'), ('GET', 'review.js', 'read'),
+                                   ('GET', 'assets/review.css', 'read'), ('POST', REVIEW_REF + '/decision', 'decide'),
+                                   ('POST', REVIEW_REF, None), ('GET', REVIEW_REF + '/decision', None),
+                                   ('POST', 'a/b/decision', None), ('PUT', REVIEW_REF + '/decision', None),
+                                   ('GET', 'short', None), ('POST', 'short/decision', None),
+                                   ('GET', 'a' * 129, None), ('POST', 'a' * 128 + '/decision', 'decide'),
+                                   ('GET', REVIEW_REF + '=', None), ('GET', REVIEW_REF + '.x', None)]:
         matches = [r for r in routes.values() if r.get('uri') == root + '*' and method in r['methods']
                    and re.fullmatch(r['vars'][0][2], root + path)]
         assert [r['id'] for r in matches] == ([] if expected is None else ['trusted-human-analysis-renewal-' + expected])
@@ -260,3 +280,126 @@ def test_idempotent_bundle_and_fenced_restore(routes, tmp_path):
     changed[plan[0].target_id] = dict(plan[0].after, priority=5)
     with pytest.raises(ValueError, match='drift'):
         restore_plan(plan, inventory(changed.values()))
+
+    # Reconstruct #103 by replacing just the two public regexes, then check its frozen digest.
+    segment = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
+    old_path = '^/trusted-human/analysis-renewal/' + segment
+    old_regex = {
+        'trusted-human-analysis-renewal-read': old_path + f'(?:/(?:{segment}/)*{segment}' + r'\.(?:js|css))?$',
+        'trusted-human-analysis-renewal-decide': old_path + '/decision$',
+    }
+    original = json.loads((tmp_path / 'bundle.json').read_bytes())['resources']
+    installed = dict(routes)
+    for row in original:
+        key = row['id']
+        if key in old_regex:
+            selector = [['uri', '~~', old_regex[key]]]
+            row['body']['vars'] = selector
+            installed[key] = dict(routes[key], vars=selector)
+    assert sha256(canonical_json(original)) == 'c2ca2af819386870eb6138308c2acf3b0b35187ffc5657cec074a93b4640dbb0'
+    updates = search_plan(desired, inventory(installed.values()), rev, renewals=True)
+    assert {c.logical_id: c.action for c in updates} == {
+        k: 'update' if k in old_regex else 'unchanged' for k in RENEWAL_IDS}
+    assert all(c.after == installed[c.logical_id] for c in restore_plan(updates, inventory(desired)))
+    key = 'trusted-human-analysis-renewal-read'
+    modified = {**installed, key: dict(installed[key], priority=5)}
+    with pytest.raises(ValueError, match='drift'):
+        search_plan(desired, inventory(modified.values()), rev, renewals=True)
+    installed[key] = dict(installed[key], vars=[['uri', '~~', '.*']])
+    with pytest.raises(ValueError, match='drift'):
+        search_plan(desired, inventory(installed.values()), rev, renewals=True)
+
+
+def test_addendum_command_types_and_limits(channel):
+    """GW-55C-05. The relay and the authority check enforce identical wire types."""
+    c = channel
+    item = dict(field='general', comment='🟢' * 500)
+    command = dict(c.command, reviewRef='_' * 128, proposalVersion=2**53 - 1, items=[item] * 16)
+    proof = c.proof(command=command)
+    assert c.authorize(proof, {**c.check, **command})[0] == 200
+    invalid = [(key, value) for key, values in (
+        ('proposalVersion', [0, -1, True, 1.0, '1', '9007199254740991', 2**53]),
+        ('reviewRef', ['a' * 21, 'b' * 129, REVIEW_REF + '=', REVIEW_REF + '.', REVIEW_REF + '~']),
+        ('items', [[item] * 17, [dict(item, field='calls')], [dict(item, comment='🟢' * 501)],
+                   [dict(item, comment=1)], [dict(item, extra=True)]]),
+    ) for value in values]
+    c.endpoint.post.reset_mock()
+    c.pet.policy.evidence.reset_mock()
+    for key, value in invalid:
+        bad = {**command, key: value}
+        expected = (400, {'code': 'ANALYSIS_INPUT_INVALID'})
+        assert c.post(RENEWALS + 'decide', bad)[:2] == expected
+        assert c.authorize(proof, {**c.check, **bad})[:2] == expected
+        if key == 'reviewRef':
+            assert c.post(RENEWALS + 'read', {key: value})[:2] == expected
+    c.endpoint.post.assert_not_called()
+    c.pet.policy.evidence.assert_not_called()
+
+
+def test_read_addendum_forwarded(channel):
+    """GW-55C-06. Forward the owner fields intact for every state and both history shapes."""
+    data = proposal()
+    body = {'reviewRef': REVIEW_REF}
+    for state in ('OPEN', 'APPROVED', 'CLOSED_PARTIAL', 'CHANGES_REQUESTED', 'SUPERSEDED', 'EXPIRED'):
+        data['proposalState'] = state
+        channel.endpoint.post.return_value = 200, wire(data), None
+        assert channel.post(RENEWALS + 'read', body)[:2] == (200, data)
+        data['previous'] = {key: data[key] for key in ('proposalVersion', 'reason', 'remainingOrdinals',
+                            'initialMaximum', 'consumed', 'increment', 'totalMaximum', 'expiresAt')}
+        data['previous']['proposalVersion'] = 1
+        data['requestedChanges'] = [dict(field=field, comment='à' * 500) for field in
+                                    ('Calls', 'Attempts', 'Objects', 'Bytes', 'Millis', 'general')]
+        data['planLabel'] = '🟢' * 200
+    # remainingOrdinals: JSON integers 0..1023, strictly increasing, from none up to all 1024.
+    for current, earlier in (([], list(range(1024))), (list(range(1024)), [0, 1023])):
+        data['remainingOrdinals'], data['previous']['remainingOrdinals'] = current, earlier
+        channel.endpoint.post.return_value = 200, wire(data), None
+        assert channel.post(RENEWALS + 'read', body)[:2] == (200, data)
+    channel.endpoint.post.return_value = 429, wire({'code': 'ANALYSIS_BACKOFF'}), '15'
+    status, error, headers = channel.post(RENEWALS + 'read', body)
+    assert (status, error, headers['Retry-After']) == (429, {'code': 'ANALYSIS_BACKOFF'}, '15')
+
+
+def test_invalid_read_is_scrubbed(channel):
+    """GW-55C-07. Invalid success and error responses expose only the Gateway error code."""
+    data = proposal()
+    version_keys = ('proposalVersion', 'reason', 'remainingOrdinals', 'initialMaximum', 'consumed',
+                    'increment', 'totalMaximum', 'expiresAt')
+    previous = {**{k: data[k] for k in version_keys}, 'proposalVersion': 1}
+    invalid = [dict(data, **{key: value}) for key, value in (
+        ('reviewRef', REVIEW_REF[::-1]), ('analysisId', 'malformed'), ('proposalState', 'UNKNOWN'),
+        ('planLabel', 'x' * 201), ('proposalHash', []), ('requestedChanges', [dict(field='Calls', comment='x' * 501)]),
+        ('requestedChanges', [dict(field='invalid', comment='example')]), ('requestedChanges', [{}] * 17),
+        ('previous', []), ('previous', dict(previous, extra='private')), ('extra', 'private'))]
+    for key in ('previous', 'requestedChanges', 'proposalState', 'planLabel', *version_keys):
+        invalid.append({k: v for k, v in data.items() if k != key})
+    ordinals = [True, 3, {}, [True], [1.0], [-1], [1024], [3, 2], [2, 2], ['1'], list(range(1024)) + [1023]]
+    for key, value in [('proposalVersion', '1'), ('reason', 'free text'),
+                       *(('remainingOrdinals', bad) for bad in ordinals), ('consumed', {'Calls': 3}), ('increment', dict(data['increment'], Bytes=-1)),
+                       ('totalMaximum', dict(data['totalMaximum'], Bytes=900)),
+                       ('expiresAt', '2030-02-31T11:00:00Z')]:
+        invalid.extend([dict(data, **{key: value}), dict(data, previous={**previous, key: value})])
+    cases = [(200, wire(obj)) for obj in invalid]
+    cases.extend([(200, b'{"reason":1,"reason":2}'), (200, b'private'), (201, wire(data)),
+                  (403, wire({'code': 'ANALYSIS_AUTHORITY_DENIED', 'extra': 'private'})), (503, b'private')])
+    for status, raw in cases:
+        channel.endpoint.post.return_value = status, raw, '15'
+        status, body, headers = channel.post(RENEWALS + 'read', {'reviewRef': REVIEW_REF})
+        assert (status, body) == (502, {'code': 'ANALYSIS_RENEWAL_RESPONSE_INVALID'})
+        assert 'Retry-After' not in headers
+
+
+def test_read_transport_bounds(channel):
+    """GW-55C-07. Separate malformed HTTP responses from transport unavailability."""
+    endpoint = Endpoint('https://mcp.invalid', ssl.create_default_context(), 1)
+    channel.app = handler(channel.pet.api, Renewals(channel.pet.api, endpoint, 'ths'))
+    request = {'reviewRef': REVIEW_REF}
+    with patch('tools.analysis_clients.http.client.HTTPSConnection') as connect:
+        response = connect.return_value.getresponse.return_value
+        for status, raw in [(200, b'x' * 131073), (302, b'private')]:
+            response.status = status
+            response.read.return_value = raw
+            assert channel.post(RENEWALS + 'read', request)[:2] == (502, {'code': 'ANALYSIS_RENEWAL_RESPONSE_INVALID'})
+            response.read.assert_called_with(131073)
+        connect.return_value.getresponse.side_effect = TimeoutError()
+        assert channel.post(RENEWALS + 'read', request)[:2] == (503, {'code': 'ANALYSIS_AUTHORITY_UNAVAILABLE'})

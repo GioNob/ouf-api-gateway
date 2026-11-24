@@ -15,8 +15,10 @@ RENEWALS = '/internal/analysis/v1/renewals/'
 RENEWAL_COMMAND = 'reviewRef proposalVersion proposalHash expectedSeq commandKey decision items'
 RENEWAL_REQUEST_MAX = 131072
 REVIEW_PREFIX = '/trusted-human/analysis-renewal/'
-REVIEW_REF = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
-REVIEW_GET = '^' + REVIEW_PREFIX + REVIEW_REF + '(?:/(?:' + REVIEW_REF + '/)*' + REVIEW_REF + r'\.(?:js|css))?$'
+REVIEW_REF = '[A-Za-z0-9_-]{22,128}'
+ASSET_SEGMENT = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
+REVIEW_GET = '^' + REVIEW_PREFIX + '(?:' + REVIEW_REF + '|(?:' + ASSET_SEGMENT + '/)*' + ASSET_SEGMENT + r'\.(?:js|css))$'
+BUDGET_DIMENSIONS = ('Calls', 'Attempts', 'Objects', 'Bytes', 'Millis')
 RENEWAL_SELECTORS = {
     'mcp-analysis-mandate-renewal-check': ('POST', BASE + 'renewal-check', None),
     'onboarding-analysis-renewal-read': ('POST', RENEWALS + 'read', None),
@@ -101,18 +103,25 @@ def seq(value):
     return matches(value, '0|[1-9][0-9]{0,18}') and int(value) <= 2**63 - 1
 
 
+def proposal_version(value):
+    return type(value) is int and 1 <= value <= 2**53 - 1
+
+
+def validate_items(items):
+    require(type(items) is list and len(items) <= 16)
+    for item in items:
+        require(exact(item, 'field comment') and item['field'] in (*BUDGET_DIMENSIONS, 'general')
+                and isinstance(item['comment'], str) and item['comment'].strip() and len(item['comment']) <= 500)
+
+
 def validate_review(action, b):
     require(exact(b, 'reviewRef' if action == 'read' else RENEWAL_COMMAND))
     require(matches(b['reviewRef'], REVIEW_REF))
     if action != 'read':
-        version = b['proposalVersion']
-        # Both representations share the positive signed 64-bit range of the decimal sequences.
-        require((type(version) is int and 1 <= version <= 2**63 - 1 or seq(version) and version != '0')
+        require(proposal_version(b['proposalVersion'])
                 and is_digest(b['proposalHash']) and seq(b['expectedSeq']) and is_uuid(b['commandKey'], v4=True)
-                and b['decision'] in ('APPROVE', 'CHANGES_REQUESTED', 'CLOSE_PARTIAL')
-                and type(b['items']) is list)
-        for item in b['items']:
-            require(exact(item, 'field comment') and all(type(v) is str and v.strip() for v in item.values()))
+                and b['decision'] in ('APPROVE', 'CHANGES_REQUESTED', 'CLOSE_PARTIAL'))
+        validate_items(b['items'])
 
 
 def validate(action, b):

@@ -9,7 +9,7 @@ spec:
   match:
     method: GET
     path: /trusted-human/analysis-renewal/*
-    uriRegex: '^/trusted-human/analysis-renewal/[A-Za-z0-9_~-][A-Za-z0-9._~-]*(?:/(?:[A-Za-z0-9_~-][A-Za-z0-9._~-]*/)*[A-Za-z0-9_~-][A-Za-z0-9._~-]*\.(?:js|css))?$'
+    uriRegex: '^/trusted-human/analysis-renewal/(?:[A-Za-z0-9_-]{22,128}|(?:[A-Za-z0-9_~-][A-Za-z0-9._~-]*/)*[A-Za-z0-9_~-][A-Za-z0-9._~-]*\.(?:js|css))$'
   backendBinding: {service: ouf-onboarding, port: 8080, path: /trusted-human/analysis-renewal/*}
   policy:
     identity: OIDC
