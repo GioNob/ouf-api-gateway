@@ -16,7 +16,8 @@ DISCOVERY_REVIEW_IDS = [
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 
-RELEASE_ROUTE_IDS = sorted([
+BASE_3D69CB4_IDS = frozenset([
+    'mcp-ingestion-run-recovery-link', 'mcp-semantic-review-link',
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
@@ -26,6 +27,13 @@ RELEASE_ROUTE_IDS = sorted([
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
     'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
 ])
+
+THS_OWNER_IDS = ('semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
+                 'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read',
+                 'ths-identity-preflight-create')
+RELEASE_ROUTE_IDS = sorted((BASE_3D69CB4_IDS - {'mcp-ingestion-run-recovery-link', 'mcp-semantic-review-link'})
+                           | set(THS_OWNER_IDS))
+THS_QUOTAS = ('thsSemantic', 'thsIngestionReadiness', 'thsIdentityPreflight')
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
                 'semanticSearch', 'semanticSearchBatch')
@@ -118,6 +126,8 @@ def ci_profile(installation, port):
         'iam.workloadClients.udp': installation.get('udpServiceIdentity', 'test-udp'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
+        **{f'gateway.rateLimits.{group}.{field}': value for group in THS_QUOTAS
+           for field, value in [('count', 12), ('timeWindowSeconds', 60)]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
         'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY', 'gateway.semanticDiscoveryOwnerKeyEnv': 'DISCOVERY_KEY',
         'gateway.semanticReadOwnerKeyEnv': 'READ_KEY',

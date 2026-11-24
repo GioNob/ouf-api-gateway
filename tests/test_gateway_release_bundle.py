@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, THS_QUOTAS, ci_profile, load_release_routes
 from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
@@ -49,6 +49,7 @@ def test_published_terms_release(tmp_path):
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in THS_QUOTAS for field in ('count', 'timeWindowSeconds')},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
         'gateway.semanticReadOwnerKeyEnv': 'secret',
         'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',

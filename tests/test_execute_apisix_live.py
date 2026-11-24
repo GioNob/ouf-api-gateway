@@ -29,7 +29,8 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, THS_OWNER_IDS, ci_profile, load_release_routes
+from tests.test_release_family_ths_owner_api import HTTP_CASES, check_owner_http
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -193,6 +194,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'target': self.path})
             elif self.path in human_runs:
                 self.human_run()
+            elif (self.command, self.path) in HTTP_CASES:
+                self.reply([self.command, self.path, '', bool(self.headers.get('Authorization'))])
             elif self.path == recovery_page:
                 self.reply({'sessionRequired': True, 'authorization': self.headers.get('Authorization')}, 401)
             else:self.send_error(404)
@@ -205,6 +208,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in human_runs:
                 self.human_run()
+            elif (self.command, self.path) in HTTP_CASES:
+                self.reply([self.command, self.path, body.decode(), bool(self.headers.get('Authorization'))])
             elif self.path in ({owner for owner, _, _ in wave2_dispatch.values()} |
                                {owner for _, owner in dispatch_paths.values()}):
                 dispatch_calls.append(self.path)
@@ -359,7 +364,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         else:
             doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
-                                 or route['id'] in R2B_ROUTE_IDS)
+                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in THS_OWNER_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
@@ -401,6 +406,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            check_owner_http(request, token)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
