@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, MANDATE_IDS, RENEWAL_IDS, SEARCH_IDS, canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -57,8 +57,18 @@ def resources(bundle):
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    assert len(bundle['resources']) == 31
-    task_51j = [row for row in bundle['resources'] if row['id'] not in SEARCH_IDS]
+    # GW-51P-08. Canonical resource bytes from the stacked task-51n generator.
+    assert len(bundle['resources']) == 40
+    task_51p = [row for row in bundle['resources'] if row['id'] not in RENEWAL_IDS]
+    assert len(task_51p) == 35 and sha256(canonical_json(task_51p)) == (
+        '80a5a70402ae0d74cec097be9d6dd6ba487e275583954809694927b22218d976')
+    task_51n = [row for row in task_51p if row['id'] != 'mcp-analysis-mandate-status']
+    assert len(task_51n) == 34 and sha256(canonical_json(task_51n)) == (
+        '61d2873c9caffc52e49da307c76b35802c2ed013fc426fb79bb506b3b676c180')
+    task_51m = [row for row in task_51p if row['id'] not in MANDATE_IDS]
+    assert len(task_51m) == 31 and sha256(canonical_json(task_51m)) == (
+        '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6')
+    task_51j = [row for row in task_51m if row['id'] not in SEARCH_IDS]
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
         '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
@@ -67,7 +77,9 @@ def test_release_additions_preserve_predecessor_resources_and_placeholders(bundl
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
     assert sha256(canonical_json([p for p in bundle['placeholders']
                                   if p['name'] not in ('gateway.semanticDiscoveryOwnerKeyEnv',
-                                                       'gateway.semanticReadOwnerKeyEnv')
+                                                       'gateway.semanticReadOwnerKeyEnv',
+                                                       'services.bindings.ouf-gateway-analysis-mandates',
+                                                       'services.ports.ouf-gateway-analysis-mandates')
                                   and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
@@ -125,7 +137,8 @@ def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle['resources']
+                if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS) | set(MANDATE_IDS) | RENEWAL_IDS]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

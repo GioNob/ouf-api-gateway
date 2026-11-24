@@ -25,6 +25,16 @@ class RelayDenied(RuntimeError):
     pass
 
 
+class ProviderRateLimited(RelayDenied):
+    def __init__(self, headers):
+        super().__init__('PROVIDER_HTTP_429')
+        values = headers.get_all('Retry-After', [])
+        # Only a single printable field may cross the HTTP adapter boundary.
+        # The southbound response filter checks the full Retry-After grammar.
+        self.retry_after = (values[0] if len(values) == 1 and values[0].isascii()
+                            and values[0].isprintable() else None)
+
+
 @dataclass(frozen=True)
 class ProviderBinding:
     endpoint: str
@@ -121,6 +131,8 @@ def exchange(binding, form, *, accepted, resolver=socket.getaddrinfo, connection
                     'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 })
                 with connection.getresponse() as response:
+                    if response.status == 429:
+                        raise ProviderRateLimited(response.headers)
                     if response.status // 100 == 3:
                         raise RelayDenied('PROVIDER_REDIRECT_FORBIDDEN')
                     if response.status != 200:

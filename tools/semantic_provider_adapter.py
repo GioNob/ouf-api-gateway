@@ -13,7 +13,6 @@ import socket
 import ssl
 import stat
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from socketserver import ForkingMixIn
 from urllib.parse import urlsplit
 
 from tools import semantic_provider_relay as relay
@@ -24,6 +23,15 @@ from tools.southbound_security import SouthboundDenied
 
 class AdapterDenied(ValueError):
     pass
+
+
+try:
+    from socketserver import ForkingMixIn
+except ImportError:
+    # The read-only installation planner also imports AdapterBinding on Windows.
+    class ForkingMixIn:
+        def __init__(self, *args, **kwargs):
+            raise AdapterDenied('FORKING_WORKERS_REQUIRED')
 
 
 def private_file(path, max_bytes):
@@ -106,6 +114,7 @@ def handler_for(binding):
             self.close_connection = True
             status = 400; payload = b'{"error":"PROVIDER_REQUEST_REJECTED"}'; media = 'application/json'
             scope = None
+            retry_after = None
             try:
                 if len(self.path) > 6144 or self.headers.get_all('Transfer-Encoding', []) \
                         or self.headers.get_all('Content-Encoding', []) or self.headers.get_all('Expect', []):
@@ -125,6 +134,9 @@ def handler_for(binding):
                 status = 403; payload = b'{"error":"PROVIDER_ADMISSION_DENIED"}'
             except (AdapterDenied, ProviderRequestDenied):
                 pass
+            except relay.ProviderRateLimited as limited:
+                status, payload = 429, b'{"error":"PROVIDER_HTTP_429"}'
+                retry_after = limited.retry_after
             except (relay.RelayDenied, SouthboundDenied):
                 status = 502; payload = b'{"error":"PROVIDER_UNAVAILABLE"}'
             except Exception:
@@ -132,6 +144,8 @@ def handler_for(binding):
             self.send_response(status); self.send_header('Content-Type', media)
             self.send_header('Content-Length', str(len(payload))); self.send_header('Cache-Control', 'no-store')
             self.send_header('Connection', 'close')
+            if retry_after is not None:
+                self.send_header('Retry-After', retry_after)
             if scope:
                 self.send_header('X-OUF-RDF-Scope', scope)
             self.end_headers(); self.wfile.write(payload)

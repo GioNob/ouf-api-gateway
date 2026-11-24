@@ -114,7 +114,7 @@ def test_ths_link_stays_closed_until_manifest_binding(tmp_path, monkeypatch, rou
     path = config / 'routes/northbound' / (route_id + '.json')
     declaration = json.loads(path.read_bytes())
     assert not (route_ids & {route['id'] for route in compile_config(config)['routes']})
-    monkeypatch.setattr(gateway_release_bundle, 'ROOT', tmp_path)
+    monkeypatch.setattr(gateway_release_bundle, 'CONFIG_DIR', config)
     assert not (route_ids & {resource['id'] for resource in gateway_release_bundle.release_resources()})
     cap, scope = 'fixture.link.capability', 'fixture.link.scope'
     declaration['capabilityId'] = cap

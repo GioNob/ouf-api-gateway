@@ -7,7 +7,7 @@ import copy
 import ipaddress
 import re
 
-from tools.materialize_semantic_provider import materialize
+from tools.materialize_semantic_provider import DEFAULT_ORIGIN_ENV, materialize
 from tools.materialize_semantic_provider_runtime import exact, bounded, hostname
 
 
@@ -53,7 +53,8 @@ def materialize_tls(route_binding, transport, *, certificate_pem, private_key_pe
         'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
         'plugins': ['client-control', 'limit-count', 'openid-connect', 'serverless-pre-function', 'serverless-post-function'],
         'nginx_config': {'envs': [route_binding['oidcSecretRef'].removeprefix('$ENV://'),
-                                  route_binding['receiptKeyEnvironment']],
+                                  route_binding['receiptKeyEnvironment'],
+                                  route_binding.get('originKeyEnvironment', DEFAULT_ORIGIN_ENV)],
             'http_configuration_snippet': tls['nginxHTTPConfigurationSnippet']}}
     if not re.fullmatch(r'\$ENV://[A-Z][A-Z0-9_]{1,127}', route_binding['oidcSecretRef']) \
             or runtime['nginx_config']['envs'][0] == runtime['nginx_config']['envs'][1]:
