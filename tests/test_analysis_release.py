@@ -12,7 +12,7 @@ from tests import test_analysis_mandate as fixtures
 from tests.test_analysis_mandate import KEY, OP, PROFILE
 from tests.test_execute_delegation import Denied, Engine, workload
 from tests.test_value_type_schemas import matched_route_context, routes, run_dispatch_rewrite
-from tools.analysis_protocol import BINDINGS, SEARCH_BATCH, TOOL_NAMES, Catalog, parse, wire
+from tools.analysis_protocol import ACTIONS, BINDINGS, SEARCH_BATCH, TOOL_NAMES, Catalog, parse, wire
 from tools.analysis_protocol import delegation
 from tools.analysis_mandate import new_ref
 from tools.mcp_dispatch_contract import capability_contracts
@@ -33,12 +33,14 @@ def test_receipt_at_owner_and_expiry(routes, operation, route_id):
             **route['plugins']['openid-connect'], 'claim_validator': {'issuer':{'valid_issuers':[pet.iam.issuer]}}}}
         cap = BINDINGS[operation][0]
         snap = dict(capability_contracts()[cap], publicationState='ACTIVE', toolName=TOOL_NAMES.get(operation, operation))
-        catalog = Catalog(wire({'capabilities':[snap]}))
+        preview = dict(capability_contracts()[BINDINGS['source.file.preview'][0]], publicationState='ACTIVE',
+                       toolName='source.file.preview')
+        catalog = Catalog(wire({'capabilities':[snap, preview]}))
         pet.api.catalog = catalog
         scope = 'ouf.semantic.search' if operation == SEARCH_BATCH else 'ouf.semantic.discovery'
         proof = delegation(dict(v=1, purpose='mcp-execute', iss=pet.iam.issuer, aud='gateway', workload='worker',
                                 actor='HUMAN', tenant='tenant', principal='human', iat=1000, exp=1060,
-                                acr='interactive', client='human-client', scope=scope), KEY)
+                                acr='interactive', client='human-client', scope=scope + ' ouf.managed-source.preview'), KEY)
         issue = dict(pet.issue, analysisId='e'*64, manifestChecksum=catalog.checksum, commandKey=new_ref())
         status, mandate, _ = pet.send('issue', issue, proof)
         assert status == 200
@@ -111,7 +113,7 @@ def test_second_plan_unchanged(routes):
 @pytest.mark.parametrize('route_id', [*MANDATE_IDS, 'mcp-analysis-mandate-renewal-check',
                                      'onboarding-analysis-renewal-read', 'onboarding-analysis-renewal-decide'])
 def test_private_route_forwards_only_selected_headers(routes, route_id):
-    """GW-51N-11 / GW-55C-03. Execute the released private HTTPS relay with a synthetic upstream."""
+    """GW-51N-11 / GW-55C-03 / GW-58F-10. Exercise the released Lua response allowlist."""
     route = routes[route_id]
     engine = Engine(workload(), {'X-OUF-Delegation':'fixture-delegation', 'X-OUF-Principal-ID':'untrusted',
                                  'X-OUF-Semantic-Read-Receipt':'untrusted', 'Cookie':'untrusted'})
@@ -121,15 +123,19 @@ def test_private_route_forwards_only_selected_headers(routes, route_id):
             connect=function(_,cfg) peer=cfg return true end,
             request=function(_,req)
                 outgoing=req
-                return {status=200,headers={},body_reader=function() return nil end}
+                return {status=409,headers={['X-OUF-Analysis-Stale-Cause']='SUPERSEDED',
+                        ['X-OUF-Analysis-Effect']='IN_FLIGHT'},body_reader=function() return nil end}
             end,
             close=function() end
         } end
     }""")
     engine.lua.globals()[b'ngx'][b'print'] = lambda *_: None
     post, = route['plugins']['serverless-post-function']['functions']
-    with pytest.raises(Denied, match='200'):
+    with pytest.raises(Denied, match='409'):
         engine.lua.execute(post.encode())(None, matched_route_context(engine, route))
+    response = engine.lua.globals()[b'ngx'][b'header']
+    assert response[b'X-OUF-Analysis-Stale-Cause'] == b'SUPERSEDED'
+    assert response[b'X-OUF-Analysis-Effect'] == b'IN_FLIGHT'
     peer = engine.lua.globals()[b'peer']
     assert peer[b'ssl_verify'] and peer[b'scheme'] == b'https'
     assert peer[b'ssl_server_name'] == route['upstream']['nodes'][0]['host'].encode()
@@ -139,6 +145,22 @@ def test_private_route_forwards_only_selected_headers(routes, route_id):
     if route_id in ('mcp-analysis-mandate-issue', 'mcp-analysis-mandate-revoke', 'mcp-analysis-mandate-renewal-check'):
         allowed.add(b'X-OUF-Delegation')
     assert set(req[b'headers'].keys()) == allowed
+
+
+def test_mandate_action_scope(routes):
+    """GW-58F-04. Every relay requires its action scope and a foreign-scope bearer is denied."""
+    for action in ACTIONS:
+        route = routes['mcp-analysis-mandate-' + action]
+        assert route['plugins']['openid-connect']['required_scopes'] == ['ouf.analysis.mandate.' + action]
+    pet = fixtures.MandatePET()
+    pet.setUp()
+    try:
+        pet.claims['scope'] = 'ouf.analysis.mandate.status'
+        assert pet.poll()[0] == 200
+        assert pet.send('dispatch', pet.b)[:2] == (403, {'code': 'ANALYSIS_AUTHORITY_DENIED'})
+        pet.owner.post.assert_not_called()
+    finally:
+        pet.doCleanups()
 
 
 def test_status_relay_caps_upstream_response(routes):

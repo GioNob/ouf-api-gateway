@@ -110,7 +110,7 @@ class TransportPET(unittest.TestCase):
         reservations.reserve(b)
         request_id = b['arguments']['requestId']
         reservations.request_owners[request_id] = (b['analysisId'], 'human')
-        resource_ids = {request_id, fixtures.PROFILE['profileId']}
+        resource_ids = {fixtures.PROFILE['profileId']}
         ouf_grants = {('tenant', 'human', resource) for resource in resource_ids}
         external_acl = {'fixture-reader': resource_ids}
         external_groups = {'tenant/human': ['fixture-reader']}
@@ -119,7 +119,8 @@ class TransportPET(unittest.TestCase):
                 return reservations.evidence(raw, {})
             if path.endswith('/token'):
                 return dict(active=raw == b'token=worker', iss=ISSUER, aud='gateway' if 'ouf' in path else ['gateway'],
-                            sub='svc', client_id='worker', ouf_actor_type='SERVICE', exp=1100, tenant_id='tenant')
+                            sub='svc', client_id='worker', ouf_actor_type='SERVICE', exp=1100, tenant_id='tenant',
+                            scope=fixtures.SERVICE_SCOPES)
             q = parse(raw)
             resource = q.get('resourceId') or q['profile']['profileId']
             if path.startswith('/ouf/'):
@@ -130,7 +131,7 @@ class TransportPET(unittest.TestCase):
             if not allowed:
                 return {'requestHash': digest(raw), 'allowed': False}
             return dict(requestHash=digest(raw), allowed=True, policyRef='p', grantRef='g', decisionRef='d',
-                        validUntil=1050, grantExpiresAt=2000, allowedOperations=[fixtures.OP], roles=[],
+                        validUntil=1050, grantExpiresAt=2000, allowedOperations=[fixtures.OP, 'source.file.preview'], roles=[],
                         acr='interactive', client='fixture')
         with tls_server(dispatch) as endpoint:
             for mode in ('ouf', 'preexisting'):
@@ -138,7 +139,7 @@ class TransportPET(unittest.TestCase):
                 self.assertEqual(iam.authenticate('Bearer worker', 1000)['sub'], 'svc')
                 with self.assertRaises(Rejected):
                     iam.authenticate('Bearer foreign', 1000)
-                q = dict(tenant='tenant', subject='human', resourceId=b['arguments']['requestId'])
+                q = dict(tenant='tenant', subject='human', resourceId=fixtures.PROFILE['profileId'])
                 self.assertTrue(iam.decide(q, 1000)['allowed'])
                 pet = fixtures.MandatePET()
                 pet.setUp()

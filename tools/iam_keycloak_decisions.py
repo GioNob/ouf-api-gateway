@@ -156,6 +156,7 @@ class Verifier:
                 or grant['introspectionProtocol'] != 'RFC7662'
                 or grant['revocation'] != 'withdraw-permission-and-invalidate-assignment-credential'
                 or not matches(grant['resourceType'], PROFILE_ID) or not secret or not matches(resource_server, PROFILE_ID)
+                or resource_server != grant['resourceServer']['clientId']
                 or not opaque(gateway_principal)):
             raise ValueError('invalid Keycloak assignment profile')
         self.issuer, self.audience = trust['issuer'], trust['gatewayAudience']
@@ -332,12 +333,7 @@ class Verifier:
         if action == 'renew-budget':
             require(q['delegatedClient'] == self.ths and 'ouf.analysis.renewal.decide' in q['delegatedScope'].split(), 403)
         if action == 'dispatch':
-            if q['operation'] in ('semantic.discovery.status', 'semantic.discovery.candidates'):
-                resources = attrs.get('requestIds', [])
-                require(type(resources) is list and all(is_uuid(v) for v in resources), 503)
-                require(q['resourceId'] in resources, 403)
-            else:
-                require(q['resourceId'] == q['profile']['profileId'], 403)
+            require(q['resourceId'] == q['profile']['profileId'], 403)
         ops = sorted(set(scopes).intersection(BINDINGS))
         require(action != 'issue' or ops, 403)
         now = int(self.clock())
@@ -382,17 +378,25 @@ class Verifier:
 
 def application():
     cfg = parse(Path(os.environ['OUF_KEYCLOAK_DECISIONS_CONFIG']).read_bytes())
-    required = {'profileFile', 'resourceServer', 'secretEnv', 'caFile', 'store', 'gatewayTlsPrincipal'}
+    required = {'profileFile', 'secretEnv', 'caFile', 'store', 'gatewayTlsPrincipal'}
     tls_keys = {'clientCertFile', 'clientKeyFile'}
-    if (type(cfg) is not dict or not required <= cfg.keys() or cfg.keys() - required - tls_keys - {'timeoutSeconds'}
+    if (type(cfg) is not dict or not required <= cfg.keys() or cfg.keys() - required - tls_keys - {'timeoutSeconds', 'resourceServer'}
             or cfg.keys() & tls_keys not in (set(), tls_keys)):
         raise ValueError('invalid private Keycloak verifier configuration')
-    if not matches(cfg['secretEnv'], '[A-Z][A-Z0-9_]{0,127}'):
-        raise ValueError('service credential environment reference required')
     profile = parse(Path(cfg['profileFile']).read_bytes())
+    server = profile['grant'].get('resourceServer')
+    if (not isinstance(server, dict) or not matches(server.get('clientId'), PROFILE_ID)
+            or not isinstance(server.get('secretRef'), str) or not server['secretRef'].strip()
+            or cfg.get('resourceServer', server['clientId']) != server['clientId']):
+        raise ValueError('invalid resource-server binding for approved profile')
+    secret_env = cfg['secretEnv']
+    if isinstance(secret_env, dict):
+        secret_env = secret_env.get(server['secretRef'])
+    if not matches(secret_env, '[A-Z][A-Z0-9_]{0,127}'):
+        raise ValueError('service credential environment reference required')
     ctx = ssl.create_default_context(cafile=cfg['caFile'])
     if 'clientCertFile' in cfg:
         ctx.load_cert_chain(cfg['clientCertFile'], cfg['clientKeyFile'])
     endpoint = Endpoint(profile['trust']['issuer'], ctx, cfg.get('timeoutSeconds', 5))
-    return Verifier(profile, cfg['resourceServer'], os.environ[cfg['secretEnv']], endpoint, VerifierStore(cfg['store']),
+    return Verifier(profile, server['clientId'], os.environ[secret_env], endpoint, VerifierStore(cfg['store']),
                     gateway_principal=cfg['gatewayTlsPrincipal'])

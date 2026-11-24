@@ -3,6 +3,10 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 import io
+import os
+from pathlib import Path
+import ssl
+import tempfile
 import threading
 import unittest
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -13,7 +17,7 @@ from tests.test_analysis_transport import tls_server
 from tools.analysis_clients import RemoteIAM
 from tools.analysis_mandate import new_ref
 from tools.analysis_protocol import Rejected, b64, delegation, digest, parse, wire
-from tools.iam_keycloak_decisions import CHECK, Verifier, VerifierStore, grant_name, limit, retry_seconds
+from tools.iam_keycloak_decisions import CHECK, Verifier, VerifierStore, application, grant_name, limit, retry_seconds
 
 
 ISSUER = 'https://iam.fixture.invalid/realms/fixture'
@@ -30,6 +34,7 @@ def profile():
                            decisions='https://private.fixture.invalid/decisions'),
                 clients={k: dict(clientId=v, audience='gateway') for k, v in [('mcp', WORKLOAD), ('ths', 'ths')]},
                 grant=dict(mechanism='authorization-resource', resourceType='assignment', grantRef='iam-resource-id',
+                           resourceServer=dict(clientId=RS, secretRef='fixture/assignment'),
                            lookup='current-resource-permission', decisionContract=CHECK, introspectionProtocol='RFC7662',
                            revocation='withdraw-permission-and-invalidate-assignment-credential',
                            revocationTtlSeconds=dict(value=12, default=10, maximum=30)),
@@ -49,7 +54,7 @@ class Keycloak:
         subject = 'principal-' + human
         self.identities[credential] = dict(iss=ISSUER, aud=['gateway'], sub=subject, tenant_id='tenant',
                                            client_id=WORKLOAD, exp=6000, ouf_actor_type='SERVICE', active=True,
-                                           scope='ouf.analysis.mandate.renewal-check')
+                                           scope=fixtures.SERVICE_SCOPES)
         identity = dict(issuer=ISSUER, tenant='tenant', workload=WORKLOAD, workloadSubject=subject)
         attrs = dict(**identity, analysisId=issue['analysisId'], manifestChecksum=issue['manifestChecksum'],
                      profileHash=digest(wire(issue['profile'])), grantExpiresAt='4800', policyRef='policy',
@@ -58,7 +63,8 @@ class Keycloak:
         self.resources[grant] = dict(_id=grant, name=grant_name(identity), type='assignment',
                                      owner={'id': human}, ownerManagedAccess=True,
                                      attributes={k: [v] for k, v in attrs.items()})
-        self.permissions[credential, grant] = {'issue', 'dispatch', 'status', 'revoke', 'renew-budget', OP}
+        self.permissions[credential, grant] = {'issue', 'dispatch', 'status', 'revoke', 'renew-budget', OP,
+                                               'source.file.preview', 'semantic.discovery.status', 'semantic.discovery.candidates'}
         return grant
 
     def http(self, method, path, headers, body):
@@ -270,6 +276,25 @@ class KeycloakPET(unittest.TestCase):
         revoke = dict(mandateId=self.m['mandateId'], expectedGeneration='1', commandKey=new_ref())
         self.assertEqual(self.call('revoke', revoke)[0], 200)
 
+    def test_discovery_job_belongs_to_plan(self):
+        """GW-58F-09. IAM checks the plan for both reads and MCP rejects a job from another plan."""
+        job = new_ref()
+        for op in ('semantic.discovery.status', 'semantic.discovery.candidates'):
+            with self.subTest(operation=op):
+                attempt = dict(self.attempt(), operation=op, arguments={'requestId': job})
+                self.pet.server.reserve(attempt)
+                self.pet.server.request_owners[job] = self.issue['analysisId'], 'A'
+                self.assertEqual(self.call('dispatch', attempt)[0], 201)
+                self.assertEqual(self.kc.evaluations[-1]['resourceId'], self.issue['profile']['profileId'])
+                self.pet.server.request_owners[job] = 'f' * 64, 'A'
+                attempt['attemptId'] = new_ref()
+                self.pet.server.reserve(attempt)
+                count = len(self.kc.evaluations)
+                self.pet.owner.post.reset_mock()
+                self.assertEqual(self.call('dispatch', attempt), (404, {'code': 'ANALYSIS_MANDATE_UNKNOWN'}))
+                self.assertEqual(len(self.kc.evaluations), count)
+                self.pet.owner.post.assert_not_called()
+
     def test_rate_survives_restart(self):
         self.app.limits['introspectionsPerMinute'] = 1
         self.app.store = VerifierStore(self.pet.path)
@@ -304,6 +329,29 @@ class KeycloakPET(unittest.TestCase):
 
 
 class InstallationPET(unittest.TestCase):
+    def test_profile_resource_server_factory(self):
+        """GW-58F-08. Resolve the approved client and credential and reject configuration drift."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'profile.json').write_bytes(wire(profile()))
+            store = root / 'verifier.sqlite'
+            store.touch()
+            cfg = dict(profileFile=str(root / 'profile.json'), secretEnv={'fixture/assignment': 'FIXTURE_RS_ENV'},
+                       caFile='fixture-ca', store=str(store), gatewayTlsPrincipal='gateway')
+            path = root / 'config.json'
+            credential = new_ref()
+            with patch.dict(os.environ, OUF_KEYCLOAK_DECISIONS_CONFIG=str(path), FIXTURE_RS_ENV=credential), \
+                    patch('tools.iam_keycloak_decisions.ssl.create_default_context',
+                          return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
+                for override in ({}, {'resourceServer': RS}, {'secretEnv': 'FIXTURE_RS_ENV'}):
+                    path.write_bytes(wire({**cfg, **override}))
+                    verifier = application()
+                    self.assertEqual((verifier.client, verifier.secret), (RS, credential))
+                for drift in ({'resourceServer': 'other'}, {'secretEnv': {'fixture/other': 'FIXTURE_RS_ENV'}}):
+                    path.write_bytes(wire({**cfg, **drift}))
+                    with self.assertRaises(ValueError):
+                        application()
+
     def test_limits_and_retry_after(self):
         for invalid in (dict(value=True, default=1, maximum=5), dict(value=0, default=1, maximum=5),
                         dict(value=6, default=1, maximum=5), dict(value=1, default=6, maximum=5)):

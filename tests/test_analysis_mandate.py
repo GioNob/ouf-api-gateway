@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 from tools.analysis_clients import RemoteIAM, Reservations
 from tools.analysis_mandate import Mandates, new_ref
-from tools.analysis_protocol import BINDINGS, CONTRACT, SEARCH_BATCH, TOOL_NAMES, Catalog, Rejected, delegation, digest, parse, wire
+from tools.analysis_protocol import ACTIONS, BINDINGS, CONTRACT, SEARCH_BATCH, TOOL_NAMES, Catalog, Rejected, delegation, digest, parse, wire
 from tools.analysis_store import MandateStore
 from tools.analysis_service import handler
 from tools.mcp_dispatch_contract import capability_contracts
@@ -25,6 +25,7 @@ OP = 'semantic.discovery.request'
 ARGS = {'requestedArtifactType': 'CLASS', 'idempotencyKey': 'analysis:' + 'c' * 64,
         'intent': 'pratica', 'preferredLanguages': ['it']}
 WORKER = 'Bearer synthetic-worker'
+SERVICE_SCOPES = ' '.join('ouf.analysis.mandate.' + action for action in ACTIONS)
 
 
 class ReservationServer:
@@ -64,7 +65,7 @@ class MandatePET(unittest.TestCase):
         self.server = ReservationServer()
         self.iam_identity = Mock()
         self.claims = dict(active=True, iss=ISSUER, aud='gateway', client_id='worker', ouf_actor_type='SERVICE',
-                           sub='worker-id', tenant_id='tenant', exp=6000)
+                           sub='worker-id', tenant_id='tenant', exp=6000, scope=SERVICE_SCOPES)
         self.iam_identity.evidence.return_value = self.claims
         self.policy = Mock()
         self.allowed = True
@@ -73,12 +74,13 @@ class MandatePET(unittest.TestCase):
         self.iam = RemoteIAM(self.iam_identity, self.policy, ISSUER, 'gateway', 'worker')
         # Store/race PET uses the real pinned discovery binding. The wire PET
         # exercises Draft 2020-12 and the materialized Lua execute route.
-        row = capability_contracts()['ouf.semantic.discovery']
+        rows = capability_contracts()
         self.catalog = Catalog.__new__(Catalog)
         self.catalog.checksum = 'b' * 64
         validator = Mock()
         validator.is_valid.return_value = True
-        self.catalog.entries = {OP: (row, '/internal/capabilities/v1/execute/semantic/discovery/request', validator)}
+        self.catalog.entries = {op: (rows[cap], '/internal/capabilities/v1/execute' + suffix, validator)
+                                for op, (cap, suffix) in BINDINGS.items()}
         self.owner = Mock()
         self.owner.post.return_value = (201, wire({'requestId': PROFILE['assetId']}), None)
         self.api = self.make_api()
@@ -103,10 +105,10 @@ class MandatePET(unittest.TestCase):
                     allowedOperations=list(BINDINGS), roles=['viewer'],
                     client='human-client', acr='interactive')
 
-    def proof(self, subject='human'):
+    def proof(self, subject='human', scope='ouf.semantic.discovery ouf.semantic.search ouf.managed-source.preview'):
         return delegation(dict(v=1, purpose='mcp-execute', iss=ISSUER, aud='gateway', workload='worker', actor='HUMAN',
                                tenant='tenant', principal=subject, iat=self.now, exp=self.now+60, acr='interactive',
-                               client='human-client', scope='ouf.semantic.discovery'), KEY)
+                               client='human-client', scope=scope), KEY)
 
     def send(self, action, b, proof=None):
         status, body, meta = self.api.handle(action, wire(b), WORKER, proof)
@@ -310,7 +312,7 @@ class MandatePET(unittest.TestCase):
         self.assertEqual(self.owner.post.call_count, 1)
 
     def test_race_and_crash_evidence(self):
-        """GW-51N-05. A second process can revoke while the admitted owner call is blocked."""
+        """GW-51N-05 / GW-58F-01. Revocation while the admitted owner call is blocked."""
         entered, resume = threading.Event(), threading.Event()
         def slow(*_):
             entered.set()
@@ -324,7 +326,10 @@ class MandatePET(unittest.TestCase):
                 self.assertEqual(self.send('revoke', self.revoke, self.proof())[0], 200)
             finally:
                 resume.set()
-            self.assertEqual(pending.result()[2]['X-OUF-Analysis-Effect'], 'IN_FLIGHT')
+            status, body, headers = pending.result()
+            self.assertEqual((status, body), (409, {'code': 'ANALYSIS_STALE_EXECUTION'}))
+            self.assertEqual(headers['X-OUF-Analysis-Effect'], 'IN_FLIGHT')
+            self.assertEqual(headers['X-OUF-Analysis-Stale-Cause'], 'REVOKED')
         with self.store.transaction() as db:
             rows = [parse(row[0]) for row in db.execute('select evidence from analysis_audit_v1 order by sequence')]
         self.assertEqual(rows[-2]['inFlightCount'], 1)
@@ -371,7 +376,14 @@ class MandatePET(unittest.TestCase):
         self.owner.post.assert_not_called()
 
     def test_higher_fence_supersedes_late_response(self):
-        """GW-51N-15. Retain both owner observations while only the current fence returns data."""
+        """GW-51N-15 / GW-58F-02. A newer fence supersedes a response on an active mandate."""
+        self.check_superseded_response(revoke=False)
+
+    def test_revoke_superseded_attempt(self):
+        """GW-58F-03. Revocation takes precedence after the successor has returned."""
+        self.check_superseded_response(revoke=True)
+
+    def check_superseded_response(self, revoke):
         entered, resume = threading.Event(), threading.Event()
         def send(body, *_):
             if parse(body)['AttemptID'] == self.b['attemptId']:
@@ -386,9 +398,47 @@ class MandatePET(unittest.TestCase):
             try:
                 self.assertTrue(entered.wait(5))
                 self.assertEqual(self.send('dispatch', successor)[0], 200)
+                if revoke:
+                    self.assertEqual(self.send('revoke', self.revoke, self.proof())[0], 200)
             finally:
                 resume.set()
-            self.assertEqual(pending.result()[1], {'code':'ANALYSIS_STALE_EXECUTION'})
+            status, body, headers = pending.result()
+            self.assertEqual((status, body), (409, {'code': 'ANALYSIS_STALE_EXECUTION'}))
+            self.assertEqual(headers['X-OUF-Analysis-Effect'], 'IN_FLIGHT')
+            self.assertEqual(headers['X-OUF-Analysis-Stale-Cause'], 'REVOKED' if revoke else 'SUPERSEDED')
+
+    def test_batch_rate_limit(self):
+        """GW-58F-05. Batch throttles preserve the contracted response and integer wait."""
+        contracted = b'{ "code": "SEM_BATCH_RATE_LIMITED", "observedSeconds": 0.5 }'
+        for payload, retry, expected, wait in (
+                (b'busy', '17', wire({'code': 'SEM_BATCH_RATE_LIMITED'}), '17'),
+                (b'{"code":"unrelated"}', '-2', wire({'code': 'SEM_BATCH_RATE_LIMITED'}), None),
+                (contracted, '0', contracted, '0')):
+            with self.subTest(payload=payload):
+                b = dict(self.b, operation=SEARCH_BATCH, attemptId=new_ref(), arguments={})
+                self.server.reserve(b)
+                self.owner.post.return_value = 429, payload, retry
+                status, result, headers = self.api.handle('dispatch', wire(b), WORKER)
+                self.assertEqual((status, result, headers.get('Retry-After')), (429, expected, wait))
+
+    def test_issue_requires_preview_before_persistence(self):
+        """GW-58F-06. A discovery-only intersection creates no mandate or command receipt."""
+        issue = dict(self.issue, analysisId='f' * 64, commandKey=new_ref())
+        denied = self.send('issue', issue, self.proof(scope='ouf.semantic.discovery'))
+        self.assertEqual(denied[:2], (403, {'code': 'ANALYSIS_AUTHORITY_DENIED'}))
+        with self.store.transaction() as db:
+            self.assertIsNone(db.execute('select id from analysis_mandate_v1 where plan=?', (issue['analysisId'],)).fetchone())
+            self.assertIsNone(db.execute('select reply from analysis_command_v1 where command=?', (issue['commandKey'],)).fetchone())
+
+    def test_partial_issue_replay(self):
+        """GW-58F-13. A replay cannot return a pre-upgrade receipt missing preview."""
+        with self.store.transaction() as db:
+            m = self.store.read(db, self.m['mandateId'])
+            m['allowed'] = [OP]
+            db.execute('update analysis_mandate_v1 set record=? where id=?', (wire(m), m['id']))
+            db.execute('update analysis_command_v1 set reply=? where command=?',
+                       (wire(dict(self.m, allowedOperations=[OP])), self.issue['commandKey']))
+        self.assertEqual(self.send('issue', self.issue, self.proof())[:2], (403, {'code': 'ANALYSIS_AUTHORITY_DENIED'}))
 
     def test_denied_operations_and_ambiguous_send(self):
         """GW-51N-06. Neither an unknown operation nor a repeated uncertain attempt can forward."""

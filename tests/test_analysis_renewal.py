@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from tests import test_analysis_mandate as fixtures
-from tests.release_bundle_fixture import RENEWAL_IDS, canonical_json, sha256
+from tests.release_bundle_fixture import RENEWAL_IDS, canonical_json, pre_58f_body, sha256
 from tests.test_execute_delegation import Engine, human
 from tests.test_value_type_schemas import matched_route_context, routes
 from tools.analysis_clients import Endpoint
@@ -40,7 +40,6 @@ class Channel:
         self.pet = pet
         self.human = dict(pet.claims, sub='human', client_id='ths', ouf_actor_type='HUMAN', acr='interactive',
                           scope='ouf.analysis.renewal.read ouf.analysis.renewal.decide')
-        pet.claims['scope'] = 'ouf.analysis.mandate.renewal-check'
         pet.iam_identity.evidence.side_effect = lambda b, _: self.human if b == b'token=ths-user' else pet.claims
         self.endpoint = Mock(path='/')
         self.app = handler(pet.api, Renewals(pet.api, self.endpoint, 'ths'))
@@ -281,7 +280,7 @@ def test_idempotent_bundle_and_fenced_restore(routes, tmp_path):
     with pytest.raises(ValueError, match='drift'):
         restore_plan(plan, inventory(changed.values()))
 
-    # Reconstruct #103 by replacing just the two public regexes, then check its frozen digest.
+    # Restore the pre-58f relay and the two #103 public selectors, then check the frozen digest.
     segment = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
     old_path = '^/trusted-human/analysis-renewal/' + segment
     old_regex = {
@@ -289,17 +288,17 @@ def test_idempotent_bundle_and_fenced_restore(routes, tmp_path):
         'trusted-human-analysis-renewal-decide': old_path + '/decision$',
     }
     original = json.loads((tmp_path / 'bundle.json').read_bytes())['resources']
-    installed = dict(routes)
+    installed = {key: pre_58f_body(key, route) for key, route in routes.items()}
     for row in original:
         key = row['id']
+        row['body'] = pre_58f_body(key, row['body'])
         if key in old_regex:
             selector = [['uri', '~~', old_regex[key]]]
             row['body']['vars'] = selector
             installed[key] = dict(routes[key], vars=selector)
     assert sha256(canonical_json(original)) == 'c2ca2af819386870eb6138308c2acf3b0b35187ffc5657cec074a93b4640dbb0'
     updates = search_plan(desired, inventory(installed.values()), rev, renewals=True)
-    assert {c.logical_id: c.action for c in updates} == {
-        k: 'update' if k in old_regex else 'unchanged' for k in RENEWAL_IDS}
+    assert {c.logical_id: c.action for c in updates} == {k: 'update' for k in RENEWAL_IDS}
     assert all(c.after == installed[c.logical_id] for c in restore_plan(updates, inventory(desired)))
     key = 'trusted-human-analysis-renewal-read'
     modified = {**installed, key: dict(installed[key], priority=5)}

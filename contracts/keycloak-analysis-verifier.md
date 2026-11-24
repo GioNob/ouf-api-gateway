@@ -2,15 +2,15 @@
 
 The installation serves `tools.iam_keycloak_decisions:application()` at the two private HTTPS URLs in the approved `ouf.iam-profile.v1` profile. The mandate Gateway points its `introspection` and `decisions` bindings at those URLs and enables `keycloakCurrentRights`. This is an installation adapter for `ouf.analysis.authority-check.v1`. A pre-existing IAM can continue to implement the original pair of endpoints.
 
-## Private bindings
+## Private bindings (installation register D-065)
 
 Set `OUF_KEYCLOAK_DECISIONS_CONFIG` to a private JSON file with these fields.
 
 | Field | Installation binding |
 |---|---|
 | `profileFile` | Materialized, approved Keycloak OUF profile. The verifier consumes `trust.issuer`, `gatewayAudience`, `introspection`, `decisions`, the MCP and THS client IDs, the grant contract and the two IAM rates. The realm and any Keycloak base path come from the realm issuer. |
-| `resourceServer` | Client ID of the confidential Authorization Services resource-server dedicated to assignment resources. The closed 55m schema has no field identifying this client. Supply the explicit custodian binding alongside the profile. Its service account is distinct from MCP and THS. |
-| `secretEnv` | Name of the environment binding containing the resource-server service credential. The JSON contains only the reference. |
+| `resourceServer` | Client ID of the confidential Authorization Services resource-server dedicated to assignment resources. The verifier takes this ID from `grant.resourceServer.clientId` in the approved profile. This optional configuration field must match the profile exactly or startup fails. Its service account is distinct from MCP and THS. |
+| `secretEnv` | Environment binding for the credential identified by `grant.resourceServer.secretRef`. A map keyed by the profile reference selects the environment variable by exact match. The existing single variable-name form binds that variable to the profile's sole resource-server credential. The custodian materializes the referenced secret into that variable. |
 | `caFile` | Private CA file resolved by the installation from `trust.caRef` for the native Keycloak HTTPS endpoint. Host verification is required. |
 | `gatewayTlsPrincipal` | Server-authenticated TLS identity authorized to prepare and consume decisions. Configure the private mTLS terminator to require an approved client certificate and populate the WSGI variables `SSL_CLIENT_VERIFY=SUCCESS` and `REMOTE_USER` from certificate verification. Exclude direct access to the WSGI socket. The read-only qualification client may use ordinary introspection with its own certificate. |
 | `store` | Existing, protected SQLite file on durable storage shared by every worker of this adapter installation. The adapter initializes its own two tables. Fence previous workers when changing the installation profile or restoring storage. |
@@ -29,7 +29,8 @@ The custodian provisions a user-owned Authorization Services resource of `grant.
 | `analysisId`, `profileHash`, `manifestChecksum` | Plan, SHA-256 of the exact canonical mandate profile, and pinned manifest. |
 | `policyRef`, `grantExpiresAt` | Custodian-managed policy revision and absolute grant deadline in decimal Unix seconds. Rotate the revision on a change of policy identity. |
 | `client`, `acr`, `roles` | Effective HUMAN context under this assignment. Interactive issue and revoke must match the verified delegation's client and ACR. Roles are a list of opaque references, empty when omitted. |
-| `requestIds` | Optional list of governed discovery request UUIDs within this assignment. The custodian's resource projection must authorize each request-bound read. MCP independently verifies request ownership in the reservation. |
+
+For every dispatch, including `semantic.discovery.status` and `semantic.discovery.candidates`, the verifier requires `resourceId == profile.profileId` on the subject's current assignment. The authenticated MCP reservation binds the discovery request ID to that plan and subject, and Semantic owns job deduplication. Job creation requires no IAM update.
 
 Each scalar attribute is a one-element Keycloak string array. Configure scope-based permissions on the exact resource for the six action names and the supported mandate operation names. Keycloak policies must evaluate current HUMAN rights and the authenticated requesting principal for that assignment, including the separate administrative revoke permission. A generic shared MCP service-account subject cannot represent two independent assignments. The resource name, owner, scope and current policy are all checked. Only an explicit administrative grant can revoke on behalf of another assignment principal.
 
