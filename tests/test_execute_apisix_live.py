@@ -30,7 +30,8 @@ from tests.test_dispatch_schema_contract import (
 )
 from tests.test_execute_delegation import runtime, envelope
 from tests.test_release_family_onboarding_mcp import check_onboarding_http, reply_onboarding_owner
-from tests.release_bundle_fixture import ONBOARDING_IDS, R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tests.test_release_family_semantic_mcp import check_denied_dispatch, check_owner_receipt
+from tests.release_bundle_fixture import ONBOARDING_IDS, SEMANTIC_MCP_IDS, R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -167,6 +168,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     wave2_dispatch = wave2_dispatch_cases()
     search_receipts = {}
+    proposal_receipts = {}
     recovery_page = '/trusted-human/ingestion-run-recovery/'
     recovery_run = '/api/trusted-human/v1/ingestion/runs/11111111-1111-4111-8111-111111111111'
     human_runs = {
@@ -214,6 +216,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 dispatch_bodies[self.path] = body
                 if self.path.startswith('/api/internal/v1/semantic/consultation/'):
                     search_receipts[self.path] = self.headers.get('X-OUF-Semantic-Read-Receipt')
+                if self.path.startswith('/api/semantic/v1/proposal-commands/'):
+                    proposal_receipts[self.path] = self.headers.get('X-OUF-Semantic-Proposal-Receipt')
                 if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
                     self.reply({
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
@@ -416,6 +420,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                             else capability_contracts()[bound_capability(schema)])
                 scope = ('ouf.semantic.discovery' if route_id == 'mcp-semantic-discovery-candidates'
                          else contract['requiredAuthorizationCapability'])
+                if route_id == 'mcp-semantic-get':
+                    scope = 'ouf.semantic.read'
                 status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
                 assert status == 200
                 delegation = json.loads(result)['proof']
@@ -429,6 +435,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
                     if route_id == 'mcp-semantic-discovery-candidates' or route_id in SEARCH_IDS:
                         assert dispatch_bodies[owner] == json.dumps(body).encode()
+                    if route_id in SEMANTIC_MCP_IDS:
+                        receipts = search_receipts if route_id == 'mcp-semantic-get' else proposal_receipts
+                        check_owner_receipt(route_id, receipts[owner], dispatch_bodies[owner], body)
+                        check_denied_dispatch(route_id, uri, body, post, token, delegation)
                     if route_id in SEARCH_IDS:
                         encoded, signed = search_receipts[owner].encode().split(b'.')
                         expected = hmac.digest(b'56' * 32, b'ouf-semantic-read-owner-v1.' + encoded, 'sha256')

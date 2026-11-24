@@ -13,11 +13,12 @@ INSTALLATION_LABELS = {
 }
 
 
-def capture_original_body(ceiling):
+def capture_original_body(ceiling, *, reject_empty=True):
     """Preserve the bounded envelope before APISIX request-validation re-encodes it."""
+    empty_check = '#body == 0 or ' if reject_empty else ''
     return f"""return function(conf, ctx)
     local body = require('apisix.core').request.get_body({ceiling})
-    if not body or #body == 0 or #body > {ceiling} then return ngx.exit(413) end
+    if not body or {empty_check}#body > {ceiling} then return ngx.exit(413) end
     ctx.ouf_original_body = body
 end"""
 
@@ -44,7 +45,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         values.update(CAPABILITY=cap, REQUIRED_SCOPE='ouf.semantic.discovery',
                       OPERATION='COMMAND', OWNER_PATH='/api/semantic/v1/proposal-commands/adopt')
     if kind == 'execute_semantic_read' and use_route_labels:
-        if read_mode not in ('search', 'search-batch'):
+        if read_mode not in ('search', 'search-batch', 'get'):
             raise ValueError('expected a fixed semantic search binding')
         values['READ_MODE'] = read_mode
     if kind == 'execute_semantic_proposals':
@@ -110,6 +111,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
     source = (ROOT / (template + '.lua')).read_text()
     if kind == 'execute_semantic_read':
         from tools.mcp_dispatch_contract import SEARCH_SCOPE, capability_contracts
+        source = source.replace('USE_CAPTURED_READ_BODY', 'false' if read_mode == 'get' else 'READ_MODE')
         kinds = capability_contracts()[SEARCH_SCOPE]['inputSchema']['properties']['type']['enum']
         source = source.replace('-- MATERIALIZE SEARCH TYPES',
                                 'local kinds = {' + ','.join(f'[{json.dumps(k)}]=true' for k in kinds) + '}')
@@ -165,7 +167,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         from tools.materialize_semantic_proposals import PROPOSAL_REQUEST_BYTES, VALUE_MAP_REQUEST_BYTES
         ceiling = VALUE_MAP_REQUEST_BYTES if cap == 'ouf.semantic.propose' else PROPOSAL_REQUEST_BYTES
         reader = 'ngx.req.read_body()\nlocal body = ngx.req.get_body_data()'
-        if adopt or cap == 'ouf.semantic.propose':
+        if adopt or cap == 'ouf.semantic.propose' or (use_route_labels and cap in ('ouf.semantic.review.prepare', 'ouf.semantic.approval.request')):
             reader = "local body = ctx.ouf_original_body\nif type(body) ~= 'string' then return fail(503) end"
         source = source.replace('-- MATERIALIZE SEMANTIC REQUEST BODY', reader)
         source = source.replace('BODY_CEILING', str(ceiling)).replace('LEGACY_CEILING', str(PROPOSAL_REQUEST_BYTES))

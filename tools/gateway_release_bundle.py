@@ -24,6 +24,7 @@ from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
 from tools.apisix_request_schema import verify_dispatch_arguments
+from tools import release_family_semantic_mcp as semantic_mcp
 from tools.mcp_dispatch_contract import SEARCH_BINDINGS, THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,7 +122,9 @@ def release_resources():
     discovery = discovery_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_DISCOVERY', 'BUNDLE_INPUT_SEMANTIC')
     mediated['routes'].extend(discovery)
     mediated['routes'].extend(search_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_READ'))
+    semantic_mcp.materialize(mediated, runtime, delegation, 'BUNDLE_INPUT_READ')
     dispatch_bindings = {
+        **semantic_mcp.DISPATCH_BINDINGS,
         **{key: ('ouf-semantic-registry', 'gateway.semanticReadOwnerKeyEnv') for key in SEARCH_BINDINGS},
         'mcp-semantic-discovery-request': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
         'mcp-semantic-discovery-status': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),

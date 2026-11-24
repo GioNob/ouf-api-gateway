@@ -13,7 +13,8 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'mcp-semantic-discovery-status', 'mcp-semantic-discovery-candidates', 'mcp-semantic-discovery-adopt',
                 'mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-source-revision-read',
                 'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
-                'mcp-authorization-policy-bundle-read'}
+                'mcp-authorization-policy-bundle-read',
+                'mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review'}
 
 
 def reject_bundle_owned(ids):

@@ -4,19 +4,8 @@ import json
 import re
 
 
-R2B_ROUTE_IDS = (
-    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
-    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
-)
-
-DISCOVERY_REVIEW_IDS = [
-    'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
-    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status',
-]
-
-SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
-
-BASELINE_3D69CB4_IDS = {
+# Closed inventory of release 3d69cb4, independent of future families.
+BASE_3D69CB4 = frozenset({
     'mcp-ingestion-run-recovery-link',
     'mcp-managed-file-create',
     'mcp-managed-file-handoff',
@@ -48,7 +37,22 @@ BASELINE_3D69CB4_IDS = {
     'trusted-human-ingestion-run-recovery',
     'trusted-human-ingestion-run-resume',
     'trusted-human-resolution-review',
-}
+})
+
+R2B_ROUTE_IDS = (
+    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
+)
+
+DISCOVERY_REVIEW_IDS = [
+    'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status',
+]
+
+SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
+SEMANTIC_MCP_IDS = ('mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review')
+
+BASELINE_3D69CB4_IDS = BASE_3D69CB4  # alias kept for the 60b family tests
 
 ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-source-revision-read',
                   'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
@@ -63,7 +67,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -149,6 +153,7 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 
 def ci_profile(installation, port):
     return {
+        'gateway.rateLimits.semanticMcp.count': 12, 'gateway.rateLimits.semanticMcp.timeWindowSeconds': 60,
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')

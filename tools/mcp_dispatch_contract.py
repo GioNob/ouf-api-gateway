@@ -4,6 +4,8 @@ import re
 from functools import cache
 from pathlib import Path
 
+from tools import release_family_semantic_mcp as semantic_mcp
+
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
@@ -88,6 +90,7 @@ def capability_contracts():
     if len(rows) != len(onboard) or onboard.keys() != set(ONBOARDING_DISPATCH.values()) | {PICKER_CAPABILITY}:
         raise ValueError('expected six distinct Onboarding MCP declarations')
     by_id.update(onboard)
+    by_id.update(semantic_mcp.declarations())
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -102,7 +105,9 @@ def dispatch_input_schema(capability, schema):
         if 'commandKey' in schema.get('required', []):
             raise ValueError('source.file.profile commandKey must remain optional MCP context')
         return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'commandKey'}}
-    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
+    # The MCP kernel consumes optional analysisId before dispatch for these tools.
+    local_analysis = capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values()
+    if local_analysis and 'analysisId' in schema.get('properties', {}):
         if 'analysisId' in schema.get('required', []):
             raise ValueError(f'{capability}: analysisId must remain optional MCP context')
         return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
