@@ -105,7 +105,7 @@ def test_closed_internal_routes_and_payloads():
     doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
     routes=[r for r in doc['routes'] if '/execute/managed.file/' in r.get('uri','')]
     legacy={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
-    assert {r['id'] for r in select(doc)}==legacy
+    assert {r['id'] for r in select(doc)} == legacy - {'mcp-managed-file-profile'}
     assert {r['id'] for r in routes}==legacy | {'mcp-managed-file-handoff','mcp-managed-file-handoff-issue'}
     for r in routes:
         assert r['upstream']['nodes']=={'ouf-onboarding:8080':1}
@@ -158,7 +158,7 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
 
     ok=Admin()
     apply(routes,ok,anonymous_probe=anonymous_probe)
-    assert len(ok.probes)==3 and all(valid for _,valid in ok.probes)
+    assert len(ok.probes)==2 and all(valid for _,valid in ok.probes)
     denied=Admin(failure=True)
     with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
         apply(routes,denied,anonymous_probe=anonymous_probe)
@@ -167,8 +167,9 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
 
 @pytest.mark.parametrize('with_handoff', [True, False])
 def test_legacy_snapshot_restore_keeps_governed_handoff(tmp_path, monkeypatch, with_handoff):
-    """GW-51I-LEGACY. Both backup generations restore only the original three routes."""
+    """GW-51I-LEGACY. Historical backups leave the governed profile and handoff alone."""
     previous = dict.fromkeys(deploy_managed_file_mcp.IDS)
+    previous['mcp-managed-file-profile'] = {'uri': '/previous-profile'}
     if with_handoff:
         previous['mcp-managed-file-handoff'] = {'uri': '/previous-handoff'}
     snapshot = tmp_path / 'backup.json'

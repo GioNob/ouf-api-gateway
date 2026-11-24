@@ -49,6 +49,9 @@ def test_published_terms_release(tmp_path):
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
+        'iam.workloadClients.semantic': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('onboardingMcp', 'authorizationPolicyRead')
+           for field in ('count', 'timeWindowSeconds')},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
         'gateway.semanticReadOwnerKeyEnv': 'secret',
         'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',

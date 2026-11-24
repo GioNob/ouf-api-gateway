@@ -7,6 +7,16 @@ from pathlib import Path
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+ONBOARDING_MANIFEST = MANIFEST.with_name('mcp-onboarding_mcp-capabilities.json')
+ONBOARDING_DISPATCH = {
+    'mcp-managed-file-profile': 'ouf.managed-source.file.profile',
+    'mcp-source-revision-read': 'ouf.onboarding.revision.read',
+    'mcp-permissions-read': 'authorization.permissions.read',
+    'mcp-permissions-propose': 'authorization.permissions.propose',
+    'mcp-permissions-status': 'authorization.proposal.read',
+}
+UPLOAD_ID = 'mcp-managed-file-upload'
+POLICY_BUNDLE_ID = 'mcp-authorization-policy-bundle-read'
 SEARCH_SCOPE = 'ouf.semantic.search'
 SEARCH_BATCH = SEARCH_SCOPE + '.batch'
 SEARCH_BINDINGS = {
@@ -73,6 +83,11 @@ def capability_contracts():
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
     by_id.update(updated)
+    rows = json.loads(ONBOARDING_MANIFEST.read_bytes())['capabilities']
+    onboard = {row['capabilityId']: row for row in rows}
+    if len(rows) != len(onboard) or onboard.keys() != set(ONBOARDING_DISPATCH.values()) | {PICKER_CAPABILITY}:
+        raise ValueError('expected six distinct Onboarding MCP declarations')
+    by_id.update(onboard)
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -82,7 +97,11 @@ def capability_contracts():
 
 
 def dispatch_input_schema(capability, schema):
-    """The MCP kernel consumes optional analysisId before dispatch for these tools."""
+    """Project local MCP context out of the Arguments sent to the Gateway."""
+    if capability == 'ouf.managed-source.file.profile':
+        if 'commandKey' in schema.get('required', []):
+            raise ValueError('source.file.profile commandKey must remain optional MCP context')
+        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'commandKey'}}
     if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
         if 'analysisId' in schema.get('required', []):
             raise ValueError(f'{capability}: analysisId must remain optional MCP context')

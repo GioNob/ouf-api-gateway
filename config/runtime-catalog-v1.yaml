@@ -38,6 +38,10 @@ entries:
   gateway.rateLimits.r2bPublication.count: *r2bCount
   gateway.rateLimits.r2bPublication.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.r2bPublication.key: *r2bKey
+  gateway.rateLimits.onboardingMcp.count: *r2bCount
+  gateway.rateLimits.onboardingMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.authorizationPolicyRead.count: *r2bCount
+  gateway.rateLimits.authorizationPolicyRead.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearch.count: *r2bCount
   gateway.rateLimits.semanticSearch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearch.key: *r2bKey
