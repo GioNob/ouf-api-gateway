@@ -133,8 +133,8 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
                              'bundleSha256', 'resourcesSha256', 'retiredSha256', 'placeholders'}
     assert set(bundle) == {'schema', 'sourceRepository', 'sourceCommit', 'resources',
                            'placeholders', 'resourcesSha256', 'retired', 'retiredSha256'}
-    assert manifest['schema'] == 'ouf.gateway-release-manifest.v2'
-    assert bundle['schema'] == 'ouf.gateway-release-bundle.v2'
+    assert manifest['schema'] == 'ouf.gateway-release-manifest.v3'
+    assert bundle['schema'] == 'ouf.gateway-release-bundle.v3'
     assert bundle['sourceRepository'] == manifest['sourceRepository'] == 'GioNob/ouf-api-gateway'
     assert re.fullmatch(r'[0-9a-f]{40}', commit)
     assert bundle['sourceCommit'] == manifest['sourceCommit'] == commit
@@ -147,6 +147,7 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert bundle['retiredSha256'] == manifest['retiredSha256'] == sha256(canonical_json(bundle['retired']))
     resources = bundle['resources']
     assert isinstance(resources, list)
+    assert {e['id'] for e in bundle['retired']}.isdisjoint(item['id'] for item in resources)
     assert bundle['resourcesSha256'] == manifest['resourcesSha256'] == sha256(canonical_json(resources))
     assert isinstance(bundle['placeholders'], list)
     placeholder_types = {}

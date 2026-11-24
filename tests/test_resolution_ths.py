@@ -95,4 +95,6 @@ def test_release_passes_executor_verifier(deploy_checkout, monkeypatch, runtime,
           'sourceCommit': COMMIT, 'zipSha256': hashlib.sha256(raw).hexdigest()}
     profile = ci_profile(runtime['x-ouf-installation'], 18080)
     verified = verify(raw, ci, profile)
-    assert [dict(r['body'], id=r['id']) for r in verified] == load_release_routes(tmp_path, COMMIT, WORKFLOW, '36', profile)
+    assert verified['retired'] == json.loads((tmp_path / 'bundle.json').read_bytes())['retired']
+    routes = [dict(r['body'], id=r['id']) for r in verified['resources']]
+    assert routes == load_release_routes(tmp_path, COMMIT, WORKFLOW, '36', profile)

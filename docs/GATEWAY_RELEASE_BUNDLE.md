@@ -77,13 +77,13 @@ la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-pack
 
 Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
 secondo giro D-085 riportate più avanti.
-Il contratto `ouf.gateway-release-bundle.v2` usa i segnaposto D-058 per host,
+Il contratto `ouf.gateway-release-bundle.v3` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
-d’installazione. Il manifest `ouf.gateway-release-manifest.v2` riporta commit,
+d’installazione. Il manifest `ouf.gateway-release-manifest.v3` riporta commit,
 workflow, ID del run e digest.
 
-L’elenco `retired` dichiara due rotte create a mano che duplicano percorso,
-metodo e `vars` delle rotte Ingestion governate. Ogni voce riporta i `vars` letterali
+Nell’elenco `retired` le due rotte sostituite duplicano percorso, metodo e
+`vars` delle rotte Ingestion governate. Le due voci riportano i `vars` letterali
 della rotta legacy: le classi di caratteri sono scritte in un altro ordine, con la stessa
 semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle e manifest riportano
 `retiredSha256`, lo SHA-256 del JSON canonico di `retired`.
@@ -94,9 +94,17 @@ semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle
 | `r4a-ingestion-human-run-read` | `trusted-human-ingestion-run-read` |
 | `r4a-ingestion-human-run-resume` | `trusted-human-ingestion-run-resume` |
 
-L’esecutore di task-51h2 mostra le rimozioni nel plan sottoposto all’operatore
-HUMAN e verifica la corrispondenza di selettori e `vars` prima di rimuovere
-ciascuna rotta. Ritorno e compensazione ricreano le rotte rimosse.
+Le due copie disattivate della ricerca correlata hanno `supersededBy: null`.
+Per ciascun ID il digest copre anche il motivo pubblico e il `match` letterale
+di selettori, stato ed etichette. Un campo assente nell’export vale `null`.
+Prima del rilascio v3 va attivato l’esecutore aggiornato di `ouf-deploy` (task-60k).
+Il plan HUMAN mostra l’ID e «da rimuovere (obsoleta: motivo)» oppure «già assente».
+L’apply verifica il corpo approvato e conferma ogni assenza. Al ritorno l’esecutore
+ripristina e rilegge il corpo del primo snapshot se l’ID è libero. Un corpo diverso
+richiede riconciliazione. Un ID già assente al primo plan resta assente.
+I PET `GW-60J-01`–`03` verificano la parità con `3d69cb4` e le quattro identità
+in `tests/test_r2b_release.py`. I PET `GW-60J-04`–`06` coprono gli errori statici,
+il caricamento in CI e i valori JSON letterali in `tests/test_gateway_release_bundle.py`.
 
 Il job `config-contract` genera il bundle dal commit testato sia su `push` sia
 su `pull_request` e risolve i segnaposto con un profilo di test. Il gate esegue
