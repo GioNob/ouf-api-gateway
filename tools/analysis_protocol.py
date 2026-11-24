@@ -37,6 +37,35 @@ BINDINGS = {
 ERRORS = {400: 'INPUT_INVALID', 403: 'AUTHORITY_DENIED', 404: 'MANDATE_UNKNOWN',
           409: 'STALE_EXECUTION', 410: 'MANDATE_EXPIRED', 429: 'BACKOFF', 503: 'AUTHORITY_UNAVAILABLE'}
 
+# ouf.analysis.installation.v1 capacity profile: default, minimum, maximum.
+CAPACITY_FIELDS = {
+    'dataSlots': (4, 1, 128),
+    'ControlReservedSlots': (2, 2, 64),
+    'relaySlots': (1, 1, 64),
+    'processes': (1, 1, 64),
+    'threadsPerProcess': (8, 1, 512),
+    'instanceConnections': (8, 1, 32768),
+    'latencyWindowSamples': (512, 1, 4096),
+    'latencyWindowSeconds': (60, 1, 3600),
+    'retryAfterSeconds': (1, 1, 60),
+}
+
+
+def capacity_profile(fields):
+    if type(fields) is not dict or fields.keys() - CAPACITY_FIELDS.keys():
+        raise ValueError('invalid analysis capacity profile')
+    profile = {}
+    for name, (default, minimum, maximum) in CAPACITY_FIELDS.items():
+        value = fields.get(name, default)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(f'invalid analysis capacity field {name}')
+        profile[name] = value
+    # Keep one listener slot for admission refusals and observation even at full occupancy.
+    required = profile['dataSlots'] + profile['ControlReservedSlots'] + profile['relaySlots'] + 1
+    if required > profile['threadsPerProcess'] or required * profile['processes'] > profile['instanceConnections']:
+        raise ValueError('analysis capacity exceeds declared hosting threads or connections')
+    return profile
+
 
 class Rejected(Exception):
     def __init__(self, status, code=None, retry_after=None):
