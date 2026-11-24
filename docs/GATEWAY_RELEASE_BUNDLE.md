@@ -266,3 +266,59 @@ La prova di ripristino deve verificare chiamata autorizzata, diniego e 429 con
 i tre header. I contatori locali in memoria ripartono sulla nuova istanza.
 La CI esercita la risoluzione del bundle e il transito HTTP. La ricevuta su un
 secondo host compete alla qualifica dell'installazione.
+
+## Provider southbound e preflight GW-55L
+
+Le due rotte private del provider sono prodotte da
+`tools.materialize_semantic_provider_runtime`. Il risultato espone
+`southboundRoutes.routes` e `southboundRoutes.providerQuotaPlan`. Nel profilo
+`routes.quotaInventory` sono obbligatori `instances` ed `egressKeys`, interi
+positivi. Inventariare il massimo numero di istanze che possono servire le
+rotte nella stessa finestra (inclusa la sovrapposizione di rollout) e il
+massimo numero di chiavi `remote_addr` indipendenti visibili a ciascuna.
+Riconciliare il primo con la topologia effettiva e con
+`ha.southbound.replicas`. L'inventario è un input privato del rilascio.
+Il preflight verifica l'aritmetica sulla dichiarazione.
+
+`ceiling` ha default e massimo 20. `rateLimit.time_window` vale 60 secondi.
+`rateLimit` accetta una configurazione comune o due configurazioni complete
+nelle proprietà `search` e `fetch`. Per `local` il totale è
+`count × instances × egressKeys`. Due istanze e una chiave consentono
+`count=10` per rotta. Per `redis` tutte le istanze devono usare lo stesso
+`redis_host` e `redis_port` dichiarati in `quotaInventory.redisBackend` e lo
+stesso `group` stabile per installazione e rotta. Search e fetch usano gruppi
+distinti. Il totale diventa `count × egressKeys`. Il preflight rifiuta gli
+sforamenti e le finestre diverse da 60 s. La qualifica dell'installazione
+verifica backend, gruppi, numero effettivo delle chiavi e continuità dei
+contatori durante aggiornamenti o riavvii.
+
+Per il plan di rilascio passare l'array delle rotte risolte, il binding privato
+(`routes` del profilo runtime) e il readback completo delle rotte del piano
+southbound. Per l'adozione delle rotte esistenti fornire anche il precedente
+binding approvato. Il piano identifica le risorse per ID, selettore e immagine
+completa e mostra il calcolo separato per rotta.
+
+```sh
+python -m tools.plan_semantic_search --family semantic-provider \
+  --resolved-routes routes.json --inventory before.json \
+  --provider-binding routes-binding.json --previous-provider-binding previous-binding.json
+```
+
+Per la restore aggiungere `--restore-inventory after.json` allo stesso comando.
+Il preflight confronta il readback con le immagini attese e rivalida i limiti
+da ripristinare sulla topologia dichiarata. La presenza delle vecchie rotte
+permette ai client in servizio di continuare con origine `UNKNOWN`. Per un
+aggiornamento servono inventario corrente e pubblicazione governata. Con
+contatori locali la sostituzione delle istanze può azzerare i crediti consumati.
+Durante il cambio di generazione includere ogni bucket indipendente che può
+spendere nella stessa finestra o attendere il termine della finestra.
+
+La classificazione locale è qualificata per il ruolo dedicato generato,
+con un solo `limit-count` per rotta. Su un'uscita locale il filtro verifica
+l'assenza di un tentativo upstream e del passaggio all'ammissione successiva al
+limitatore, oltre ai tre campi di quota generati da APISIX. Sul ramo inoltrato
+richiede l'ammissione completata e l'esito NGINX 429 dell'unico peer. La chiave
+di attestazione va abilitata solo nel profilo qualificato con questi produttori
+di risposta. Il gate reale esistente usa `OUF_APISIX_LIVE_TEST=1` ed esercita
+entrambe le rotte. La specifica e il vettore accompagnano GW-55L-01…04 e
+PET-gateway-008/043. [Contratto 429](../contracts/semantic-provider-429-origin-v1.md)
