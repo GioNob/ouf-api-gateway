@@ -5,7 +5,8 @@ import time
 import uuid
 
 from tools.analysis_protocol import (
-    ACTIONS, BINDINGS, STATUS_MAX_BYTES, Rejected, delegation, digest, human_proof, is_uuid, parse, require, validate, wire,
+    ACTIONS, BINDINGS, RENEWAL_COMMAND, STATUS_MAX_BYTES, Rejected, delegation, digest,
+    human_proof, is_uuid, parse, require, validate, wire,
 )
 
 
@@ -58,8 +59,14 @@ class Mandates:
             for k in ('analysisId', 'mandateId', 'generation', 'intentKey', 'attemptId', 'fence'):
                 if k in b:
                     evidence[k] = b[k]
-            w = self.iam.authenticate(bearer, self.now(), foreign_workload_status=404 if action == 'status' else 403)
+            scoped_read = action in ('status', 'renewal-check')
+            w = self.iam.authenticate(bearer, self.now(), foreign_workload_status=404 if scoped_read else 403)
             evidence['workloadRef'] = subject_key(self.iam.issuer, w['tenant_id'], w['sub'])
+            if action == 'renewal-check':
+                require(isinstance(w.get('scope'), str) and 'ouf.analysis.mandate.renewal-check' in w['scope'].split(), 403)
+                p = human_proof(proof, self.key, self.iam.issuer, self.iam.audience, self.iam.workload,
+                                w['tenant_id'], self.now(), purpose='analysis-renewal-decide')
+                return 200, wire(self.renewal_check(b, w, p, digest(body), ref, evidence)), {}
             if action == 'status':
                 return 200, wire(self.status(b, w, ref, evidence)), {}
             if action == 'dispatch':
@@ -86,12 +93,40 @@ class Mandates:
                  'manifestChecksum': target['manifestChecksum'], 'nonce': new_ref()}
         if m:
             query.update(mandateId=m['id'], grantRef=m['grantRef'], policyRef=m['policyRef'])
+        if action == 'renew-budget':
+            query.update({k: b[k] for k in ('generation', 'incidentId', 'proposalVersion', 'proposalHash',
+                                            'expectedSeq', 'reviewRef', 'commandKey', 'decision')})
+            query['commandHash'] = p['requestHash']
         if action == 'dispatch':
             query.update(operation=b['operation'], intentKey=b['intentKey'], argumentsHash=digest(wire(b['arguments'])),
                          resourceId=b['arguments'].get('requestId', target['profile']['profileId']))
         if p:
             query.update(delegatedClient=p['client'], delegatedScope=p['scope'], acr=p['acr'])
         return self.iam.decide(query, self.now())
+
+    def renewal_check(self, b, w, p, request_hash, ref, evidence):
+        m = self.store.get(b['mandateId'])
+        require(m['issuer'] == self.iam.issuer and m['workload'] == w['client_id'] and m['tenant'] == w['tenant_id']
+                and m['subject'] == p['principal'] and m['analysisId'] == b['analysisId'], 404)
+        command = {k: b[k] for k in RENEWAL_COMMAND.split()}
+        require(p.get('requestHash') == digest(wire(command)) and 'ouf.analysis.renewal.decide' in p['scope'].split(), 403)
+        check_active(m, b['generation'], self.now())
+        decision = self.decision('renew-budget', b, w, p, m)
+        require(decision['grantRef'] == m['grantRef'] and decision['policyRef'] == m['policyRef'], 403)
+        with self.store.transaction() as db:
+            now = self.now()
+            current = self.store.read(db, m['id'])
+            check_active(current, b['generation'], now)
+            valid_until = min(current['expires'], w['exp'], p['exp'], decision['grantExpiresAt'],
+                              decision['validUntil'], now + self.proof_ttl)
+            require(now < valid_until, 403)
+            self.store.audit(db, ref, {**evidence, **self.audit_scope(current), 'outcome': 'RENEWAL_CHECKED',
+                                       'requestHash': request_hash, 'iamDecisionRef': decision['decisionRef'],
+                                       'incidentRefHash': digest(wire(b['incidentId'])), 'commandHash': p['requestHash'],
+                                       'proposalVersion': b['proposalVersion'], 'proposalHash': b['proposalHash'],
+                                       'validUntil': valid_until})
+            return dict(requestHash=request_hash, decisionRef=decision['decisionRef'],
+                        grantRef=current['grantRef'], validUntil=valid_until)
 
     def status(self, b, w, ref, evidence):
         self.store.charge_status(self.now(), self.status_reads_per_minute)

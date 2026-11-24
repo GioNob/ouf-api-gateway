@@ -16,6 +16,9 @@ DISCOVERY_REVIEW_IDS = [
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 MANDATE_IDS = tuple('mcp-analysis-mandate-' + action for action in ('issue', 'dispatch', 'revoke', 'status'))
+RENEWAL_IDS = {'mcp-analysis-mandate-renewal-check', 'onboarding-analysis-renewal-read',
+               'onboarding-analysis-renewal-decide', 'trusted-human-analysis-renewal-read',
+               'trusted-human-analysis-renewal-decide'}
 
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
@@ -25,7 +28,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *MANDATE_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *MANDATE_IDS, *RENEWAL_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
