@@ -9,6 +9,7 @@ from tools.mcp_dispatch_contract import EXECUTE_PATH, capability_contracts, enve
 SNAPSHOT = LUA.parents[1] / 'contracts/mcp-read_operations_mcp-capabilities.json'
 STATUS = 'ouf.system.status'
 INGESTION = 'ouf.ingestion.status'
+HISTORY = 'ouf.ingestion.history'
 SEARCH = 'urban.object.search'
 ACQUISITIONS = {
     'ouf.ingestion.acquisition.read': ('ingestion', 'afterLineageId', 'ingestion.contract.read ingestion.lineage.read ingestion.run.read',
@@ -19,6 +20,8 @@ ACQUISITIONS = {
 ROUTES = {
     'mcp-generic-execution': STATUS,
     'mcp-ingestion-status': INGESTION,
+    # DN-L3-3: adopted from the MCP manifest aligned to the owner limit (100).
+    'mcp-ingestion-history': HISTORY,
     'execute-urban-object-search': SEARCH,
     'execute-ouf-ingestion-acquisition-read': 'ouf.ingestion.acquisition.read',
     'execute-urban-acquisition-read': 'urban.acquisition.read',
@@ -53,8 +56,8 @@ def arguments(capability):
                 value['pattern'] = NONZERO_UUID
     elif capability == SEARCH:
         fields['type']['pattern'] = r'^[^*%\x00-\x1f]+$'
-    elif capability == 'ouf.operations.summary':
-        # Same bounded timestamp accepted by the deployed producer facade.
+    elif capability in ('ouf.operations.summary', HISTORY):
+        # Same bounded timestamp accepted by the deployed producer facade and the installed history route.
         fields['since'].update(pattern=r'^.+T.+(Z|[+-][0-9]{2}:[0-9]{2})$', maxLength=100)
     return envelope_refs(schema)
 
@@ -76,7 +79,7 @@ def mediation(cap, owner, path, scope):
                          RECEIPT_DOMAIN=f'ouf-{purpose}-v1.', RECEIPT_HEADER=header)
         owner_key = f'gateway.{owner}ReadOwnerKeyEnv'
         source = (LUA / 'execute_acquisition_read.lua').read_text()
-    elif cap == INGESTION:
+    elif cap in (INGESTION, HISTORY):
         profile = 'ingestion-read-owner-receipt-v1'
         owner_key = 'gateway.ingestionReadOwnerKeyEnv'
         constants.update(CAPABILITY=cap, OWNER=owner, REQUIRED_SCOPE=scope)
@@ -130,12 +133,13 @@ def materialize(runtime, generic, route_resource, installation):
             expected_owner, expected_service, expected_path = {
                 STATUS: ('mcp', 'ouf-mcp-server', '/api/internal/v1/mcp/operations/status'),
                 INGESTION: ('ingestion', 'ouf-ingestion-runtime', '/api/internal/v1/ingestion/operations/status'),
+                HISTORY: ('ingestion', 'ouf-ingestion-runtime', '/api/internal/v1/ingestion/operations/history'),
                 SEARCH: ('udp', 'ouf-udp-object-resolution', '/api/udp/v1/objects/search'),
             }[cap]
             expected_scope, expected_timeout = manifest[cap]['requiredAuthorizationCapability'], 3
         actors = (['HUMAN', 'HUMAN_USER', 'MCP_SERVER'] if cap == STATUS else
                   ['MCP_SERVER'] if cap in PRODUCERS else ['HUMAN_USER', 'MCP_SERVER']
-                  if cap in CAPABILITIES or cap == INGESTION else ['HUMAN'])
+                  if cap in CAPABILITIES or cap in (INGESTION, HISTORY) else ['HUMAN'])
         if ((owner, service, path, scope, timeout) !=
                 (expected_owner, expected_service, expected_path, expected_scope, expected_timeout)
                 or binding['methods'] != ['POST'] or binding.get('vars')
@@ -159,7 +163,7 @@ def materialize(runtime, generic, route_resource, installation):
                           Owner={'const': owner})
             if cap == SEARCH:
                 fields['OperationClass'] = {'const': operation}
-        if cap in CAPABILITIES or cap == INGESTION:
+        if cap in CAPABILITIES or cap in (INGESTION, HISTORY):
             fields['MaxResultBytes']['maximum'] = 524288
         fields['Arguments'] = arguments(cap)
         plugins['request-validation'] = dispatch_validation(schema, policy['maxRequestBytes'])
