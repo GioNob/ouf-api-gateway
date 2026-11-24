@@ -12,6 +12,8 @@ import tempfile
 BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-request',
                 'mcp-semantic-discovery-status', 'mcp-semantic-discovery-candidates', 'mcp-semantic-discovery-adopt',
                 'semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
+                'r4a-ingestion-human-quarantine-read', 'r4a-ingestion-human-quarantine-retry',
+                'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry',
                 'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read', 'ths-identity-preflight-create'}
 
 

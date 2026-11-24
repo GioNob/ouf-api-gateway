@@ -31,8 +31,10 @@ BASE_3D69CB4_IDS = frozenset([
 THS_OWNER_IDS = ('semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
                  'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read',
                  'ths-identity-preflight-create')
+THS_RECOVERY_IDS = ('r4a-ingestion-human-quarantine-read', 'r4a-ingestion-human-quarantine-retry',
+                    'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry')
 RELEASE_ROUTE_IDS = sorted((BASE_3D69CB4_IDS - {'mcp-ingestion-run-recovery-link', 'mcp-semantic-review-link'})
-                           | set(THS_OWNER_IDS))
+                           | set(THS_OWNER_IDS) | set(THS_RECOVERY_IDS))
 THS_QUOTAS = ('thsSemantic', 'thsIngestionReadiness', 'thsIdentityPreflight')
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -120,6 +122,7 @@ def ci_profile(installation, port):
     return {
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
+        'gateway.publicApiHost': '127.0.0.1',
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
         'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),

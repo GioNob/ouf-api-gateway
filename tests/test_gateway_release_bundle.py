@@ -54,6 +54,7 @@ def test_published_terms_release(tmp_path):
         'gateway.semanticReadOwnerKeyEnv': 'secret',
         'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
+        'gateway.publicApiHost': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',
         'services.bindings.ouf-onboarding': 'string', 'services.ports.ouf-onboarding': 'integer',

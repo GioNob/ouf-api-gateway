@@ -22,7 +22,7 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
-from tools.release_family_ths_owner_api import owner_routes
+from tools.release_family_ths_owner_api import owner_routes, recovery_resources
 from tools.apisix_request_schema import verify_dispatch_arguments
 from tools.mcp_dispatch_contract import SEARCH_BINDINGS, THS_LINK_ROUTE_KEYS
 
@@ -113,6 +113,7 @@ def release_resources():
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
     for route, service in owner_routes(runtime, secret_ref, routes, reviewed['routes']):
         resources.append(route_resource(route, service))
+    resources.extend(recovery_resources(installation))
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
             resources.append(route_resource(route, 'ouf-onboarding'))

@@ -101,7 +101,8 @@ def test_adopted_route_ids_and_unique_selectors(resources):
     for route_id, body in resources.items():
         methods = set(body.get('methods', []))
         hosts = {host.lower() for host in body.get('hosts', [])}
-        if 'host' in body:
+        # A template host may resolve to any literal host in this static check.
+        if isinstance(body.get('host'), str):
             hosts.add(body['host'].lower())
         uris = body['uris'] if 'uris' in body else [body['uri']]
         for uri in sorted(set(uris)):

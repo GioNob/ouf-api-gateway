@@ -29,7 +29,7 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, THS_OWNER_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, THS_OWNER_IDS, THS_RECOVERY_IDS, ci_profile, load_release_routes
 from tests.test_release_family_ths_owner_api import HTTP_CASES, check_owner_http
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
@@ -364,7 +364,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         else:
             doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
-                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in THS_OWNER_IDS)
+                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in THS_OWNER_IDS + THS_RECOVERY_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
