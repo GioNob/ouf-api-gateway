@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 
+from tools.analysis_clients import KeycloakIdentity
 from tools.analysis_protocol import (
     ACTIONS, BINDINGS, RENEWAL_COMMAND, STATUS_MAX_BYTES, Rejected, delegation, digest,
     human_proof, is_uuid, parse, require, validate, wire,
@@ -102,6 +103,8 @@ class Mandates:
                          resourceId=b['arguments'].get('requestId', target['profile']['profileId']))
         if p:
             query.update(delegatedClient=p['client'], delegatedScope=p['scope'], acr=p['acr'])
+        if isinstance(w, KeycloakIdentity):
+            return self.iam.decide(query, self.now(), identity=w)
         return self.iam.decide(query, self.now())
 
     def renewal_check(self, b, w, p, request_hash, ref, evidence):
@@ -176,6 +179,10 @@ class Mandates:
             require(now < min(d['validUntil'], d['grantExpiresAt']), 403)
             reply = self.store.command(db, actor, b, fingerprint)
             if reply:
+                if action == 'issue' and isinstance(w, KeycloakIdentity):
+                    original = self.store.read(db, reply['mandateId'])
+                    require(original['grantRef'] == d['grantRef'] and original['policyRef'] == d['policyRef'],
+                            409, 'COMMAND_CONFLICT')
                 return reply
             if action == 'issue':
                 scopes = p['scope'].split()

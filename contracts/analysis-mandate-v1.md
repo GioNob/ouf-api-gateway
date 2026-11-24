@@ -90,6 +90,8 @@ Each decision POST contains `contract="ouf.analysis.authority-check.v1"`, a fres
 
 A denial returns the request hash and `allowed=false` or HTTP 403. An allow returns exactly `requestHash`, `allowed=true`, `policyRef`, `grantRef`, `decisionRef`, `validUntil`, `grantExpiresAt` (Unix seconds), `allowedOperations`, `roles`, `acr`, and `client` for the effective HUMAN context. The Gateway intersects operations with delegated scope, pinned catalog and the five-operation allowlist. Discovery retains its common execute scope. The adapter must obtain decision and expiry evidence from the actual IAM.
 
+For Keycloak OUF the optional Gateway boolean `keycloakCurrentRights` enables a request-bound permission evaluation through the private introspection connection. Its default is `false`. The decision endpoint receives the v1 JSON above. The adapter selects an existing IAM assignment on issue and uses its stable resource ID throughout. The installation bindings, exact Keycloak calls and offline PET are in the [Keycloak verifier contract](keycloak-analysis-verifier.md).
+
 ## THS renewal channel (D-091)
 
 | Caller and route | Credentials and body |

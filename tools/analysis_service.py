@@ -30,7 +30,8 @@ def application():
     required = ('contract store manifestFile issuer audience workload delegationKeyEnv introspection decisions '
                 'reservations execute timeoutSeconds mandateTtlSeconds proofTtlSeconds maxResultBytes')
     if (type(cfg) is not dict or not set(required.split()) <= cfg.keys()
-            or cfg.keys() - set(required.split()) - {'dispatchEnabled', 'statusReadsPerMinute', 'renewalChannel', 'capacity'}
+            or cfg.keys() - set(required.split()) - {'dispatchEnabled', 'statusReadsPerMinute', 'renewalChannel', 'capacity',
+                                                      'keycloakCurrentRights'}
             or cfg['contract'] != 'ouf.analysis.installation.v1'
             or not matches(cfg['delegationKeyEnv'], '[A-Z][A-Z0-9_]{0,127}')
             or not all(isinstance(cfg[k], str) and cfg[k] for k in ('issuer', 'audience', 'workload'))):
@@ -38,7 +39,8 @@ def application():
     capacity = Capacity(cfg.get('capacity', {}))
     timeout = cfg['timeoutSeconds']
     decisions = https_endpoint(cfg['decisions'], timeout) if cfg['decisions'] is not None else None
-    iam = RemoteIAM(https_endpoint(cfg['introspection'], timeout), decisions, cfg['issuer'], cfg['audience'], cfg['workload'])
+    iam = RemoteIAM(https_endpoint(cfg['introspection'], timeout), decisions, cfg['issuer'], cfg['audience'], cfg['workload'],
+                    keycloak=cfg.get('keycloakCurrentRights', False))
     execute = https_endpoint(cfg['execute'], timeout)
     if execute.path not in ('', '/'):
         raise ValueError('governed execute HTTPS origin required')
