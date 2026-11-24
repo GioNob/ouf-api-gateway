@@ -127,4 +127,8 @@ class MandateStore:
             db.execute('update analysis_attempt_v1 set phase=?,evidence=? where mandate=? and attempt=?',
                        (phase, wire(outcome), *key))
             self.audit(db, evidence['decisionRef'], outcome)
-            return bool(crossed or newer)
+            if crossed:
+                return 'REVOKED'
+            if newer:
+                return 'SUPERSEDED'
+            return None

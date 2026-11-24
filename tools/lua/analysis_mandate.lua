@@ -38,7 +38,7 @@ return function(conf, ctx)
     http:close()
     ngx.status = res.status
     ngx.header.content_type = 'application/json'
-    for _, k in ipairs({'X-OUF-Analysis-Decision','X-OUF-Analysis-Effect','X-Correlation-ID','Retry-After'}) do
+    for _, k in ipairs({'X-OUF-Analysis-Decision','X-OUF-Analysis-Effect','X-OUF-Analysis-Stale-Cause','X-Correlation-ID','Retry-After'}) do
         ngx.header[k] = res.headers[k]
     end
     ngx.print(table.concat(parts))

@@ -122,7 +122,6 @@ class CapacityPET(unittest.TestCase):
         pet = self.pet
         claims = dict(pet.claims, sub='human', client_id='ths', ouf_actor_type='HUMAN',
                       acr='interactive', scope='ouf.analysis.renewal.decide')
-        pet.claims['scope'] = 'ouf.analysis.mandate.renewal-check'
         pet.iam_identity.evidence.side_effect = lambda raw, _: claims if raw == b'token=ths' else pet.claims
         command = dict(reviewRef='r' * 22, proposalVersion=1, proposalHash='a' * 64, expectedSeq='7',
                        commandKey=new_ref(), decision='APPROVE', items=[])

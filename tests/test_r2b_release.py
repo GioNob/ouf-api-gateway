@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, MANDATE_IDS, RENEWAL_IDS, SEARCH_IDS, canonical_json, sha256
+from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, MANDATE_IDS, RENEWAL_IDS, SEARCH_IDS, canonical_json, pre_58f_body, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -56,10 +56,13 @@ def resources(bundle):
 
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
-    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
+    """GW-58F-11 / GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
     # GW-51P-08. Canonical resource bytes from the stacked task-51n generator.
     assert len(bundle['resources']) == 40
-    task_51p = [row for row in bundle['resources'] if row['id'] not in RENEWAL_IDS]
+    # Reconstruct the T2 base (acac66e) by reversing only the two wire-contract edits.
+    previous = [dict(row, body=pre_58f_body(row['id'], row['body'])) for row in bundle['resources']]
+    assert sha256(canonical_json(previous)) == '217a869bdda242e628429849888040243e144fa093edbbddcece7d79acf531eb'
+    task_51p = [row for row in previous if row['id'] not in RENEWAL_IDS]
     assert len(task_51p) == 35 and sha256(canonical_json(task_51p)) == (
         '80a5a70402ae0d74cec097be9d6dd6ba487e275583954809694927b22218d976')
     task_51n = [row for row in task_51p if row['id'] != 'mcp-analysis-mandate-status']

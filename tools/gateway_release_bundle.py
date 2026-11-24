@@ -176,8 +176,7 @@ def release_resources():
             raise ValueError(f'{route_id}: mandate binding drift')
         oidc = copy.deepcopy(execute['plugins']['openid-connect'])
         oidc['claim_validator']['issuer'] = {'valid_issuers': [installation('gateway.issuerUrl')]}
-        if renewal:
-            oidc['required_scopes'] = [cap['capabilityId']]
+        oidc['required_scopes'] = [policy['requiredScope']]
         timeout = policy['timeoutSeconds']
         relay = mandate_lua.replace('__SERVICE_ONLY_PATH__', path if review or action == 'status' else MANDATE_PATH + 'dispatch')
         relay = relay.replace('__MAX_RESPONSE_BYTES__', str(STATUS_MAX_BYTES if action == 'status' else 1048576))

@@ -34,6 +34,7 @@ from tests.test_dispatch_schema_contract import (
 )
 from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tools.analysis_protocol import ACTIONS, BASE as MANDATE_BASE
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -108,6 +109,15 @@ def check_r2b_mixed_window(request, token, installation):
         assert int(quota['X-RateLimit-Remaining']) == 0
         # APISIX 3.18 reports the reset in fractional seconds, for example 59.97.
         assert 0 <= float(quota['X-RateLimit-Reset']) <= 60
+
+
+def check_mandate_action_scopes(post, token):
+    """GW-58F-12. APISIX rejects a signed SERVICE token scoped to another mandate action."""
+    for action in ACTIONS:
+        other = 'dispatch' if action == 'issue' else 'issue'
+        bearer = token('SERVICE', scope='ouf.analysis.mandate.' + other)
+        status, _ = post(MANDATE_BASE + action, {}, bearer)
+        assert status == 403, (action, status)
 
 
 def wait_for_protected_routes(post, probes, timeout=60):
@@ -453,6 +463,8 @@ def test_real_apisix_oidc_delegation_and_execute():
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            if bundle_dir:
+                check_mandate_action_scopes(post, token)
             check_provider_origin(request, token, provider, forwarded)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():

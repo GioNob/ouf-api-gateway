@@ -1,4 +1,5 @@
 """Independent consumer of the on-disk artifact in the APISIX CI gate."""
+import copy
 import hashlib
 import json
 import re
@@ -33,6 +34,19 @@ RELEASE_ROUTE_IDS = sorted([
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
                 'semanticSearch', 'semanticSearchBatch')
+
+
+def pre_58f_body(route_id, body):
+    """Reconstruct acac66e by reversing only the T2 scope and relay header changes."""
+    body = copy.deepcopy(body)
+    plugins = body['plugins']
+    if route_id in MANDATE_IDS:
+        del plugins['openid-connect']['required_scopes']
+    if route_id.startswith(('mcp-analysis-mandate-', 'onboarding-analysis-renewal-')):
+        functions = plugins['serverless-post-function']['functions']
+        functions[0] = functions[0].replace(",'X-OUF-Analysis-Stale-Cause'", "")
+    return body
+
 
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,

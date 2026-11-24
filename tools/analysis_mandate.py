@@ -6,8 +6,8 @@ import uuid
 
 from tools.analysis_clients import KeycloakIdentity
 from tools.analysis_protocol import (
-    ACTIONS, BINDINGS, RENEWAL_COMMAND, STATUS_MAX_BYTES, Rejected, delegation, digest,
-    human_proof, is_uuid, parse, require, validate, wire,
+    ACTIONS, BINDINGS, RENEWAL_COMMAND, SEARCH_BATCH, STATUS_MAX_BYTES, Rejected, delegation, digest,
+    human_proof, is_uuid, matches, parse, require, validate, wire,
 )
 
 
@@ -63,8 +63,8 @@ class Mandates:
             scoped_read = action in ('status', 'renewal-check')
             w = self.iam.authenticate(bearer, self.now(), foreign_workload_status=404 if scoped_read else 403)
             evidence['workloadRef'] = subject_key(self.iam.issuer, w['tenant_id'], w['sub'])
+            require(isinstance(w.get('scope'), str) and 'ouf.analysis.mandate.' + action in w['scope'].split(), 403)
             if action == 'renewal-check':
-                require(isinstance(w.get('scope'), str) and 'ouf.analysis.mandate.renewal-check' in w['scope'].split(), 403)
                 p = human_proof(proof, self.key, self.iam.issuer, self.iam.audience, self.iam.workload,
                                 w['tenant_id'], self.now(), purpose='analysis-renewal-decide')
                 return 200, wire(self.renewal_check(b, w, p, digest(body), ref, evidence)), {}
@@ -100,7 +100,7 @@ class Mandates:
             query['commandHash'] = p['requestHash']
         if action == 'dispatch':
             query.update(operation=b['operation'], intentKey=b['intentKey'], argumentsHash=digest(wire(b['arguments'])),
-                         resourceId=b['arguments'].get('requestId', target['profile']['profileId']))
+                         resourceId=target['profile']['profileId'])
         if p:
             query.update(delegatedClient=p['client'], delegatedScope=p['scope'], acr=p['acr'])
         if isinstance(w, KeycloakIdentity):
@@ -177,18 +177,21 @@ class Mandates:
             now = self.now()
             require(now < w['exp'] and (not p or now < p['exp']), 403)
             require(now < min(d['validUntil'], d['grantExpiresAt']), 403)
-            reply = self.store.command(db, actor, b, fingerprint)
-            if reply:
-                if action == 'issue' and isinstance(w, KeycloakIdentity):
-                    original = self.store.read(db, reply['mandateId'])
-                    require(original['grantRef'] == d['grantRef'] and original['policyRef'] == d['policyRef'],
-                            409, 'COMMAND_CONFLICT')
-                return reply
             if action == 'issue':
                 scopes = p['scope'].split()
                 operations = sorted(op for op, (row, _, _) in self.catalog.entries.items()
                                     if op in d['allowedOperations'] and execute_scope(op, row) in scopes)
-                require(operations, 403)
+                require('source.file.preview' in operations, 403)
+            reply = self.store.command(db, actor, b, fingerprint)
+            if reply:
+                if action == 'issue':
+                    require('source.file.preview' in reply['allowedOperations'], 403)
+                    if isinstance(w, KeycloakIdentity):
+                        original = self.store.read(db, reply['mandateId'])
+                        require(original['grantRef'] == d['grantRef'] and original['policyRef'] == d['policyRef'],
+                                409, 'COMMAND_CONFLICT')
+                return reply
+            if action == 'issue':
                 existing = db.execute('select record from analysis_mandate_v1 where scope=? and plan=?',
                                       (actor, b['analysisId'])).fetchone()
                 if existing:
@@ -293,15 +296,25 @@ class Mandates:
         except Rejected as exc:
             failure = exc
         finally:
-            crossed = self.store.finish(evidence, status, request_id)
+            stale_cause = self.store.finish(evidence, status, request_id)
         metadata = {'X-OUF-Analysis-Decision': ref, 'X-Correlation-ID': ref}
-        if crossed:
+        if stale_cause:
             metadata['X-OUF-Analysis-Effect'] = 'IN_FLIGHT'
+            metadata['X-OUF-Analysis-Stale-Cause'] = stale_cause
             return 409, wire({'code': 'ANALYSIS_STALE_EXECUTION'}), metadata
         if failure:
             if failure.retry_after:
                 metadata['Retry-After'] = failure.retry_after
             return failure.status, wire({'code': failure.code}), metadata
+        if op == SEARCH_BATCH and status == 429:
+            try:
+                problem = json.loads(result)
+            except (ValueError, RecursionError):
+                problem = None
+            if not isinstance(problem, dict) or problem.get('code') != 'SEM_BATCH_RATE_LIMITED':
+                result = wire({'code': 'SEM_BATCH_RATE_LIMITED'})
+            if not matches(retry, '[0-9]+'):
+                retry = None
         if retry and status in (429, 503):
             metadata['Retry-After'] = retry
         return status, result, metadata

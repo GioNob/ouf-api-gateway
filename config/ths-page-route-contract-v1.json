@@ -5,6 +5,16 @@
     "GET": ["/oauth2/authorization/ouf-ths", "/login/oauth2/code/ouf-ths"]
   },
   "surfaces": {
+    "analysis-renewal": {
+      "html": "analysis-renewal.html",
+      "page": "/trusted-human/analysis-renewal/{reviewRef}",
+      "scripts": ["assets/renewal.js"],
+      "stylesheets": ["assets/renewal.css"],
+      "api": {
+        "GET": ["{reviewRef}/assets/renewal.js", "{reviewRef}/assets/renewal.css"],
+        "POST": ["{reviewRef}/decision"]
+      }
+    },
     "authorization": {
       "html": "permissions.html",
       "page": "/trusted-human/authorization/",
