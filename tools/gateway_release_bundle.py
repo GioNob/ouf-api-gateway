@@ -14,6 +14,7 @@ from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
 from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
 from tools.r2b_limits import ROUTE_CLASSES
+from tools.release_family_ths_pages import materialize as ths_pages
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
 from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
@@ -110,6 +111,8 @@ def release_resources():
     onboarding = 'BUNDLE_INPUT_ONBOARDING'
     managed = managed_file(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
+    for route in ths_pages(reviewed, runtime, bindings, secret_ref):
+        resources.append(route_resource(route, 'ouf-onboarding', optional_labels='uris' in route))
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
             resources.append(route_resource(route, 'ouf-onboarding'))
@@ -153,7 +156,7 @@ def release_resources():
     return resources
 
 
-def route_resource(route, service):
+def route_resource(route, service, *, optional_labels=False):
     route = copy.deepcopy(route)
     route_id = route.pop('id')
     nodes = route['upstream']['nodes']
@@ -169,10 +172,11 @@ def route_resource(route, service):
         route['plugins']['openid-connect'].update(client_id=installation('gateway.requiredAudience'),
                                                   client_secret=installation('gateway.oidcClientSecretRef'),
                                                   discovery=installation('caddy.oidcDiscoveryUrl'))
-    labels = route['labels']
-    labels['ouf-installation'] = installation('installationId')
-    if 'ouf-installation-revision' in labels:
-        labels['ouf-installation-revision'] = installation('revision')
+    if not optional_labels or 'labels' in route:
+        labels = route['labels']
+        labels['ouf-installation'] = installation('installationId')
+        if 'ouf-installation-revision' in labels:
+            labels['ouf-installation-revision'] = installation('revision')
     return {'kind': 'routes', 'id': route_id, 'body': route}
 
 

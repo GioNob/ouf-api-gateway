@@ -16,6 +16,13 @@ DISCOVERY_REVIEW_IDS = [
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 
+THS_PAGES_IDS = (
+    'trusted-human-onboarding-review', 'trusted-human-semantic-review', 'trusted-human-managed-file-picker',
+    'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
+    'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
+    'trusted-human-authorization-get', 'trusted-human-authorization-post',
+)
+
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -24,8 +31,22 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *THS_PAGES_IDS,
 ])
+BASELINE_3D69CB4_IDS = {
+    'mcp-ingestion-run-recovery-link', 'mcp-managed-file-create', 'mcp-managed-file-handoff',
+    'mcp-managed-file-handoff-issue', 'mcp-managed-file-preview', 'mcp-managed-file-review-prepare',
+    'mcp-managed-file-review-read', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status', 'mcp-semantic-review-link',
+    'mcp-semantic-search', 'mcp-semantic-search-batch', 'mcp-source-revision-prepare',
+    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
+    'semantic-human-terms', 'semantic-proposal-create', 'semantic-proposal-read',
+    'ths-resolution-package-confirm', 'ths-resolution-package-read', 'trusted-human-ingestion-run-abort',
+    'trusted-human-ingestion-run-read', 'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
+    'trusted-human-resolution-review',
+}
+THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization')
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
                 'semanticSearch', 'semanticSearchBatch')
@@ -116,6 +137,8 @@ def ci_profile(installation, port):
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
         'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
         'iam.workloadClients.udp': installation.get('udpServiceIdentity', 'test-udp'),
+        **{f'gateway.rateLimits.{group}.{field}': value for group in THS_RATE_CLASSES
+           for field, value in [('count', 12), ('timeWindowSeconds', 60)]},
         **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',

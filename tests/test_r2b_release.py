@@ -6,8 +6,8 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
-from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
+from tests.release_bundle_fixture import BASELINE_3D69CB4_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
 from tools.apply_installation_projection import apply_projection
@@ -57,18 +57,17 @@ def resources(bundle):
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    assert len(bundle['resources']) == 31
-    task_51j = [row for row in bundle['resources'] if row['id'] not in SEARCH_IDS]
+    task_51j_ids = BASELINE_3D69CB4_IDS.difference(SEARCH_IDS)
+    task_51j = [row for row in bundle['resources'] if row['id'] in task_51j_ids]
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
         '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
     assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
-    assert sha256(canonical_json([p for p in bundle['placeholders']
-                                  if p['name'] not in ('gateway.semanticDiscoveryOwnerKeyEnv',
-                                                       'gateway.semanticReadOwnerKeyEnv')
-                                  and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
+    retained_names = set(placeholder_names(retained))
+    retained_placeholders = [p for p in bundle['placeholders'] if p['name'] in retained_names]
+    assert sha256(canonical_json(retained_placeholders)) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
 def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
@@ -124,8 +123,9 @@ def test_adopted_route_ids_and_unique_selectors(resources):
 def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
+    retained_ids = BASELINE_3D69CB4_IDS.difference(PICKER_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS)
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle['resources'] if item['id'] in retained_ids]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

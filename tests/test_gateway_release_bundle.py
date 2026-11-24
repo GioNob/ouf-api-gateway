@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, THS_RATE_CLASSES, ci_profile, load_release_routes
 from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
@@ -47,6 +47,8 @@ def test_published_terms_release(tmp_path):
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in THS_RATE_CLASSES
+           for field in ('count', 'timeWindowSeconds')},
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',

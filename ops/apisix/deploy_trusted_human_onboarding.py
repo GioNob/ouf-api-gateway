@@ -20,6 +20,8 @@ ROUTE_IDS={
     "trusted-human-managed-file-preview-get",
 }
 
+RELEASE_IDS = {"trusted-human-onboarding-approvals-get", "trusted-human-onboarding-approvals-post"}
+
 def route_value(doc):
     value=doc.get("value",doc)
     if isinstance(value,dict) and isinstance(value.get("value"),dict):
@@ -64,7 +66,7 @@ class Admin:
 
 def snapshot(admin):
     previous={}
-    for route_id in sorted(ROUTE_IDS):
+    for route_id in sorted(ROUTE_IDS - RELEASE_IDS):
         code,body=admin.route("GET",route_id)
         if code not in (200,404):
             raise RuntimeError(f"snapshot HTTP {code} for {route_id}")
@@ -74,7 +76,7 @@ def snapshot(admin):
 
 def restore(previous,admin):
     failures=[]
-    for route_id in sorted(ROUTE_IDS):
+    for route_id in sorted(ROUTE_IDS - RELEASE_IDS):
         old=previous.get(route_id)
         try:
             code,_=admin.route("PUT" if old else "DELETE",route_id,old)
@@ -95,6 +97,8 @@ def apply(routes,admin):
     previous=snapshot(admin)
     try:
         for route in routes:
+            if route["id"] in RELEASE_IDS:
+                continue
             code,_=admin.route("PUT",route["id"],route)
             if code not in (200,201):
                 raise RuntimeError(f"write HTTP {code}")
@@ -133,14 +137,14 @@ def main():
     try:
         if a.restore:
             previous=json.loads(a.restore.read_text())
-            if set(previous)!=ROUTE_IDS:
+            if set(previous) not in (ROUTE_IDS, ROUTE_IDS - RELEASE_IDS):
                 raise ValueError("snapshot does not contain full onboarding lifecycle route set")
             restore(previous,admin)
             print("TRUSTED_HUMAN_ONBOARDING_ROUTES_RESTORED")
             return
         doc=json.loads(a.materialization.read_text())
         routes=doc.get("routes")
-        if not isinstance(routes,list) or {r.get("id") for r in routes}!=ROUTE_IDS:
+        if not isinstance(routes,list) or {r.get("id") for r in routes} not in (ROUTE_IDS, ROUTE_IDS - RELEASE_IDS):
             raise ValueError("unexpected onboarding lifecycle route set")
         apply(routes,admin)
         print("TRUSTED_HUMAN_ONBOARDING_NAMESPACE_INSTALLED")
