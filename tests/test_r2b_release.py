@@ -56,11 +56,13 @@ def resources(bundle):
 
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
-    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
+    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY / GW-59F-PARITY."""
     assert len(bundle['resources']) == 31
     task_51j = [row for row in bundle['resources'] if row['id'] not in SEARCH_IDS]
+    # 59f changes only request-validation of mcp-managed-file-review-prepare (optional limits);
+    # the 24 predecessor resources and the placeholders keep their digests below.
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
-        '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
+        'f7754f3b385b7b94eab360b0b3dcf1fe164aa1cf25df4e89c1650f70256593f3')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
     assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]

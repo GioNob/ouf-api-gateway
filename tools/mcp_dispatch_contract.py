@@ -21,6 +21,8 @@ DISCOVERY_REVIEW_SCHEMAS = {
     for mode in DISCOVERY_MODES
 }
 DISCOVERY_REVIEW_SCHEMAS['ouf.managed-source.onboarding.review.prepare'] = 'onboarding-review-prepare'
+# Arguments that guide the MCP decision and never reach the owner.
+MCP_LOCAL_CONTEXT = {'ouf.managed-source.onboarding.review.prepare': ('draftAssetRef', 'revisionAssetRef')}
 PICKER_CAPABILITY = 'ouf.managed-source.file.upload'
 PICKER_ISSUE = 'ouf.managed-source.file.handoff-issue'
 PICKER_MANIFEST = MANIFEST.with_name('mcp-picker-capabilities.json')
@@ -82,12 +84,23 @@ def capability_contracts():
 
 
 def dispatch_input_schema(capability, schema):
-    """The MCP kernel consumes optional analysisId before dispatch for these tools."""
-    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
-        if 'analysisId' in schema.get('required', []):
-            raise ValueError(f'{capability}: analysisId must remain optional MCP context')
-        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
-    return schema
+    """The MCP kernel consumes optional local context before dispatch for these tools.
+
+    analysisId accompanies search, discovery and review commands. The draft and
+    revision asset references guide the MCP decision for review.prepare and are
+    removed from the owner command (MCP orchestration, withoutDraftContext).
+    """
+    local = set()
+    if capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS:
+        local.add('analysisId')
+    local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
+    present = local & schema.get('properties', {}).keys()
+    if not present:
+        return schema
+    for field in sorted(present):
+        if field in schema.get('required', []):
+            raise ValueError(f'{capability}: {field} must remain optional MCP context')
+    return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
 
 
 def picker_contract(route_id):

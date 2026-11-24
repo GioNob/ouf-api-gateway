@@ -40,6 +40,24 @@ I PET `GW-51J-MANIFEST`, `GW-51J-SCHEMA`, `GW-51J-FORWARD`, `GW-51J-SCOPE`,
 `GW-51J-PARITY` verifica il digest delle precedenti 24 risorse in
 [`test_r2b_release.py`](../tests/test_r2b_release.py).
 
+### Limiti dell'acquisizione derivati da Onboarding (59f)
+
+Lo snapshot delle cinque righe viene ora dal manifest MCP `cefa37c`
+(1.18.0-onboarding-next-v1, task-59c), con lo stesso ordine e la stessa
+serializzazione (`json.dumps(rows, indent=2)` più il ritorno a capo). Cambia
+solo `review-prepare`: `executionProposal.limits` e i suoi tre campi sono
+facoltativi, perché Onboarding calcola i tetti dal profilo del file e l'agente
+può solo restringerli. Tipi, minimi, massimi e oggetto chiuso restano uguali.
+Le richieste del MCP in esercizio, che inviano i tre limiti, restano valide.
+
+`draftAssetRef` e `revisionAssetRef` sono contesto locale del MCP, come
+`analysisId`: l'orchestrazione li toglie prima del dispatch
+(`withoutDraftContext`). La proiezione del Gateway li esclude, quindi la rotta
+resta chiusa. I PET `GW-59F-ACCEPT`, `GW-59F-BOUNDS`, `GW-59F-LOCAL` e
+`GW-59F-WIRE` sono in
+[`test_review_prepare_limits_optional.py`](../tests/test_review_prepare_limits_optional.py).
+Il rilascio di questo Gateway precede quello del MCP del task-59c.
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |
