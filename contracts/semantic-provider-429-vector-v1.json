@@ -1,0 +1,10 @@
+{
+  "seedHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "publicKeyHex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+  "method": "GET",
+  "target": "/provider/fetch?uri=https%3A%2F%2Fterms.invalid%2Fa%2Fb",
+  "exchangeId": "48da10fa-2476-4b0e-967b-b5d8374af715",
+  "installation": "fixture.invalid",
+  "canonical": "v1\nsemantic-provider-429-origin\nGET\n/provider/fetch?uri=https%3A%2F%2Fterms.invalid%2Fa%2Fb\n48da10fa-2476-4b0e-967b-b5d8374af715\nUPSTREAM\n429\n1800000000\n1800000030\nfixture.invalid",
+  "attestation": "v1.UPSTREAM.1800000000.1800000030.w_VraC8rpA1IyMbdzjrQBA_m7FW8Hs0icwJ1m1TL6UBWW9TBKDw0QSMg0JHIcvQlEIM48ETGnljkieyBJSu5DA"
+}

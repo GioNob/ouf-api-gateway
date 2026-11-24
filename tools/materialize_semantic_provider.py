@@ -5,13 +5,24 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 from tools.semantic_provider_admission import AdmissionBinding
+from tools.semantic_provider_quota import provider_quota
+
+
+DEFAULT_ORIGIN_ENV = 'OUF_PROVIDER_429_ED25519_SEED'
 
 
 def materialize(existing, config):
+    return _materialize(existing, config, predecessor=False)
+
+
+def _materialize(existing, config, *, predecessor):
     required = {'installation', 'issuer', 'audience', 'workload', 'scope', 'tenants',
                 'searchPath', 'fetchPath', 'searchRouteId', 'fetchRouteId',
                 'receiptKeyEnvironment', 'oidcSecretRef', 'upstream', 'tlsProfile', 'rateLimit', 'maxRequestBytes'}
-    if not isinstance(config, dict) or set(config) != required:
+    optional = set() if predecessor else {'originKeyEnvironment', 'originLifetimeSeconds'}
+    if not predecessor:
+        required.add('quotaInventory')
+    if not isinstance(config, dict) or not required <= config.keys() or config.keys() - required - optional:
         raise ValueError('explicit provider installation binding required')
     binding = AdmissionBinding(*(config[k] for k in ('installation', 'issuer', 'audience', 'workload', 'scope', 'tenants')))
     binding.validate()
@@ -24,6 +35,14 @@ def materialize(existing, config):
         raise ValueError('purpose-separated provider receipt key required')
     if not isinstance(config['oidcSecretRef'], str) or not config['oidcSecretRef'].startswith(('$ENV://', '$secret://')):
         raise ValueError('OIDC secret reference required')
+    signing_env = config.get('originKeyEnvironment', DEFAULT_ORIGIN_ENV)
+    if not predecessor and (not isinstance(signing_env, str) or not re.fullmatch('[A-Z][A-Z0-9_]{1,127}', signing_env) \
+            or signing_env in {config['receiptKeyEnvironment'], 'OUF_GATEWAY_DELEGATION_KEY',
+                               'OUF_SEMANTIC_READ_OWNER_KEY', config['oidcSecretRef'].removeprefix('$ENV://')}):
+        raise ValueError('dedicated origin signing key environment required')
+    ttl = config.get('originLifetimeSeconds', 30)
+    if type(ttl) is not int or not 1 <= ttl <= 30:
+        raise ValueError('invalid origin lifetime')
     ids = [config['searchRouteId'], config['fetchRouteId']]
     paths = [config['searchPath'], config['fetchPath']]
     if len(set(ids)) != 2 or any(not isinstance(v, str) or not re.fullmatch('[A-Za-z0-9_-]{1,128}', v) for v in ids):
@@ -64,7 +83,10 @@ def materialize(existing, config):
             or type(tls['verifyDepth']) is not int or not 1 <= tls['verifyDepth'] <= 5:
         raise ValueError('explicit dedicated southbound NGINX TLS profile required')
     rate = config['rateLimit']
-    if not isinstance(rate, dict) or set(rate) != {'count', 'time_window', 'key_type', 'key', 'policy', 'rejected_code'} \
+    rates = rate if isinstance(rate, dict) and set(rate) == {'search', 'fetch'} else dict(search=rate, fetch=rate)
+    if not predecessor:
+        quota = provider_quota(config['quotaInventory'], rates)
+    elif not isinstance(rate, dict) or set(rate) != {'count', 'time_window', 'key_type', 'key', 'policy', 'rejected_code'} \
             or type(rate.get('count')) is not int or not 1 <= rate['count'] <= 1000 \
             or type(rate.get('time_window')) is not int or not 1 <= rate['time_window'] <= 3600 \
             or rate.get('key_type') != 'var' or rate.get('key') != 'remote_addr' \
@@ -75,24 +97,43 @@ def materialize(existing, config):
     if any(route.get('id') in ids or route.get('uri') in paths for route in existing['routes']):
         raise ValueError('provider binding already exists; reconcile before installation')
     result = copy.deepcopy(existing)
-    if 'providerTLSRequirement' in result:
+    if 'providerTLSRequirement' in result or 'providerQuotaPlan' in result:
         raise ValueError('provider TLS requirement already exists; reconcile first')
     result['providerTLSRequirement'] = {'role': tls['role'], 'mode': tls['mode'],
         'apisixSSLTrustedCertificate': tls['trustedCertificateFile'],
         'nginxHTTPConfigurationSnippet': 'proxy_ssl_verify on;\nproxy_ssl_verify_depth '+str(tls['verifyDepth'])+';',
         'installed': False}
-    template = (Path(__file__).parent/'lua/admit_semantic_provider.lua').read_text()
+    lua_dir = Path(__file__).parent / 'lua'
+    template = (lua_dir / 'admit_semantic_provider.lua').read_text()
     constants = {'INSTALLATION': binding.installation, 'ISSUER': binding.issuer, 'AUDIENCE': binding.audience,
                  'WORKLOAD': binding.workload, 'SCOPE': binding.scope, 'RECEIPT_KEY_ENV': config['receiptKeyEnvironment']}
     prefix = '\n'.join('local '+key+'='+json.dumps(value) for key, value in constants.items())
     prefix += '\nlocal TENANTS={'+','.join('['+json.dumps(v)+']=true' for v in binding.tenants)+'}\n'
     strip = "return function(conf,ctx) for name,_ in pairs(ngx.req.get_headers(0)) do if name:lower():sub(1,6)=='x-ouf-' then ngx.req.clear_header(name) end end end"
+    if not predecessor:
+        result['providerQuotaPlan'] = quota
+        exchange = (lua_dir / 'semantic_provider_exchange.lua').read_text()
+        response = (lua_dir / 'semantic_provider_429.lua').read_text()
     for name, method in (('search', 'POST'), ('fetch', 'GET')):
-        lua = 'return function(conf,ctx)\n'+prefix+'local METHOD='+json.dumps(method)+'\nlocal PATH='+json.dumps(config[name+'Path'])+'\nlocal MAX_REQUEST_BYTES='+str(max_bytes)+'\n'+template+'\nend'
+        admission = (prefix + 'local METHOD=' + json.dumps(method) + '\nlocal PATH=' + json.dumps(config[name+'Path'])
+                     + '\nlocal MAX_REQUEST_BYTES=' + str(max_bytes) + '\n' + template)
+        pre = {'phase': 'rewrite', 'functions': [strip]}
+        if not predecessor:
+            # A local limit-count exit bypasses access admission. Capture its nonce
+            # in header_filter; proxied requests capture and strip before forwarding.
+            admission = (exchange + '\nctx.provider_access = true\nctx.provider_exchange = capture_exchange(true)\n'
+                         + admission + '\nctx.provider_forwarded = true')
+            header_filter = ('return function(conf,ctx)\n' + exchange
+                             + '\nlocal INSTALLATION=' + json.dumps(binding.installation)
+                             + '\nlocal SIGNING_ENV=' + json.dumps(signing_env)
+                             + '\nlocal COUNT=' + str(rates[name]['count'])
+                             + '\nlocal TTL=' + str(ttl) + '\n' + response + '\nend')
+            pre = {'phase': 'header_filter', 'functions': [header_filter]}
+        lua = 'return function(conf,ctx)\n' + admission + '\nend'
         result['routes'].append({'id': config[name+'RouteId'], 'uri': config[name+'Path'], 'methods': [method],
             'labels': {'ouf-managed': 'true', 'ouf-installation': binding.installation, 'ouf-mediation': 'semantic-provider-transport-v1'},
-            'plugins': {'client-control': {'max_body_size': max_bytes}, 'limit-count': copy.deepcopy(rate),
-                'serverless-pre-function': {'phase': 'rewrite', 'functions': [strip]},
+            'plugins': {'client-control': {'max_body_size': max_bytes}, 'limit-count': copy.deepcopy(rates[name]),
+                'serverless-pre-function': pre,
                 'openid-connect': {'client_id': binding.audience, 'client_secret': config['oidcSecretRef'],
                     'discovery': binding.issuer.rstrip('/')+'/.well-known/openid-configuration',
                     'bearer_only': True, 'unauth_action': 'deny', 'use_jwks': True, 'ssl_verify': True,
