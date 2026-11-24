@@ -142,10 +142,15 @@ def main():
     if bool(args.materialization)==bool(args.restore):
         parser.error('choose exactly one of --materialization or --restore')
     if args.restore:
-        previous=status_snapshot(json.loads(args.restore.read_text()))
+        previous=json.loads(args.restore.read_text())
         # All three legacy status routes are adopted by the governed bundle (60d, 60e):
         # their rollback is the bundle rollback, never this script.
-        reject_bundle_owned(previous)
+        try:
+            reject_bundle_owned(previous if isinstance(previous, dict) else ())
+            previous=status_snapshot(previous)
+            reject_bundle_owned(previous)
+        except ValueError as error:
+            raise SystemExit(str(error))
         admin=Admin(args)
         try:
             for route_id,old in previous.items():
@@ -162,7 +167,10 @@ def main():
     routes=[r for r in doc['routes'] if r['id'] == STATUS_ID]
     if len(routes)!=1 or routes[0]['uri']!='/internal/capabilities/v1/execute' or routes[0]['methods']!=['POST']:
         raise SystemExit('expected the reviewed status execute route')
-    reject_bundle_owned(r['id'] for r in routes)
+    try:
+        reject_bundle_owned(r['id'] for r in routes)
+    except ValueError as error:
+        raise SystemExit(str(error))
     env_name=doc.get('delegationKeyEnv','')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',env_name):
         raise SystemExit('invalid delegation environment name')

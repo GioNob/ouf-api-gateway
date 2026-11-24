@@ -108,7 +108,12 @@ def conflicts(routes, inventory, retired):
     exemptions = set()
     for row in retired:
         old = inventory.get(row['id'])
-        if old:
+        if old and row['supersededBy'] is None:
+            # v3 obsolete entry: deleted by the release; its selector never collides with a governed one.
+            assert all(old.get(key) == value for key, value in row['match'].items())
+            assert not any(overlap(route, old) for route in routes)
+            exemptions.add(row['id'])
+        elif old:
             assert old.get('vars') == row['vars'] and overlap(old, managed[row['supersededBy']])
             exemptions.add(row['id'])
     return [(route['id'], old_id) for old_id, old in inventory.items()

@@ -55,7 +55,12 @@ def check_conflicts(desired, live, retired):
     removals = set()
     for entry in retired:
         route_id = entry['id']
-        if route_id in live:
+        if route_id in live and entry['supersededBy'] is None:
+            # v3 obsolete entry: deleted by the release; its selector never collides with a governed one.
+            assert all(live[route_id].get(key) == value for key, value in entry['match'].items()), route_id
+            assert not any(selectors_overlap(route, live[route_id]) for route in desired.values()), route_id
+            removals.add(route_id)
+        elif route_id in live:
             assert selectors_overlap(live[route_id], desired[entry['supersededBy']]), route_id
             assert live[route_id].get('vars') == entry['vars'], route_id
             removals.add(route_id)

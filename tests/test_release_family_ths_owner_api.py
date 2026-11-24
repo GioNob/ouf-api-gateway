@@ -269,7 +269,12 @@ def test_full_export_selector_conflicts(release):
     foreign = live.keys() - desired.keys()
     for entry in bundle['retired']:
         key = entry['id']
-        if key in live:
+        if key in live and entry['supersededBy'] is None:
+            # v3 obsolete entry: deleted by the release; its selector never collides with a governed one.
+            assert all(live[key].get(field) == value for field, value in entry['match'].items())
+            assert not any(selectors_overlap(route, live[key]) for route in desired.values())
+            foreign.remove(key)
+        elif key in live:
             assert live[key].get('vars') == entry['vars']
             assert selectors_overlap(live[key], desired[entry['supersededBy']])
             foreign.remove(key)
