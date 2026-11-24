@@ -1,0 +1,362 @@
+{
+  "schema": "ouf.value-types.v1",
+  "decision": "D-084",
+  "revision": 2,
+  "revisionNotes": "Revision 2 (D-084 r2, after the review of tasks 40c, 42c, 43b, 44c, 46b): whitespace defined as the Unicode White_Space property with shared test vectors; geometry coordinates canonical as IEEE-754 binary64; WKT measure ordinates invalid; integer canonical wording fixed (no '+', never '-0'). Revision 1 had SHA-256 4b90e85ecd1573404612ef0a0ee627feffaa9c189fe4363e82079bd07824c333.",
+  "principle": "Every source field maps to a base type of a closed, versioned vocabulary through a closed, versioned reader. Structured data are combinations of base types (or of other published structured types). Structured types are NOT a closed list: the agent proposes them through MCP, the human approves them in the THS, the Semantic Registry publishes them as DATATYPE artifacts, and Ingestion and UDP accept any published structured type by contract, without type-specific code.",
+  "whitespace": {
+    "definition": "Whitespace is exactly the set of code points with the Unicode White_Space property: U+0009-U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000-U+200A, U+2028, U+2029, U+202F, U+205F, U+3000. 'trim' removes leading and trailing whitespace code points; 'only whitespace' means every code point of the cell is whitespace. No other code point is whitespace (U+001C-U+001F and U+FEFF are NOT).",
+    "implementation": "Implementations use this explicit set. Java String.trim(), String.strip(), String.isBlank() and Character.isWhitespace() do NOT match it and must not be used for reader trimming or emptiness.",
+    "vectors": [
+      {
+        "reader": "DECIMAL_DOT_V1",
+        "cell": " 12.50 ",
+        "result": "12.5"
+      },
+      {
+        "reader": "DECIMAL_DOT_V1",
+        "cell": " -0.0　",
+        "result": "0"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "+007 ",
+        "result": "7"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "\u001c12",
+        "result": "INVALID"
+      },
+      {
+        "reader": "INTEGER_V1",
+        "cell": "﻿12",
+        "result": "INVALID"
+      },
+      {
+        "reader": "TEXT_NFC_TRIM_V1",
+        "cell": " Via Roma ",
+        "result": "Via Roma"
+      },
+      {
+        "reader": "TEXT_NFC_TRIM_V1",
+        "cell": "  \t",
+        "result": "ABSENT"
+      },
+      {
+        "reader": "DATE_ISO_V1",
+        "cell": " ",
+        "result": "ABSENT"
+      },
+      {
+        "reader": "VALUE_MAP_V1",
+        "cell": " A1 ",
+        "result": "concept mapped from code 'A1'"
+      },
+      {
+        "reader": "IDENTITY",
+        "cell": " A1 ",
+        "result": " A1 "
+      }
+    ]
+  },
+  "emptyValue": "For every reader except IDENTITY, a cell that is empty or only whitespace (as defined in 'whitespace') is ABSENT: no value is produced (the property or component is omitted) and no error is raised. IDENTITY keeps the lexical cell unchanged, including empty strings, for compatibility with data already acquired. Required checks belong to the structured type component or to the mapping, not to readers.",
+  "invalidValue": "A value that a reader, constructor or structured type cannot accept is a DATA error with a stable code; the error never contains the source value (D-058).",
+  "provenance": "When the canonical value differs from the source lexical value(s), the source lexical value(s) are preserved in provenance/evidence (PET Ingestion 10.2).",
+  "baseTypes": [
+    {
+      "id": "string",
+      "datatype": "http://www.w3.org/2001/XMLSchema#string",
+      "canonical": "JSON string, as produced by the reader"
+    },
+    {
+      "id": "integer",
+      "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+      "canonical": "JSON string of plain integer digits with optional leading '-' (never for zero), no '+', no leading zeros, no exponent (e.g. \"-42\"); a string, not a JSON number, so that generic JSON consumers never convert it to binary floating point; consumers parse with BigInteger/BigDecimal"
+    },
+    {
+      "id": "decimal",
+      "datatype": "http://www.w3.org/2001/XMLSchema#decimal",
+      "canonical": "JSON string of the plain decimal value with '.' as separator, no exponent, trailing zeros stripped (BigDecimal.stripTrailingZeros().toPlainString(), e.g. \"45.6495\"); a string, not a JSON number, so that generic JSON consumers never convert it to binary floating point; consumers parse with BigDecimal"
+    },
+    {
+      "id": "boolean",
+      "datatype": "http://www.w3.org/2001/XMLSchema#boolean",
+      "canonical": "JSON true/false"
+    },
+    {
+      "id": "date",
+      "datatype": "http://www.w3.org/2001/XMLSchema#date",
+      "canonical": "JSON string YYYY-MM-DD (proleptic Gregorian)"
+    },
+    {
+      "id": "datetime",
+      "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+      "canonical": "JSON string ISO-8601 instant normalized to UTC with 'Z' (e.g. 2026-11-22T09:15:00Z); the source offset or zone is kept in provenance"
+    },
+    {
+      "id": "geometry",
+      "datatype": "http://www.opengis.net/ont/geosparql#geoJSONLiteral",
+      "canonical": "JSON object {\"crs\": \"EPSG:<n>\", \"geoJson\": <RFC 7946 geometry>} as already stored by UDP; coordinates [x, y] = [lon, lat] for EPSG:4326; every coordinate is a JSON number equal to the IEEE-754 binary64 value nearest to the source decimal, serialized in the shortest form that round-trips (ECMAScript Number::toString, as in RFC 8785). Consumers compare and store coordinates as binary64; digits beyond binary64 precision are not significant."
+    },
+    {
+      "id": "concept",
+      "datatype": "http://www.w3.org/2001/XMLSchema#anyURI",
+      "canonical": "JSON string, absolute IRI of a concept of a published controlled vocabulary"
+    }
+  ],
+  "readers": [
+    {
+      "id": "IDENTITY",
+      "output": "string",
+      "rule": "lexical cell unchanged"
+    },
+    {
+      "id": "TEXT_NFC_TRIM_V1",
+      "output": "string",
+      "rule": "Unicode NFC, then trim leading/trailing whitespace"
+    },
+    {
+      "id": "INTEGER_V1",
+      "output": "integer",
+      "rule": "^[+-]?[0-9]+$ after trim"
+    },
+    {
+      "id": "INTEGER_GROUP_DOT_V1",
+      "output": "integer",
+      "rule": "^[+-]?[0-9]{1,3}(\\.[0-9]{3})*$ after trim, '.' as thousands separator (it-IT)"
+    },
+    {
+      "id": "DECIMAL_DOT_V1",
+      "output": "decimal",
+      "rule": "^[+-]?[0-9]+(\\.[0-9]+)?$ after trim"
+    },
+    {
+      "id": "DECIMAL_COMMA_V1",
+      "output": "decimal",
+      "rule": "^[+-]?[0-9]+(,[0-9]+)?$ after trim"
+    },
+    {
+      "id": "DECIMAL_GROUP_DOT_COMMA_V1",
+      "output": "decimal",
+      "rule": "^[+-]?[0-9]{1,3}(\\.[0-9]{3})*(,[0-9]+)?$ after trim, '.' thousands and ',' decimal (it-IT)"
+    },
+    {
+      "id": "DECIMAL_GROUP_COMMA_DOT_V1",
+      "output": "decimal",
+      "rule": "^[+-]?[0-9]{1,3}(,[0-9]{3})*(\\.[0-9]+)?$ after trim, ',' thousands and '.' decimal (en)"
+    },
+    {
+      "id": "BOOLEAN_IT_V1",
+      "output": "boolean",
+      "rule": "after trim and lower-case (Locale.ROOT): true = {sì, si, s, vero, v, true, 1}; false = {no, n, falso, f, false, 0}; anything else is invalid"
+    },
+    {
+      "id": "DATE_ISO_V1",
+      "output": "date",
+      "rule": "YYYY-MM-DD, valid calendar date"
+    },
+    {
+      "id": "DATE_DMY_V1",
+      "output": "date",
+      "rule": "DD/MM/YYYY, valid calendar date"
+    },
+    {
+      "id": "DATE_DMY_DASH_V1",
+      "output": "date",
+      "rule": "DD-MM-YYYY, valid calendar date"
+    },
+    {
+      "id": "DATETIME_ISO_OFFSET_V1",
+      "output": "datetime",
+      "rule": "ISO-8601 date-time with explicit offset (Z or +hh:mm); seconds optional; fraction up to 9 digits"
+    },
+    {
+      "id": "DATETIME_LOCAL_ROME_V1",
+      "output": "datetime",
+      "rule": "YYYY-MM-DD[T| ]HH:mm[:ss] without offset, interpreted in Europe/Rome; a local time in a DST gap or overlap is invalid (no guessing)"
+    },
+    {
+      "id": "GEOJSON_V1",
+      "output": "geometry",
+      "rule": "RFC 7946 geometry object text; CRS EPSG:4326"
+    },
+    {
+      "id": "WKT_V1",
+      "output": "geometry",
+      "rule": "OGC WKT geometry text with the CRS declared in params; 2D and Z geometries only: M and ZM geometries are invalid because the canonical GeoJSON has no measure ordinate",
+      "params": {
+        "crs": "EPSG:<n>, required"
+      }
+    },
+    {
+      "id": "VALUE_MAP_V1",
+      "output": "concept",
+      "rule": "exact match of the trimmed code in the published value map referenced by valueMapRef; unmapped code is invalid",
+      "params": {
+        "valueMapRef": "required"
+      }
+    }
+  ],
+  "constructors": [
+    {
+      "id": "POINT_FROM_LAT_LON_V1",
+      "output": "geometry",
+      "inputs": [
+        {
+          "role": "lat",
+          "type": "decimal"
+        },
+        {
+          "role": "lon",
+          "type": "decimal"
+        }
+      ],
+      "rule": "Point [lon, lat] in EPSG:4326; lat in [-90, 90], lon in [-180, 180]; both inputs absent -> ABSENT; exactly one absent -> invalid"
+    },
+    {
+      "id": "TEXT_JOIN_V1",
+      "output": "string",
+      "inputs": [
+        {
+          "role": "part",
+          "type": "string",
+          "min": 2,
+          "max": 8,
+          "ordered": true
+        }
+      ],
+      "params": {
+        "separator": "required, 1 to 8 characters"
+      },
+      "rule": "join the non-absent parts in declared order with the separator; all parts absent -> ABSENT"
+    },
+    {
+      "id": "LIST_SPLIT_V1",
+      "output": "list",
+      "inputs": [
+        {
+          "role": "value",
+          "type": "string"
+        }
+      ],
+      "params": {
+        "separator": "required, 1 to 8 characters",
+        "itemReader": "required, any reader id",
+        "itemReaderParams": "optional object, the params of itemReader (crs for WKT_V1, valueMapRef for VALUE_MAP_V1), same keys as transformParams"
+      },
+      "rule": "split on the separator, apply itemReader to each item, skip absent items; the result is a JSON array of the itemReader output type; no items -> ABSENT"
+    }
+  ],
+  "structuredTypes": {
+    "owner": "Semantic Registry, new artifact type DATATYPE (native proposal through MCP semantic.propose, THS approval, publication in a publication set; immutable once published, a change is a new semanticVersion).",
+    "datatypeIri": "The DATATYPE semanticId is the datatype IRI of values of that type. Mappings pin it as <semanticId>@<publicationSetId> like every other semantic reference.",
+    "definition": {
+      "components": "1 to 32 items {name, type, cardinality, required, labels?}",
+      "name": "^[a-z][A-Za-z0-9]{0,63}$, unique within the type",
+      "type": "a base type id, or the IRI of another PUBLISHED DATATYPE pinned as <semanticId>@<publicationSetId>",
+      "cardinality": "ONE | MANY",
+      "required": "true | false",
+      "constraints": "optional, closed set per component: {minInclusive, maxInclusive} for integer/decimal/date/datetime as JSON strings in the canonical form of the component type (e.g. \"-90\", \"45.5\", \"2026-01-01\", \"2026-01-01T00:00:00Z\"); {maxLength} for string as a JSON integer; {vocabularyRef} for concept as the absolute IRI of a published vocabulary"
+    },
+    "limits": "nesting depth at most 4; at most 32 components per type and 256 leaf components in total; no cycles (a type cannot contain itself directly or indirectly)",
+    "canonical": "JSON object with exactly the defined component names present for non-absent values; ONE -> canonical value of the component type; MANY -> JSON array of canonical values (no empty arrays: an empty MANY component is ABSENT). Unknown keys are invalid. A required component absent -> invalid. All components absent -> the structured value is ABSENT.",
+    "identity": "JSON_V1 on the canonical JSON (keys sorted), unless the mapping declares a component-level signal",
+    "pinning": "Onboarding embeds in the published bundle the exact definition of every pinned DATATYPE (and of the DATATYPEs it contains) with its SHA-256; Ingestion and UDP verify definition and hash against the Semantic Registry (references:resolve) like every other semantic reference, then apply the definition generically. New preparations (Onboarding review prepare) require every pinned DATATYPE, nested ones included, to be ACTIVE; consumers resolving an already published bundle (historical replay) accept ACTIVE, DEPRECATED or RETIRED pins, like every other semantic reference.",
+    "conceptMembership": "A concept value is a member of the component vocabularyRef when either (a) the concept is a pinned CONCEPT of that vocabulary in the bundle, or (b) it was produced by VALUE_MAP_V1 with a value map pinned in the bundle (valueMapRef@publicationSetId) whose published target vocabulary equals vocabularyRef. Onboarding embeds the value map pin and its target vocabulary in the bundle; UDP and Ingestion accept membership only through (a) or (b)."
+  },
+  "mappingShape": {
+    "field": "Each source field keeps {fieldName, extractionDecision, dataAccessLabel, targetPropertyIri?, transform?} as today; 'transform' is a reader id (default IDENTITY) and the new optional 'transformParams' object carries the reader params (crs, valueMapRef, separator, itemReader). The existing 'valueMapRef' field stays accepted as an alias of transformParams.valueMapRef.",
+    "composition": "New optional top-level array 'compositions'. Each item is either {kind: 'CONSTRUCTOR', constructorId, targetPropertyIri, dataAccessLabel, inputs: [{role, fieldName, reader, transformParams?}], params} or {kind: 'STRUCTURED', typeRef: '<DATATYPE semanticId>@<publicationSetId>', targetPropertyIri, dataAccessLabel, components: [{component, fieldName, reader, transformParams?} | {component, constructor: {constructorId, inputs, params}} | {component, structured: {typeRef, components}}]}. Every reference resolves to an INCLUDE field of the same file; reader/constructor output types must equal the component or input type. For a component with cardinality MANY, the builder is {component, items: [<builder>, ...]} where each item is one of the single builders above (field+reader, constructor, structured); absent items are skipped; no non-absent item -> the component is ABSENT. A MANY component may also be built by LIST_SPLIT_V1 from one field.",
+    "fieldUse": "A field referenced only by compositions may be INCLUDE without targetPropertyIri. A field may also map to its own property and feed a composition.",
+    "example": {
+      "fields": [
+        {
+          "fieldName": "via",
+          "extractionDecision": "INCLUDE",
+          "dataAccessLabel": "OPEN"
+        },
+        {
+          "fieldName": "civico",
+          "extractionDecision": "INCLUDE",
+          "dataAccessLabel": "OPEN"
+        },
+        {
+          "fieldName": "cap",
+          "extractionDecision": "INCLUDE",
+          "dataAccessLabel": "OPEN"
+        },
+        {
+          "fieldName": "latitudine",
+          "extractionDecision": "INCLUDE",
+          "dataAccessLabel": "OPEN",
+          "targetPropertyIri": "https://w3id.org/italia/onto/CLV/lat",
+          "transform": "DECIMAL_DOT_V1"
+        },
+        {
+          "fieldName": "longitudine",
+          "extractionDecision": "INCLUDE",
+          "dataAccessLabel": "OPEN",
+          "targetPropertyIri": "https://w3id.org/italia/onto/CLV/long",
+          "transform": "DECIMAL_DOT_V1"
+        }
+      ],
+      "compositions": [
+        {
+          "kind": "CONSTRUCTOR",
+          "constructorId": "POINT_FROM_LAT_LON_V1",
+          "targetPropertyIri": "https://example.org/onto/hasGeometry",
+          "dataAccessLabel": "OPEN",
+          "inputs": [
+            {
+              "role": "lat",
+              "fieldName": "latitudine",
+              "reader": "DECIMAL_DOT_V1"
+            },
+            {
+              "role": "lon",
+              "fieldName": "longitudine",
+              "reader": "DECIMAL_DOT_V1"
+            }
+          ],
+          "params": {}
+        },
+        {
+          "kind": "STRUCTURED",
+          "typeRef": "https://example.org/onto/datatype/IndirizzoBreve@00000000-0000-0000-0000-000000000000",
+          "targetPropertyIri": "https://example.org/onto/hasAddress",
+          "dataAccessLabel": "OPEN",
+          "components": [
+            {
+              "component": "via",
+              "fieldName": "via",
+              "reader": "TEXT_NFC_TRIM_V1"
+            },
+            {
+              "component": "civico",
+              "fieldName": "civico",
+              "reader": "TEXT_NFC_TRIM_V1"
+            },
+            {
+              "component": "cap",
+              "fieldName": "cap",
+              "reader": "TEXT_NFC_TRIM_V1"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "identityComparators": {
+    "string": "TEXT_V1",
+    "integer": "DECIMAL_V1",
+    "decimal": "DECIMAL_V1",
+    "boolean": "TEXT_V1",
+    "date": "TEXT_V1",
+    "datetime": "TEXT_V1",
+    "concept": "CONCEPT",
+    "geometry": "JSON_V1",
+    "list": "JSON_V1",
+    "structured": "JSON_V1"
+  }
+}

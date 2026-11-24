@@ -4,8 +4,14 @@ import json
 import re
 
 
-RELEASE_ROUTE_IDS = ['semantic-human-terms', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
-                     'trusted-human-resolution-review']
+RELEASE_ROUTE_IDS = [
+    'mcp-managed-file-create', 'mcp-managed-file-preview', 'mcp-managed-file-review-read',
+    'mcp-source-revision-prepare', 'semantic-human-terms', 'semantic-proposal-create',
+    'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
+    'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
+    'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
+    'trusted-human-resolution-review',
+]
 
 
 def canonical_json(value):
@@ -88,9 +94,14 @@ def ci_profile(installation, port):
     return {
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
+        'gateway.issuerUrl': installation['issuerUrl'],
+        'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
+        'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
+        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,
         'services.bindings.ouf-onboarding': '127.0.0.1', 'services.ports.ouf-onboarding': port,
+        'services.bindings.ouf-ingestion-runtime': '127.0.0.1', 'services.ports.ouf-ingestion-runtime': port,
         'services.bindings.ouf-udp-object-resolution': '127.0.0.1', 'services.ports.ouf-udp-object-resolution': port,
     }

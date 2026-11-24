@@ -6,8 +6,10 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
 from tools.materialize_apisix_execute_runtime import materialize as status_runtime
+from tools.mcp_dispatch_contract import capability_contracts, envelope_refs, result_ceiling
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPABILITIES = {
@@ -51,7 +53,13 @@ def dispatch_schema(capability):
     fields['CapabilityID'] = {'const': capability}
     fields['GatewayBindingRef'] = {'const': 'capability://' + capability}
     fields['Owner'] = {'const': owner}
-    fields['MaxResultBytes']['maximum'] = 512 * 1024
+    fields['MaxResultBytes']['maximum'] = result_ceiling(capability, 512 * 1024)
+    contract = capability_contracts().get(capability)
+    if contract is not None:
+        fields['Arguments'] = envelope_refs(contract['inputSchema'])
+        return schema
+
+    # Producer queries are internal owner contracts without a manifest tool.
     query = {'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
              'since': {'type': 'string', 'format': 'date-time', 'maxLength': 100,
                        'pattern': r'^.+T.+(Z|[+-][0-9]{2}:[0-9]{2})$'}}
@@ -136,7 +144,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, owner_key_env=None
         route['id'] = 'operational-execute-' + capability.replace('.', '-')
         route['uri'] = '/internal/capabilities/v1/execute/' + capability
         route['labels']['ouf-mediation'] = 'operational-execute-v1'
-        route['plugins']['request-validation']['body_schema'] = dispatch_schema(capability)
+        route['plugins']['request-validation'] = dispatch_validation(dispatch_schema(capability), 65536)
         route['plugins']['serverless-post-function']['functions'] = [function('execute_operational', installation, delegation_key_env,
             owner_key_env=receipt_keys.get(owner),
             operational_binding={'capability': capability, 'owner': owner, 'scope': scope})]

@@ -30,6 +30,17 @@ def test_mcp_pairwise_dispatches_only_to_published_udp_binding():
     assert forwarded["X-OUF-Authorization-Decision-Ref"]=="decision-1"
 
 
+def test_pairwise_dispatch_rejects_invalid_manifest_arguments_before_owner():
+    upstream = FakeUpstream()
+    invalid = fixture()
+    invalid['Arguments']['relationIri'] = ''
+    with pytest.raises(DispatchError) as rejected:
+        dispatcher(upstream).dispatch(body(invalid), headers(invalid), identity())
+    assert rejected.value.status == 400
+    assert rejected.value.problem()['code'] == 'INVALID_TOOL_ARGUMENTS'
+    assert not upstream.calls
+
+
 @pytest.mark.parametrize("mutation,code",[
     (lambda e:e.update(GatewayBindingRef="capability://urban.object.read"),"CAPABILITY_BINDING_MISMATCH"),
     (lambda e:e["Identity"].update(PrincipalID="forged"),"IDENTITY_CONTEXT_MISMATCH"),

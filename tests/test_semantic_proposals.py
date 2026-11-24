@@ -35,8 +35,11 @@ def execute(cap='ouf.semantic.propose', body=None, actor='HUMAN', claims=None, d
     engine = Engine(workload() if claims is None else claims, h, e, key=key)
     engine.modules[b'resty.openssl.digest'] = engine.lua.table_from({b'new': lambda _: engine.lua.table_from({b'final': lambda _, data: hashlib.sha256(data).digest()})})
     engine.modules[b'resty.string'] = engine.lua.table_from({b'to_hex': lambda data: data.hex().encode()})
+    ctx = engine.lua.table()
+    if cap == 'ouf.semantic.propose':
+        ctx[b'ouf_original_body'] = engine.body
     engine.lua.execute(function('execute_semantic_proposals', INSTALL, 'TEST_KEY', 'OWNER_KEY',
-        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, None)
+        operational_binding={'capability': cap, 'owner': 'semantic', 'scope': CAPABILITIES[cap][2]}).encode())(None, ctx)
     return engine
 
 @pytest.mark.parametrize('cap', CAPABILITIES)
@@ -95,7 +98,14 @@ def test_materializer_closed_routes_schemas_and_no_automatic_retry():
         materialize(runtime(), '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'SEMANTIC_OWNER_KEY')
     for route in routes:
         assert route['upstream']['nodes'] == {'ouf-semantic-registry:8080': 1} and route['upstream']['retries'] == 0
-        schema = route['plugins']['request-validation']['body_schema'];cap = schema['properties']['CapabilityID']['const']
+        plugins = route['plugins']
+        validation = plugins['request-validation']
+        schema = validation['body_schema'];cap = schema['properties']['CapabilityID']['const']
+        if cap == 'ouf.semantic.propose':
+            assert validation['max_req_body_size'] == plugins['client-control']['max_body_size'] == 1048576
+        else:
+            assert validation['max_req_body_size'] == 65536
+            assert 'client-control' not in plugins
         validator = Draft7Validator(schema, format_checker=FormatChecker());validator.validate(request(cap))
         bad = request(cap);bad['Arguments']['approvedBy'] = 'agent';assert not validator.is_valid(bad)
         bad = request(cap);bad['Arguments']['commandKey'] = '';assert not validator.is_valid(bad)

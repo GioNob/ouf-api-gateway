@@ -45,6 +45,7 @@ class Engine:
                             register_builtins=False,register_eval=False,
                             attribute_filter=deny_python_attribute)
         self.headers={k.lower().encode():v.encode() for k,v in (headers or {}).items()}
+        self.response_body = b''
         raw=base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b'=')
         self.headers[b'authorization']=b'Bearer e30.'+raw+b'.test'
         self.body=json.dumps(body if body is not None else envelope()).encode()
@@ -71,10 +72,16 @@ class Engine:
         self.lua.globals()[b'require']=lambda name:self.modules[name]
         self.lua.execute(b'os.getenv=function(name) return TEST_KEY end')
         self.lua.globals()[b'TEST_KEY']=key.encode() if key else None
-        def denied(code): raise Denied(code)
+        def denied(code):
+            error = Denied(code)
+            error.response_body = self.response_body
+            raise error
         def set_header(name,value): self.headers[name.lower()]=value
         def clear_header(name): self.headers.pop(name.lower(),None)
         self.lua.globals()[b'ngx']=self.lua.table_from({b'exit':denied,b'time':lambda:now,b'encode_base64':base64.b64encode,b'decode_base64':lambda v:base64.b64decode(v),b'var':self.lua.table_from({b'http_authorization':self.headers[b'authorization'],b'uri':uri.encode()}),b'req':self.lua.table_from({b'get_headers':lambda *args:self.lua.table_from(self.headers),b'set_header':set_header,b'clear_header':clear_header,b'read_body':lambda:None,b'get_body_data':lambda:self.body,b'set_body_data':lambda v:setattr(self,'body',v)})})
+        ngx = self.lua.globals()[b'ngx']
+        ngx[b'header'] = self.lua.table()
+        ngx[b'say'] = lambda value: setattr(self, 'response_body', value + b'\n')
     def run(self,kind): self.lua.execute(function(kind,INSTALL,'TEST_KEY').encode())(None,None)
 
 def test_lua_harness_blocks_python_builtins_eval_and_callback_introspection():

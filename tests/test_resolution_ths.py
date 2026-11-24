@@ -47,14 +47,13 @@ def test_resolution_matches_installation_plan(runtime, tmp_path):
     profile.update({'services.bindings.ouf-onboarding': 'ouf-onboarding', 'services.ports.ouf-onboarding': 18081,
                     'services.bindings.ouf-udp-object-resolution': 'udp-fixture', 'services.ports.ouf-udp-object-resolution': 18082})
     released = {r['id']: r for r in load_release_routes(tmp_path, COMMIT, WORKFLOW, '36', profile)}
-    released.pop('semantic-human-terms')
     for route in expected.values():
         (address, weight), = route['upstream']['nodes'].items()
         host, port = address.rsplit(':', 1)
         assert port == '8080'
         port = {'ouf-onboarding': 18081, 'udp-fixture': 18082}[host]
         route['upstream']['nodes'] = [{'host': host, 'port': port, 'weight': weight}]
-    assert released == expected
+    assert {key: released[key] for key in expected} == expected
 
 
 @pytest.fixture

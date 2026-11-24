@@ -3,10 +3,14 @@ import argparse
 import copy
 import json
 from pathlib import Path
+
+from tools.apisix_request_schema import dispatch_validation
+from tools.delegation_functions import capture_original_body, function
 from tools.materialize_operational_execute import materialize as operational_runtime
-from tools.delegation_functions import function
 
 ROOT = Path(__file__).resolve().parents[1]
+PROPOSAL_REQUEST_BYTES = 65536
+VALUE_MAP_REQUEST_BYTES = 1048576
 CAPABILITIES = {
     'ouf.semantic.propose': ('create', 'COMMAND', 'ouf.semantic.propose'),
     'ouf.semantic.review.prepare': ('validate', 'COMMAND', 'ouf.semantic.review.prepare'),
@@ -21,7 +25,7 @@ def materialize(runtime, oidc_secret_ref, delegation_key_env, semantic_owner_key
     return add_to_existing(result, runtime, delegation_key_env, semantic_owner_key_env)
 
 
-def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_env):
+def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_env, *, use_route_labels=False):
     """Append the four reviewed proposal routes without replacing live routes.
 
     The caller supplies the retained materialized installation and its current
@@ -56,7 +60,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             or p['identity'] != 'M2M' or p['requiredScope'] != scope
             or p['allowedActorTypes'] != (['HUMAN'] if mode == 'read' else ['HUMAN', 'AI_AGENT', 'SERVICE'])
             or p['allowedServiceIdentities'] != [installation['mcpServiceIdentity']]
-            or p['maxRequestBytes'] != 65536 or p['timeoutSeconds'] != 3):
+            or p['maxRequestBytes'] != PROPOSAL_REQUEST_BYTES or p['timeoutSeconds'] != 3):
             raise ValueError('semantic proposal binding mismatch: '+cap)
         route = copy.deepcopy(template)
         route['id'] = 'semantic-proposal-'+mode
@@ -64,9 +68,15 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
         if any(r.get('id') == route['id'] or r.get('uri') == route['uri'] for r in result['routes']):
             raise ValueError('semantic proposal route already exists; reconcile before materialization')
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
-        route['plugins']['request-validation']['body_schema'] = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        body_schema = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        request_limit = VALUE_MAP_REQUEST_BYTES if mode == 'create' else PROPOSAL_REQUEST_BYTES
+        route['plugins']['request-validation'] = dispatch_validation(body_schema, request_limit)
+        if mode == 'create':
+            route['plugins']['client-control'] = {'max_body_size': VALUE_MAP_REQUEST_BYTES}
+            route['plugins']['serverless-pre-function']['functions'].append(capture_original_body(VALUE_MAP_REQUEST_BYTES))
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
-            delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope})]
+            delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
+            use_route_labels=use_route_labels and mode in ('create', 'read'))]
         route['plugins']['proxy-rewrite']['uri'] = path
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-semantic-registry:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 3}}

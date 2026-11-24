@@ -1,0 +1,131 @@
+{
+  "GatewayBindingRef": "capability://ouf.managed-source.onboarding.create",
+  "CapabilityID": "ouf.managed-source.onboarding.create",
+  "Owner": "onboarding",
+  "OperationClass": "COMMAND",
+  "Arguments": {
+    "assetId": "00000000-0000-4000-8000-000000000012",
+    "profileId": "00000000-0000-4000-8000-000000000012",
+    "sourceId": "places",
+    "name": "Places",
+    "owner": "Comune",
+    "targetClassIri": "urn:place",
+    "semanticRefs": [
+      "urn:example:place@00000000-0000-4000-8000-000000000012"
+    ],
+    "sourceObjectKeyFields": [],
+    "fields": [
+      {
+        "fieldName": "via",
+        "extractionDecision": "INCLUDE",
+        "dataAccessLabel": "OPEN"
+      },
+      {
+        "fieldName": "civico",
+        "extractionDecision": "INCLUDE",
+        "dataAccessLabel": "OPEN"
+      },
+      {
+        "fieldName": "shape",
+        "extractionDecision": "INCLUDE",
+        "dataAccessLabel": "OPEN",
+        "transform": "WKT_V1",
+        "transformParams": {
+          "crs": "EPSG:3003"
+        }
+      }
+    ],
+    "compositions": [
+      {
+        "kind": "STRUCTURED",
+        "typeRef": "urn:example:place@00000000-0000-4000-8000-000000000012",
+        "targetPropertyIri": "urn:place",
+        "dataAccessLabel": "OPEN",
+        "components": [
+          {
+            "component": "address",
+            "items": [
+              {
+                "structured": {
+                  "typeRef": "urn:example:address@00000000-0000-4000-8000-000000000012",
+                  "components": [
+                    {
+                      "component": "shape",
+                      "fieldName": "shape",
+                      "reader": "WKT_V1",
+                      "transformParams": {
+                        "crs": "EPSG:3003"
+                      }
+                    },
+                    {
+                      "component": "labels",
+                      "items": [
+                        {
+                          "fieldName": "via",
+                          "reader": "TEXT_NFC_TRIM_V1"
+                        },
+                        {
+                          "constructor": {
+                            "constructorId": "TEXT_JOIN_V1",
+                            "inputs": [
+                              {
+                                "role": "part",
+                                "fieldName": "via",
+                                "reader": "TEXT_NFC_TRIM_V1"
+                              },
+                              {
+                                "role": "part",
+                                "fieldName": "civico",
+                                "reader": "IDENTITY"
+                              }
+                            ],
+                            "params": {
+                              "separator": " / "
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "CONSTRUCTOR",
+        "targetPropertyIri": "urn:shapes",
+        "dataAccessLabel": "OPEN",
+        "constructorId": "LIST_SPLIT_V1",
+        "inputs": [
+          {
+            "role": "value",
+            "fieldName": "shape",
+            "reader": "IDENTITY"
+          }
+        ],
+        "params": {
+          "separator": ";",
+          "itemReader": "WKT_V1",
+          "itemReaderParams": {
+            "crs": "EPSG:3003"
+          }
+        }
+      }
+    ]
+  },
+  "Identity": {
+    "ServicePrincipalID": "fixture-mcp",
+    "PrincipalID": "fixture-human",
+    "TenantID": "fixture-tenant",
+    "ActorType": "HUMAN",
+    "AuthenticationContextRef": "fixture-auth"
+  },
+  "AuthorizationDecisionRef": "fixture-decision",
+  "CorrelationID": "fixture-correlation",
+  "IdempotencyKey": "create-1",
+  "AttemptID": "00000000-0000-4000-8000-000000000012",
+  "RequestHash": "c616254271a3f1bb631b6438261fbc473fc792122481b45d154a33b00c2cc6d2",
+  "MaxResultBytes": 1048576
+}

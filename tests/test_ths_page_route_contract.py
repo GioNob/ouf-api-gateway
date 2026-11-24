@@ -63,6 +63,7 @@ def test_contract_scope():
     assert CONTRACT["version"] == 1
     assert set(CONTRACT["surfaces"]) == {
         "authorization", "managed-files", "onboarding", "semantic", "resolution", "profile-recovery",
+        "ingestion-run-recovery",
     }
     assert CONTRACT["oidc"]["GET"]
 

@@ -1,5 +1,6 @@
 """Generate the D-081 APISIX release from public inputs. Run as a module."""
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -10,8 +11,14 @@ from pathlib import Path
 from ops.apisix.deploy_semantic_human import validate
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
+from tools.delegation_functions import INSTALLATION_LABELS
+from tools.materialize_managed_file_mcp import materialize as managed_file
+from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
+from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
+from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
+from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v1'
@@ -81,10 +88,44 @@ def release_resources():
     for route in resolution(runtime, secret_ref):
         service = 'ouf-onboarding' if route['id'] == 'trusted-human-resolution-review' else UDP
         resources.append(route_resource(route, service))
+    delegation = 'BUNDLE_INPUT_DELEGATION'
+    onboarding = 'BUNDLE_INPUT_ONBOARDING'
+    managed = managed_file(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
+    reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
+    for route in reviewed['routes']:
+        if route['id'] == RECOVERY_PAGE_ID:
+            resources.append(route_resource(route, 'ouf-onboarding'))
+        elif route['id'] in RUN_ROUTES:
+            resources.append(route_resource(route, 'ouf-ingestion-runtime'))
+    revisions = revision_prepare(reviewed, runtime, delegation, onboarding, use_route_labels=True)
+    mediated = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
+    dispatch_bindings = {
+        'semantic-proposal-create': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
+        'semantic-proposal-read': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
+        'mcp-managed-file-create': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-preview': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-review-read': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+    }
+    dispatch_bindings.update({route['id']: ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv')
+                              for route in mediated['routes'] if route['id'] in THS_LINK_ROUTE_KEYS})
+    for route_id, (service, owner_env) in dispatch_bindings.items():
+        route, = (r for r in mediated['routes'] if r.get('id') == route_id)
+        # A full HTTPS issuer contains ":" and cannot be stored in an APISIX label.
+        # Bind OIDC and the delegated request check to the same projected issuer.
+        route['plugins']['openid-connect']['claim_validator']['issuer'] = {
+            'valid_issuers': [installation('gateway.issuerUrl')],
+        }
+        settings = {'AUDIENCE': 'gateway.requiredAudience',
+                    'MCP_WORKLOAD': 'iam.workloadClients.mcpServer',
+                    'DELEGATION_KEY_ENV': 'gateway.delegationKeyEnv', 'OWNER_KEY_ENV': owner_env}
+        route['labels'].update({label: installation(settings[key]) for key, label in INSTALLATION_LABELS.items()})
+        resources.append(route_resource(route, service))
     return resources
 
 
 def route_resource(route, service):
+    route = copy.deepcopy(route)
     route_id = route.pop('id')
     nodes = route['upstream']['nodes']
     # Keep APISIX's weight and the binding checked by the materializer. Array

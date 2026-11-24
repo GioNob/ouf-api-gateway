@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-import argparse, hashlib, json, re
+import argparse, hashlib, json, re, sys
 from pathlib import Path
 
 import yaml
 from jsonschema import Draft202012Validator
+
+# Keep the documented direct-script entry point.
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.apisix_request_schema import dispatch_validation
+from tools.mcp_dispatch_contract import (
+    EXECUTE_PATH, THS_LINK_PATH_PREFIX, THS_LINK_ROUTE_KEYS, THS_LINKS, capability_contracts,
+    envelope_refs, manifest_execute_uri, result_ceiling, ths_link_schema_matches,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = {"Capability": "capability-manifest-v1.json", "SourceRuntimeProfile": "source-runtime-profile-v1.json", "ExtractionRuntimeProfile": "extraction-runtime-profile-v1.json", "RouteBinding": "route-binding-v1.json", "McpEndpointBinding": "mcp-endpoint-binding-v1.json", "McpMediationBinding": "mcp-mediation-binding-v1.json"}
@@ -17,16 +27,62 @@ def load_documents(config_root):
     documents=[]
     for path in sorted(config_root.rglob("*.yaml")):
         doc=yaml.safe_load(path.read_text())
-        kind=doc.get("kind") if isinstance(doc,dict) else None
-        if kind not in SCHEMAS: raise ConfigError(f"{path}: unsupported kind {kind!r}")
-        schema=json.loads((ROOT/"schemas"/SCHEMAS[kind]).read_text())
-        errors=sorted(Draft202012Validator(schema).iter_errors(doc),key=lambda e:list(e.path))
-        if errors: raise ConfigError(f"{path}: {errors[0].message}")
+        validate_document(path, doc)
         documents.append((path,doc))
     return documents
 
+
+def validate_document(path, doc):
+    kind=doc.get("kind") if isinstance(doc,dict) else None
+    if kind not in SCHEMAS: raise ConfigError(f"{path}: unsupported kind {kind!r}")
+    schema=json.loads((ROOT/"schemas"/SCHEMAS[kind]).read_text())
+    errors=sorted(Draft202012Validator(schema).iter_errors(doc),key=lambda e:list(e.path))
+    if errors: raise ConfigError(f"{path}: {errors[0].message}")
+
+
+def ths_link_documents(config_root, contracts):
+    for route_id, key in THS_LINK_ROUTE_KEYS.items():
+        path = config_root / 'routes/northbound' / f'{route_id}.json'
+        if not path.is_file():
+            continue
+        spec = json.loads(path.read_bytes())
+        cap = spec.pop('capabilityId')
+        # D-085 activation requires the exact capability ID selected from the MCP snapshot.
+        if cap is None:
+            continue
+        contract = contracts.get(cap)
+        if (not contract or contract['owner'] != 'onboarding'
+                or contract.get('publicationState') != 'ACTIVE'
+                or not ths_link_schema_matches(contract['inputSchema'], THS_LINKS[key])
+                or spec['backendBinding']['path'] != THS_LINK_PATH_PREFIX + key):
+            raise ConfigError(f'{path}: MCP THS link capability missing or inconsistent')
+        try:
+            uri = manifest_execute_uri(contract['gatewayBindingRef'])
+        except ValueError as exc:
+            raise ConfigError(f'{path}: {exc}') from exc
+        version = {'version': '1.0.0', 'status': 'ACTIVE'}
+        capability = {
+            'apiVersion': 'ouf.trieste.it/v1', 'kind': 'Capability',
+            'metadata': {'id': cap, **version},
+            'spec': {'owner': contract['owner'], 'operationType': contract['operationClass'],
+                     'scope': contract['requiredAuthorizationCapability'],
+                     'classification': ['SECURITY_SENSITIVE'], 'mcp': {'toolEligible': contract['toolEligible']}},
+        }
+        binding = {
+            'apiVersion': 'ouf.trieste.it/v1', 'kind': 'RouteBinding',
+            'metadata': {'id': route_id, **version},
+            'spec': {**spec, 'direction': 'northbound', 'exposure': 'internal',
+                     'capabilityRef': cap + '@' + version['version'],
+                     'match': {'method': 'POST', 'path': uri}},
+        }
+        for doc in (capability, binding):
+            validate_document(path, doc)
+            yield path, doc
+
+
 def compile_config(config_root):
-    docs=load_documents(config_root)
+    contracts = capability_contracts()
+    docs = load_documents(config_root) + list(ths_link_documents(config_root, contracts))
     indexed={}
     for path,doc in docs:
         key=(doc["kind"],ref(doc))
@@ -77,6 +133,23 @@ def compile_config(config_root):
         plugins = {"request-id": {"header_name":"X-Correlation-ID","include_in_response":True,"algorithm":"uuid"}, "limit-count": {"count":100,"time_window":60,"rejected_code":429}}
         if not wildcard:
             plugins["proxy-rewrite"] = {"uri": spec["backendBinding"]["path"]}
+        capability_id = capability[1]["metadata"]["id"]
+        contract = contracts.get(capability_id)
+        if (contract and match[0] == 'POST' and match[1].startswith(EXECUTE_PATH + '/')
+                and match[1] != EXECUTE_PATH + '/managed.file/upload'):
+            schema = json.loads((ROOT / 'schemas/mcp-gateway-dispatch-v1.json').read_bytes())
+            fields = schema['properties']
+            fields['Arguments'] = envelope_refs(contract['inputSchema'])
+            for field, value in {
+                'CapabilityID': capability_id,
+                'GatewayBindingRef': contract['gatewayBindingRef'],
+                'Owner': capability[1]['spec']['owner'],
+                'OperationClass': capability[1]['spec']['operationType'],
+            }.items():
+                fields[field] = {'const': value}
+            result = fields['MaxResultBytes']
+            result['maximum'] = result_ceiling(capability_id, result['maximum'])
+            plugins['request-validation'] = dispatch_validation(schema, spec['policy']['maxRequestBytes'])
         selector={"vars": [["uri", "~~", uri_regex]]} if uri_regex else {}
         routes.append({
           "id": route["metadata"]["id"], "uri": spec["match"]["path"], "methods": [spec["match"]["method"]],

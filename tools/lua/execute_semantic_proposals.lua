@@ -24,11 +24,12 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-ngx.req.read_body()
-local body = ngx.req.get_body_data()
-if not body or #body > 65536 then return fail(413) end
+-- MATERIALIZE SEMANTIC REQUEST BODY
+if not body or #body > BODY_CEILING then return fail(413) end
 local e = cjson.decode(body)
 if type(e) ~= 'table' or type(e.Identity) ~= 'table' or type(e.Arguments) ~= 'table' then return fail(400) end
+local is_value_map = CAPABILITY == 'ouf.semantic.propose' and e.Arguments.artifactType == 'VALUE_MAP'
+if #body > LEGACY_CEILING and not is_value_map then return fail(413) end
 local i = e.Identity
 if i.PrincipalID ~= p.principal or i.TenantID ~= p.tenant or i.ActorType ~= p.actor
     or i.AuthenticationContextRef ~= p.acr
@@ -39,6 +40,17 @@ if OPERATION == 'COMMAND' and e.Arguments.commandKey ~= e.IdempotencyKey then re
 local headers = ngx.req.get_headers()
 if headers['x-correlation-id'] ~= e.CorrelationID or headers['idempotency-key'] ~= e.IdempotencyKey
     or headers['x-tool-attempt-id'] ~= e.AttemptID then return fail(409) end
+if is_value_map then
+    -- request-validation checks the entry shape. JSON Schema uniqueItems only
+    -- compares entire entries, so enforce uniqueness of the code before signing.
+    local seen = {}
+    for _, entry in ipairs(e.Arguments.definition.entries) do
+        if seen[entry.code] then
+            return require('apisix.core').response.exit(400, {message='INVALID_TOOL_ARGUMENTS'})
+        end
+        seen[entry.code] = true
+    end
+end
 local all, err = ngx.req.get_headers(0)
 if err then return fail(400) end
 for name, _ in pairs(all) do

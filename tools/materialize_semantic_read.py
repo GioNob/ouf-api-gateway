@@ -5,6 +5,7 @@ No upstream/issuer/secret/domain/tenant default; existing routes remain byte-equ
 import copy
 import json
 from pathlib import Path
+from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -30,7 +31,8 @@ def materialize(existing,installation,delegation_key_env,semantic_key_env,semant
         r=copy.deepcopy(template)
         r.update(id=route_ids[name],uri=uri,methods=['POST'])
         r['labels']['ouf-mediation']='semantic-read-v1'
-        r['plugins']['request-validation']={'max_req_body_size':65536,'body_schema':json.loads((ROOT/f'schemas/mcp-gateway-semantic-{name}-dispatch-v1.json').read_text())}
+        schema = json.loads((ROOT / f'schemas/mcp-gateway-semantic-{name}-dispatch-v1.json').read_bytes())
+        r['plugins']['request-validation'] = dispatch_validation(schema, 65536)
         r['plugins']['serverless-post-function']={'phase':'access','functions':[function('execute_semantic_read',installation,delegation_key_env,semantic_key_env)]}
         r['plugins']['proxy-rewrite']={'uri':'/api/internal/v1/semantic/consultation/'+name}
         r['upstream']=copy.deepcopy(semantic_upstream)

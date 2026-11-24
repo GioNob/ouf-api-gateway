@@ -72,7 +72,12 @@ def test_compiler_binds_only_fixed_udp_service_and_rejects_changed_policy():
     assert route['upstream']['retries']==0 and route['plugins']['proxy-rewrite']['uri']=='/api/udp/v1/objects/search'
     schema=Draft7Validator(route['plugins']['request-validation']['body_schema'])
     assert schema.is_valid(request())
-    assert not schema.is_valid(request({'type':'*'}))
+    wildcard = request({'type': '*'})
+    assert schema.is_valid(wildcard)
+    with pytest.raises(Denied) as rejected:
+        execute(wildcard)
+    assert rejected.value.args == (400,)
+    assert json.loads(rejected.value.response_body)['code'] == 'INVALID_TOOL_ARGUMENTS'
     assert not schema.is_valid(request({'type':'ouf:Asset','sql':'select *'}))
     changed=runtime();binding=next(r for r in changed['routes'] if (r.get('x-ouf-capability') or {}).get('capabilityId')=='urban.object.search' and r.get('labels',{}).get('exposure')=='internal')
     binding['plugins']['proxy-rewrite']['uri']='/api/udp/v1/admin'
