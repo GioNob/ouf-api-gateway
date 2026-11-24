@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, THS_RATE_CLASSES, ci_profile, load_release_routes
+from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, THS_QUOTAS, THS_RATE_CLASSES, ci_profile, load_release_routes
 from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
@@ -63,10 +63,12 @@ def test_published_terms_release(tmp_path):
         'iam.workloadClients.semantic': 'string',
         **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('onboardingMcp', 'authorizationPolicyRead')
            for field in ('count', 'timeWindowSeconds')},
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in THS_QUOTAS for field in ('count', 'timeWindowSeconds')},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
         'gateway.semanticReadOwnerKeyEnv': 'secret',
         'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
+        'gateway.publicApiHost': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',
         'services.bindings.ouf-onboarding': 'string', 'services.ports.ouf-onboarding': 'integer',

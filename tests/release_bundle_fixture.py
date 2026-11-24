@@ -96,6 +96,16 @@ RELEASE_ROUTE_IDS = sorted([
 ])
 THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization')
 
+BASE_3D69CB4_IDS = BASE_3D69CB4  # alias kept for the 60h family tests
+
+THS_OWNER_IDS = ('semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
+                 'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read',
+                 'ths-identity-preflight-create')
+THS_RECOVERY_IDS = ('r4a-ingestion-human-quarantine-read', 'r4a-ingestion-human-quarantine-retry',
+                    'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry')
+RELEASE_ROUTE_IDS = sorted({*RELEASE_ROUTE_IDS, *THS_OWNER_IDS, *THS_RECOVERY_IDS})
+THS_QUOTAS = ('thsSemantic', 'thsIngestionReadiness', 'thsIdentityPreflight')
+
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
                 'semanticSearch', 'semanticSearchBatch')
 
@@ -189,6 +199,7 @@ def ci_profile(installation, port):
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')
            for field, value in [('count', 60), ('timeWindowSeconds', 60)]},
         'gateway.requiredAudience': installation['gatewayAudience'],
+        'gateway.publicApiHost': '127.0.0.1',
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
         'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
@@ -197,6 +208,8 @@ def ci_profile(installation, port):
            for field, value in [('count', 12), ('timeWindowSeconds', 60)]},
         **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
+        **{f'gateway.rateLimits.{group}.{field}': value for group in THS_QUOTAS
+           for field, value in [('count', 12), ('timeWindowSeconds', 60)]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
         'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY', 'gateway.semanticDiscoveryOwnerKeyEnv': 'DISCOVERY_KEY',
         'gateway.semanticReadOwnerKeyEnv': 'READ_KEY',

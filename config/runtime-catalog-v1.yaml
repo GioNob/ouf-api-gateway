@@ -60,3 +60,9 @@ entries:
   gateway.rateLimits.thsApprovals.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.thsAuthorization.count: *r2bCount
   gateway.rateLimits.thsAuthorization.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsSemantic.count: *r2bCount
+  gateway.rateLimits.thsSemantic.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsIngestionReadiness.count: *r2bCount
+  gateway.rateLimits.thsIngestionReadiness.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsIdentityPreflight.count: *r2bCount
+  gateway.rateLimits.thsIdentityPreflight.timeWindowSeconds: *r2bTimeWindowSeconds

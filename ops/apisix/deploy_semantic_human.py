@@ -8,8 +8,10 @@ import re
 
 from ops.apisix.deploy_internal_m2m_routes import Admin, route_value, restore, snapshot
 from tools.materialize_semantic_human_runtime import REGEX, ROUTES
+from tools.release_family_ths_owner_api import SEMANTIC_IDS
 
 SAMPLE_ID = '00000000-0000-0000-0000-000000000000'
+LEGACY_IDS = set(ROUTES) - SEMANTIC_IDS - {'semantic-human-terms'}
 
 
 def validate(doc):
@@ -49,7 +51,8 @@ def sample_uri(route):
 
 
 def install(routes, admin):
-    previous = snapshot(set(ROUTES), admin)
+    routes = [route for route in routes if route['id'] in LEGACY_IDS]
+    previous = snapshot(LEGACY_IDS, admin)
     for route in routes:
         old = previous[route['id']]
         if old is not None and any(old.get(k) != v for k, v in route.items()):
@@ -78,8 +81,9 @@ def validate_snapshot(previous):
     # Older snapshots cover only the routes owned by their installer.
     previous_ids = set(ROUTES) - {'semantic-human-terms'}
     if not isinstance(previous, dict) or set(previous) not in (
-            set(ROUTES), previous_ids, previous_ids - {'semantic-rdf-import'}):
+            LEGACY_IDS, set(ROUTES), previous_ids, previous_ids - {'semantic-rdf-import'}):
         raise ValueError('SEMANTIC_SNAPSHOT_INVALID')
+    return {key: value for key, value in previous.items() if key in LEGACY_IDS}
 
 
 def main():
@@ -95,7 +99,7 @@ def main():
     os.umask(0o077)
     if args.restore:
         previous = json.loads(args.restore.read_text())
-        validate_snapshot(previous)
+        previous = validate_snapshot(previous)
     else:
         routes = validate(json.loads(args.materialization.read_text()))
     admin = Admin(args, 'semantic-human-')

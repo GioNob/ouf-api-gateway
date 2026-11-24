@@ -102,7 +102,8 @@ def test_adopted_route_ids_and_unique_selectors(resources):
     for route_id, body in resources.items():
         methods = set(body.get('methods', []))
         hosts = {host.lower() for host in body.get('hosts', [])}
-        if 'host' in body:
+        # A template host may resolve to any literal host in this static check.
+        if isinstance(body.get('host'), str):
             hosts.add(body['host'].lower())
         uris = body['uris'] if 'uris' in body else [body['uri']]
         for uri in sorted(set(uris)):
@@ -112,6 +113,12 @@ def test_adopted_route_ids_and_unique_selectors(resources):
                 if hosts and other_hosts and hosts.isdisjoint(other_hosts):
                     continue
                 # These THS routes share a wildcard namespace and match distinct action paths.
+                if {route_id, other_id} == {'semantic-human-decision', 'semantic-human-publish'}:
+                    assert uri == '/api/trusted-human/v1/semantic-approval-challenges/*'
+                    for action in ('decision', 'publish'):
+                        assert resources['semantic-human-' + action]['vars'] == [
+                            ['uri', '~~', '^' + uri[:-1] + '[0-9a-fA-F-]{36}/' + action + '$']]
+                    continue
                 assert uri == run_root + '*' and {route_id, other_id} == run_actions.keys(), (
                     f'Overlapping method, URI and host selectors for {route_id} and {other_id}: {uri}')
                 for action_id, action in run_actions.items():

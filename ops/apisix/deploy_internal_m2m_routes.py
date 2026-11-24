@@ -19,7 +19,11 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'trusted-human-onboarding-review', 'trusted-human-semantic-review', 'trusted-human-managed-file-picker',
                 'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
                 'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
-                'trusted-human-authorization-get', 'trusted-human-authorization-post'}
+                'trusted-human-authorization-get', 'trusted-human-authorization-post',
+                'semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
+                'r4a-ingestion-human-quarantine-read', 'r4a-ingestion-human-quarantine-retry',
+                'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry',
+                'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read', 'ths-identity-preflight-create'}
 
 
 def reject_bundle_owned(ids):
