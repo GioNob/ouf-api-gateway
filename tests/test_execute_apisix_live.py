@@ -23,7 +23,7 @@ import yaml
 
 from tools.materialize_object_search import materialize
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import ci_profile, load_release_routes
+from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 
 pytestmark=pytest.mark.skipif(os.environ.get('OUF_APISIX_LIVE_TEST')!='1',reason='requires Docker APISIX integration gate')
 
@@ -157,7 +157,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             release = load_release_routes(Path(bundle_dir), os.environ['OUF_GATEWAY_RELEASE_COMMIT'],
                                           '.github/workflows/ci.yml', os.environ['GITHUB_RUN_ID'],
                                           ci_profile(installation, server.server_port))
-            assert [route['id'] for route in release] == ['semantic-human-terms']
+            assert [route['id'] for route in release] == RELEASE_ROUTE_IDS
             doc['routes'].extend(release)
         config={'apisix':{'node_listen':port,'enable_admin':False},'deployment':{'role':'data_plane','role_data_plane':{'config_provider':'yaml'}},'nginx_config':{'envs':['OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY','GATEWAY_SUMMARY_RECEIPT_KEY']}}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))

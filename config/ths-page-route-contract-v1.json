@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "onboardingRevision": "917403a62fe7eafc49a6afcc95e737d56992f0cc",
+  "oidc": {
+    "GET": ["/oauth2/authorization/ouf-ths", "/login/oauth2/code/ouf-ths"]
+  },
+  "surfaces": {
+    "authorization": {
+      "html": "permissions.html",
+      "page": "/trusted-human/authorization/",
+      "scripts": ["permissions.js"],
+      "stylesheets": ["permissions.css"],
+      "api": {
+        "GET": ["api/proposals/{proposalId}"],
+        "POST": ["api/proposals/{proposalId}/confirm", "api/proposals/{proposalId}/reject"]
+      }
+    },
+    "managed-files": {
+      "html": "managed-file-picker.html",
+      "page": "/trusted-human/managed-files/",
+      "scripts": ["picker.js"],
+      "stylesheets": [],
+      "api": {
+        "GET": ["session"],
+        "POST": ["upload", "rejection"]
+      }
+    },
+    "onboarding": {
+      "html": "workflow-review.html",
+      "page": "/trusted-human/onboarding/",
+      "scripts": ["review.js"],
+      "stylesheets": ["review.css"],
+      "api": {
+        "GET": ["api/{challengeId}"],
+        "POST": [
+          "api/{challengeId}/confirm",
+          "api/{challengeId}/reject",
+          "api/{challengeId}/changes",
+          "api/{challengeId}/activate",
+          "api/{challengeId}/resume",
+          "api/{challengeId}/budget"
+        ]
+      }
+    },
+    "semantic": {
+      "html": "workflow-review.html",
+      "page": "/trusted-human/semantic/",
+      "scripts": ["review.js"],
+      "stylesheets": ["review.css"],
+      "api": {
+        "GET": ["api/{challengeId}"],
+        "POST": ["api/{challengeId}/decision", "api/{challengeId}/publish"]
+      }
+    },
+    "resolution": {
+      "html": "resolution.html",
+      "page": "/trusted-human/resolution/",
+      "scripts": ["/trusted-human/resolution/review.js"],
+      "stylesheets": ["/trusted-human/resolution/review.css"],
+      "api": {
+        "GET": ["api/package"],
+        "POST": ["api/package/confirm"]
+      }
+    },
+    "profile-recovery": {
+      "html": "profile-recovery.html",
+      "page": "/trusted-human/managed-files/recovery/",
+      "scripts": ["recovery.js"],
+      "stylesheets": ["recovery.css"],
+      "api": {
+        "GET": ["api/{assetId}/{jobId}", "api/{assetId}/{jobId}/ownership"],
+        "POST": [
+          "api/{assetId}/{jobId}/budget",
+          "api/{assetId}/{jobId}/resume",
+          "api/{assetId}/{jobId}/cancel",
+          "api/{assetId}/{jobId}/ownership"
+        ]
+      }
+    }
+  }
+}

@@ -4,6 +4,10 @@ import json
 import re
 
 
+RELEASE_ROUTE_IDS = ['semantic-human-terms', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
+                     'trusted-human-resolution-review']
+
+
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
                       allow_nan=False).encode('utf-8')
@@ -87,4 +91,6 @@ def ci_profile(installation, port):
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,
+        'services.bindings.ouf-onboarding': '127.0.0.1', 'services.ports.ouf-onboarding': port,
+        'services.bindings.ouf-udp-object-resolution': '127.0.0.1', 'services.ports.ouf-udp-object-resolution': port,
     }

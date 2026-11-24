@@ -10,6 +10,7 @@ from pathlib import Path
 from ops.apisix.deploy_semantic_human import validate
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
+from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +61,7 @@ def placeholder_type(name):
     return 'string'
 
 
-def terms_resource():
+def release_resources():
     # Exercise the same D-058 projection and materializer guards as a private
     # installation. These build-only inputs must never be distributed.
     clients = {key: 'bundle-input-' + key for key in ('mcpServer', 'semantic', 'ingestion', 'udp')}
@@ -73,10 +74,18 @@ def terms_resource():
                     'requiredAudience': 'bundle-input-audience'},
     }
     runtime = apply_projection(compile_config(ROOT / 'ouf-config'), projection)
-    routes = validate(materialize(runtime, '$ENV://BUNDLE_INPUT_OIDC'))
-    route, = (r for r in routes if r['id'] == 'semantic-human-terms')
+    secret_ref = '$ENV://BUNDLE_INPUT_OIDC'
+    routes = validate(materialize(runtime, secret_ref))
+    terms, = (r for r in routes if r['id'] == 'semantic-human-terms')
+    resources = [route_resource(terms, 'ouf-semantic-registry')]
+    for route in resolution(runtime, secret_ref):
+        service = 'ouf-onboarding' if route['id'] == 'trusted-human-resolution-review' else UDP
+        resources.append(route_resource(route, service))
+    return resources
+
+
+def route_resource(route, service):
     route_id = route.pop('id')
-    service = 'ouf-semantic-registry'
     nodes = route['upstream']['nodes']
     # Keep APISIX's weight and the binding checked by the materializer. Array
     # notation makes host and port separately substitutable JSON values.
@@ -86,13 +95,14 @@ def terms_resource():
         raise ValueError('unexpected materialized backend for ' + route_id)
     route['upstream']['nodes'] = [{'host': installation('services.bindings.' + service),
                                   'port': installation('services.ports.' + service), 'weight': nodes[address]}]
-    oidc = route['plugins']['openid-connect']
-    oidc.update(client_id=installation('gateway.requiredAudience'),
-                client_secret=installation('gateway.oidcClientSecretRef'),
-                discovery=installation('caddy.oidcDiscoveryUrl'))
+    if 'openid-connect' in route['plugins']:
+        route['plugins']['openid-connect'].update(client_id=installation('gateway.requiredAudience'),
+                                                  client_secret=installation('gateway.oidcClientSecretRef'),
+                                                  discovery=installation('caddy.oidcDiscoveryUrl'))
     labels = route['labels']
-    labels.update({'ouf-installation': installation('installationId'),
-                   'ouf-installation-revision': installation('revision')})
+    labels['ouf-installation'] = installation('installationId')
+    if 'ouf-installation-revision' in labels:
+        labels['ouf-installation-revision'] = installation('revision')
     return {'kind': 'routes', 'id': route_id, 'body': route}
 
 
@@ -117,7 +127,7 @@ def generate(output, source_commit, workflow_path, run_id):
         raise ValueError('expected workflow path .github/workflows/<file>.yml')
     if not re.fullmatch(r'[0-9]+', run_id):
         raise ValueError('expected numeric workflow run ID')
-    resources = ordered_resources([terms_resource()])
+    resources = ordered_resources(release_resources())
     encoded = canonical(resources)
     if b'bundle-input-' in encoded or b'BUNDLE_INPUT_' in encoded or b'installation://' in encoded:
         raise ValueError('unconverted installation input')

@@ -43,6 +43,18 @@ def review_schema(mode):
     return schema
 
 
+def review_page(picker, flow):
+    capability = {'onboarding': 'ouf.onboarding.configuration.write', 'semantic': 'ouf.semantic.review'}[flow]
+    page = copy.deepcopy(picker)
+    page.update(id='trusted-human-'+flow+'-review', uri='/trusted-human/'+flow+'/*')
+    page['labels'].update({'ouf-capability': capability, 'ouf-surface': 'TRUSTED_HUMAN_WORKFLOW'})
+    page['plugins']['client-control'] = {'max_body_size': 65536}
+    page['plugins'].pop('proxy-control', None)
+    # The source action includes a bounded 35s readiness probe plus activation.
+    page['upstream']['timeout'] = {'connect': 3, 'send': 3, 'read': 60 if flow == 'onboarding' else 10}
+    return page
+
+
 def materialize(existing, runtime, delegation_key_env, owner_key_env):
     if delegation_key_env == owner_key_env:
         raise ValueError('distinct delegation and owner signing keys required')
@@ -100,15 +112,8 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env):
         "return function() local h=ngx.req.get_headers(0); for k,_ in pairs(h) do if k:lower():sub(1,6)=='x-ouf-' or k:lower()=='authorization' then ngx.req.clear_header(k) end end end"]
     if len(current) != 1 or current[0] not in (login, permission_login):
         raise ValueError('existing owner OAuth login route must match; reconcile before materialization')
-    for flow, capability in [('onboarding', 'ouf.onboarding.configuration.write'), ('semantic', 'ouf.semantic.review')]:
-        page = copy.deepcopy(human_routes[0])
-        page.update(id='trusted-human-'+flow+'-review', uri='/trusted-human/'+flow+'/*')
-        page['labels'].update({'ouf-capability': capability, 'ouf-surface': 'TRUSTED_HUMAN_WORKFLOW'})
-        page['plugins']['client-control'] = {'max_body_size': 65536}
-        page['plugins'].pop('proxy-control', None)
-        # The source action includes a bounded 35s readiness probe plus activation.
-        page['upstream']['timeout'] = {'connect': 3, 'send': 3, 'read': 60 if flow == 'onboarding' else 10}
-        _append(result, page)
+    for flow in ('onboarding', 'semantic'):
+        _append(result, review_page(human_routes[0], flow))
     secret_ref = templates[0]['plugins']['openid-connect']['client_secret']
     indexed = {r['id']: r for r in runtime['routes']}
     readiness_id = 'trusted-human-ingestion-onboarding-readiness'
