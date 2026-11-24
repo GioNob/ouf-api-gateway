@@ -1,0 +1,7 @@
+apiVersion: ouf.trieste.it/v1
+kind: SourceRuntimeProfile
+metadata: {id: udp-acquisition-reader, version: 1.0.0, status: ACTIVE}
+spec:
+  protocol: HTTP
+  endpointRef: service://udp-acquisition-reader
+  sourceSchemaRef: capability-contract://urban.acquisition.read/v1

@@ -29,9 +29,15 @@ def route_value(doc):
     return {k:v for k,v in value.items() if k not in ('create_time','update_time')}
 
 
+LEGACY_STATUS_PATHS = {'public-mcp-endpoint': '/mcp',
+                       'public-mcp-oauth-protected-resource': '/.well-known/oauth-protected-resource'}
+
+
 def apply_routes(routes, request):
     """Snapshot before any write; on partial failure restore all attempted IDs."""
     reject_bundle_owned(r['id'] for r in routes)
+    if any(r['id'] == 'mcp-generic-execution' or r['uri'] == '/internal/capabilities/v1/execute' for r in routes):
+        raise ValueError('generic execute is owned by the governed Gateway release')
     previous = {}
     for route in routes:
         code, value = request('GET', route['id'])
@@ -125,8 +131,12 @@ def main():
         parser.error('choose exactly one of --materialization or --restore')
     if args.restore:
         previous=json.loads(args.restore.read_text())
-        if not isinstance(previous,dict) or len(previous)!=3 or any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(k)) for k in previous):
+        if not isinstance(previous, dict):
             raise SystemExit('invalid snapshot')
+        previous.pop('mcp-generic-execution', None)
+        if previous.keys() != LEGACY_STATUS_PATHS.keys() or any(
+                old is not None and old.get('uri') != LEGACY_STATUS_PATHS[key] for key, old in previous.items()):
+            raise SystemExit('invalid legacy status snapshot')
         reject_bundle_owned(previous)
         admin=Admin(args)
         try:
@@ -147,6 +157,9 @@ def main():
         raise SystemExit('expected the three reviewed status profile routes')
     if any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(r['id'])) for r in routes):
         raise SystemExit('invalid route id')
+    routes = [r for r in routes if r['uri'] != '/internal/capabilities/v1/execute']
+    if {r['id']: r['uri'] for r in routes} != LEGACY_STATUS_PATHS:
+        raise SystemExit('invalid legacy status bindings')
     env_name=doc.get('delegationKeyEnv','')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',env_name):
         raise SystemExit('invalid delegation environment name')

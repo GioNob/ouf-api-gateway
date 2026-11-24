@@ -58,6 +58,20 @@ ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-so
                   'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
                   'mcp-authorization-policy-bundle-read')
 
+BASELINE_51M_IDS = BASE_3D69CB4  # alias kept for the 60d family tests
+
+READ_OPERATIONS_IDS = (
+    'mcp-generic-execution', 'mcp-ingestion-status', 'execute-ouf-ingestion-acquisition-read',
+    'execute-urban-acquisition-read', 'execute-urban-object-search', 'execute-ouf.operations.incidents',
+    'execute-ouf.operations.summary', 'execute-ouf.gateway.operations.incidents', 'execute-ouf.gateway.operations.summary',
+    'execute-ouf.ingestion.operations.incidents', 'execute-ouf.ingestion.operations.summary',
+)
+READ_BACKENDS = ('ingestion-acquisition-reader', 'udp-acquisition-reader', 'ouf-mcp-server',
+                 'mcp-operational-aggregate', 'ouf-gateway-control-plane')
+READ_KEYS = {'gateway.ingestionReadOwnerKeyEnv': 'OWNER_KEY', 'gateway.udpReadOwnerKeyEnv': 'UDP_KEY',
+             'gateway.gatewayOperationalOwnerKeyEnv': 'GATEWAY_SUMMARY_RECEIPT_KEY',
+             'gateway.ingestionOperationalOwnerKeyEnv': 'INGESTION_SUMMARY_RECEIPT_KEY'}
+
 RELEASE_ROUTE_IDS = sorted([
     *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
@@ -67,7 +81,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS, *READ_OPERATIONS_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -154,6 +168,9 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 def ci_profile(installation, port):
     return {
         'gateway.rateLimits.semanticMcp.count': 12, 'gateway.rateLimits.semanticMcp.timeWindowSeconds': 60,
+        **READ_KEYS, **{'services.bindings.' + name: '127.0.0.1' for name in READ_BACKENDS},
+        **{'services.ports.' + name: port for name in READ_BACKENDS},
+        'gateway.rateLimits.readOperationsMcp.count': 60, 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 60,
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')

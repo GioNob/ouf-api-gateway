@@ -31,7 +31,8 @@ from tests.test_dispatch_schema_contract import (
 from tests.test_execute_delegation import runtime, envelope
 from tests.test_release_family_onboarding_mcp import check_onboarding_http, reply_onboarding_owner
 from tests.test_release_family_semantic_mcp import check_denied_dispatch, check_owner_receipt
-from tests.release_bundle_fixture import ONBOARDING_IDS, SEMANTIC_MCP_IDS, R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import (ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS, R2B_ROUTE_IDS,
+                                          RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes)
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -236,6 +237,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                                '/api/internal/v1/ingestion/operations/summary', '/api/internal/v1/ingestion/operations/incidents',
                                '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
+            elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/acquisition',
+                               '/api/udp/v1/operations/acquisition'):
+                self.reply({'headers': {k.lower(): v for k, v in self.headers.items()}, 'wire': body.decode()})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             elif self.path=='/api/udp/v1/objects/search':
@@ -357,8 +361,16 @@ def test_real_apisix_oidc_delegation_and_execute():
             bundle_path = Path(folder, 'release')
             commit, run_id = '1' * 40, '50'
             generate(bundle_path, commit, workflow, run_id)
-        release = load_release_routes(bundle_path, commit, workflow, run_id,
-                                      ci_profile(installation, server.server_port))
+        profile = ci_profile(installation, server.server_port)
+        release = load_release_routes(bundle_path, commit, workflow, run_id, profile)
+        reads = [r for r in release if r['id'] in READ_OPERATIONS_IDS]
+        if udp_port:
+            next(r for r in reads if r['id'] == 'execute-urban-object-search')['upstream']['nodes'][0]['port'] = udp_port
+        if owner_port:
+            # Only summary is backed by the Java owner in this test.
+            next(r for r in reads if r['uri'] == summary_uri)['upstream']['nodes'][0]['port'] = owner_port
+        read_uris = {r['uri'] for r in reads}
+        doc['routes'] = [r for r in doc['routes'] if r.get('uri') not in read_uris]
         optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
@@ -366,7 +378,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         if bundle_dir:
             doc['routes'].extend(release)
         else:
-            doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
+            doc['routes'].extend(route for route in release if route['id'] in READ_OPERATIONS_IDS or route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
                                  or route['id'] in R2B_ROUTE_IDS or route['id'] in ONBOARDING_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
@@ -391,7 +403,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             'plugins': sorted({plugin for route in doc['routes'] for plugin in route.get('plugins', {})}),
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY', 'INGESTION_SUMMARY_RECEIPT_KEY']},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -405,6 +417,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
             '-e', 'READ_KEY=' + '56' * 32,
             '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
+            '-e', 'INGESTION_SUMMARY_RECEIPT_KEY=' + 'ef' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
             'apache/apisix:3.18.0-debian',
@@ -597,6 +610,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
             assert json.loads(raw)['roles']=='ouf:viewer'
+            from tests.test_release_family_read_operations_mcp import check_read_owner_http
+            check_read_owner_http(reads, post, token, dispatch_body)
             path='/internal/capabilities/v1/execute'
             code,raw=post(path,envelope(),token('SERVICE'),proof)
             assert code==200,(code,raw)

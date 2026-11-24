@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import BASE_3D69CB4, BASELINE_3D69CB4_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tests.release_bundle_fixture import BASE_3D69CB4, BASELINE_3D69CB4_IDS, BASELINE_51M_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
