@@ -23,7 +23,7 @@ HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
 REVIEW_READ_URI = EXECUTE_PATH + '/managed.file/review-read'
 PREVIEW_URI = EXECUTE_PATH + '/managed.file/preview'
 SEMANTIC_READ_URI = EXECUTE_PATH + '/semantic/read'
-MANIFEST_SHA256 = '2d0a096c7bdfde0bbd31d57ed97f559858bf42a5058e1651982f9a92faab7326'
+MANIFEST_SHA256 = '7b380b6e33c5c7269a9f5974f7bd56e6424aaba5f42a67795612b83ba5224f6f'
 THS_LINK_DISPATCH_CASES = {
     'mcp-ingestion-run-recovery-link': (
         '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery',
@@ -171,7 +171,10 @@ def wave2_dispatch_cases(routes=()):
         ),
         PREVIEW_URI: (
             '/api/internal/v1/onboarding/managed-file-mcp/preview',
-            [{'assetId': asset, 'profileId': other}, {'assetId': asset, 'jobId': other}],
+            [{'assetId': asset, 'profileId': other}, {'assetId': asset, 'jobId': other},
+             {'view': 'UNITS', 'profileId': asset, 'offset': 1, 'limit': 2},
+             {'view': 'UNIT', 'profileId': asset, 'unitRef': 'sheet:0', 'offset': 2, 'limit': 3},
+             {'view': 'UNIT', 'profileId': asset, 'unitRef': 'sheet:0', 'distinctValuesCursor': 'page2'}],
             [{'assetId': asset, 'profileId': other, 'jobId': other}],
         ),
         REVIEW_READ_URI: (

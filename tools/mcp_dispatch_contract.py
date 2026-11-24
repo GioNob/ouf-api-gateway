@@ -72,6 +72,9 @@ def capability_contracts():
     updated = {row['capabilityId']: row for row in subset}
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
+    # The full snapshot now owns review.prepare, including the 51j review actions.
+    review = 'ouf.managed-source.onboarding.review.prepare'
+    updated.pop(review)
     by_id.update(updated)
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
@@ -186,7 +189,7 @@ def envelope_refs(node):
                                  .replace(VALUE_MAP_CONTROL_CLASS, VALUE_MAP_CONTROL_ALTERNATIVES))
         # The installation's Lua validator handles boolean propertyNames only.
         # Express MCP's closed name lists using its supported object keywords.
-        if 'propertyNames' in result:
+        if 'propertyNames' in result and set(result['propertyNames']) != {'pattern'}:
             names = result.pop('propertyNames')
             properties = result.get('properties', {})
             if (set(names) != {'enum'} or set(properties) - set(names['enum'])

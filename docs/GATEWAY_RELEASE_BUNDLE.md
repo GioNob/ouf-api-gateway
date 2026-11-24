@@ -1,5 +1,48 @@
 # Rilascio Gateway D-081
 
+## Unità di estrazione e upload XLSX (F1–F2, task-62d)
+
+Il bundle include le rotte POST esistenti `mcp-managed-file-profile` e
+`mcp-managed-file-upload`. Entrambe raggiungono l’owner Onboarding attraverso
+`/internal/capabilities/v1/execute/managed.file/{profile,upload}`.
+
+| Rotta | Argomenti inoltrati all’owner |
+| --- | --- |
+| `mcp-managed-file-preview` | `UNITS` richiede `profileId` e accetta `assetId`, `offset` e `limit`. `UNIT` richiede anche `unitRef` e ammette la paginazione per intervallo oppure per `distinctValuesCursor`. |
+| `mcp-managed-file-profile` | `readOptions.xlsx.headerRows` associa da 1 a 64 chiavi `sheet:<n>` a righe di intestazione numerate da 1. |
+| `mcp-managed-file-create` | `unitProfileRef` identifica l’unità. L’owner verifica la concordanza degli eventuali identificativi storici. |
+| `mcp-managed-file-review-prepare` | `unitProfileRef` e proposta `ouf.managed-unit-execution-proposal.v1`. La proposta CSV storica conserva la forma senza il campo `contract`. |
+| `mcp-source-revision-prepare` | La sostituzione accetta uno fra `unitProfileRef` e `assetRef`, conserva le regole per `newColumns` e inoltra `If-Match` da `expectedVersion`. Il ramo `changes` esclude la selezione dell’unità entrante. |
+
+Il Gateway firma e inoltra l’envelope JSON attraverso il binding esistente.
+`source.analysis.plan` è locale al MCP. Il controllo della disponibilità del
+profilo e della corrispondenza degli hash spetta all’owner. Per la review lo
+schema corrente proviene da `contracts/mcp-capabilities.json`. L’estratto
+storico 51j continua a fornire le quattro dichiarazioni discovery.
+
+**Registro D-065.** `gateway.managedUploadMediaTypes` è una stringa pubblica
+del profilo d’installazione. Contiene media type MIME minuscoli, separati da
+virgole, senza spazi o parametri. Il catalogo registra la pubblicazione come
+modalità di aggiornamento. Il profilo dev dichiara
+`text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+Il profilo privato fornisce il proprio valore, coerente con MCP e Onboarding.
+La risoluzione del segnaposto mancante produce `GATEWAY_INSTALLATION_VALUE`.
+
+Il bundle colloca la stringa nel campo APISIX `desc` di
+`mcp-managed-file-upload`. Il Lua legge il valore dalla rotta selezionata,
+confronta l’intero `Content-Type` e inoltra l’header originale. Per il CSV
+firma con il dominio `ouf-managed-file-upload-v1.`. Per gli altri tipi
+ammessi firma anche `mediaType`, imposta `v=2` e usa il dominio
+`ouf-managed-file-upload-v2.`. Il Gateway risponde 400 per un tipo escluso.
+Restano attivi il limite di 10 MiB e `proxy-control.request_buffering=false`.
+La verifica del contenuto binario e la custodia spettano a Onboarding.
+
+Il contratto §3.3 prevede prima l’owner con entrambe le versioni
+della ricevuta, poi il Gateway, infine il MCP che imposta il media type del
+file. Al plan confrontare gli ID già in esercizio e il riferimento alla chiave
+owner con il profilo autorizzato. La prova di streaming sul runtime installato
+è descritta nel [gate degli upload](R4A_MANAGED_FILE_STREAMING_GATE.md).
+
 ## Discovery semantica e revisione onboarding (D-087, 51j)
 
 Il bundle v2 adotta gli ID APISIX `mcp-semantic-discovery-request`,

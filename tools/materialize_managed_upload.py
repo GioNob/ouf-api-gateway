@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import re
 from pathlib import Path
 
 from tools.delegation_functions import function
@@ -11,7 +12,11 @@ CAP='ouf.managed-source.file.upload'
 PATH='/api/internal/v1/onboarding/managed-file-mcp/upload'
 URI='/internal/capabilities/v1/execute/managed.file/upload'
 
-def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
+def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use_route_labels=False):
+    media_types = runtime['x-ouf-installation'].get('managedUploadMediaTypes')
+    media_type = r'[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*'
+    if not isinstance(media_types, str) or not re.fullmatch(fr'{media_type}(,{media_type})*', media_types):
+        raise ValueError('GATEWAY_INSTALLATION_VALUE: gateway.managedUploadMediaTypes')
     result=permission_runtime(runtime,oidc_secret_ref,delegation_key_env,owner_key_env)
     template=next(r for r in result['routes'] if r['uri']=='/internal/capabilities/v1/execute')
     matches=[r for r in runtime['routes'] if r.get('id')=='mcp-managed-file-upload']
@@ -29,6 +34,9 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
         raise ValueError('delegated upload binding mismatch')
     route=copy.deepcopy(template)
     route['id']='mcp-managed-file-upload';route['uri']=URI
+    # APISIX labels cannot carry MIME punctuation. desc is a data-only route
+    # string, accessible to the access function without adding upstream headers.
+    route['desc'] = media_types
     route['labels']['ouf-mediation']='managed-file-streaming-upload-v1'
     route['labels']['ouf-managed']='true';route['labels']['ouf-exposure']='internal'
     route['plugins'].pop('request-validation',None)  # JSON validation would buffer CSV.
@@ -43,7 +51,9 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env):
     ]
     route['plugins']['client-control']={'max_body_size':10485760}
     route['plugins']['proxy-control']={'request_buffering':False}
-    route['plugins']['serverless-post-function']['functions']=[function('execute_managed_upload',runtime['x-ouf-installation'],delegation_key_env,owner_key_env)]
+    route['plugins']['serverless-post-function']['functions']=[function(
+        'execute_managed_upload',runtime['x-ouf-installation'],delegation_key_env,owner_key_env,
+        use_route_labels=use_route_labels)]
     route['plugins']['proxy-rewrite']['uri']=PATH
     route['upstream']['nodes']={'ouf-onboarding:8080':1}
     route['upstream']['timeout']={'connect':10,'send':30,'read':30}

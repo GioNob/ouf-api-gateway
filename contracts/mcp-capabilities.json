@@ -1,5 +1,5 @@
 {
-  "version": "1.15.2-next-step-v1",
+  "version": "1.16.0-extraction-unit-v1",
   "nextErrors": [
     {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@profileId": "?", "@jobId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "profileId": "@profileId"}},
     {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@jobId": "?", "@profileId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "jobId": "@jobId"}},
@@ -3732,14 +3732,22 @@
                 "format": "uri"
               },
               "mime_type": {
-                "type": "string",
-                "const": "text/csv"
+                "$ref": "#/$defs/uploadMediaType"
               },
               "file_name": {
                 "type": "string",
                 "maxLength": 255
               }
             }
+          }
+        },
+        "$defs": {
+          "uploadMediaType": {
+            "type": "string",
+            "enum": [
+              "text/csv",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ]
           }
         }
       }
@@ -3797,6 +3805,42 @@
           "assetId": {
             "type": "string",
             "format": "uuid"
+          },
+          "readOptions": {
+            "$ref": "#/$defs/xlsxReadOptions"
+          }
+        },
+        "$defs": {
+          "xlsxReadOptions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "xlsx"
+            ],
+            "properties": {
+              "xlsx": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headerRows"
+                ],
+                "properties": {
+                  "headerRows": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 64,
+                    "propertyNames": {
+                      "pattern": "^sheet:(0|[1-9][0-9]{0,3})$"
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -3863,7 +3907,9 @@
             "type": "string",
             "enum": [
               "ASSETS",
-              "COLUMNS"
+              "COLUMNS",
+              "UNITS",
+              "UNIT"
             ]
           },
           "limit": {
@@ -3884,6 +3930,9 @@
           "distinctValuesCursor": {
             "type": "string",
             "minLength": 1
+          },
+          "unitRef": {
+            "$ref": "#/$defs/unitRef"
           }
         },
         "oneOf": [
@@ -4002,8 +4051,110 @@
                 "minLength": 1
               }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "view",
+              "profileId"
+            ],
+            "properties": {
+              "view": {
+                "const": "UNITS"
+              },
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "assetId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 63
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "view",
+              "profileId",
+              "unitRef"
+            ],
+            "properties": {
+              "view": {
+                "const": "UNIT"
+              },
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "assetId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1023
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 128
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "view",
+              "profileId",
+              "unitRef",
+              "distinctValuesCursor"
+            ],
+            "properties": {
+              "view": {
+                "const": "UNIT"
+              },
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "assetId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "distinctValuesCursor": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
-        ]
+        ],
+        "$defs": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "unitRef": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+          }
+        }
       }
     },
     {
@@ -4054,8 +4205,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "assetId",
-          "profileId",
           "sourceId",
           "name",
           "owner",
@@ -4609,6 +4758,43 @@
             "minItems": 0,
             "maxItems": 1024,
             "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "unitRef": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+          },
+          "unitProfileRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profileId",
+              "profileVersion",
+              "unitRef",
+              "schemaHash"
+            ],
+            "properties": {
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "profileVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "schemaHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
           }
         },
         "properties": {
@@ -4722,8 +4908,24 @@
               }
             },
             "minItems": 1
+          },
+          "unitProfileRef": {
+            "$ref": "#/$defs/unitProfileRef"
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "assetId",
+              "profileId"
+            ]
+          },
+          {
+            "required": [
+              "unitProfileRef"
+            ]
+          }
+        ]
       }
     },
     {
@@ -4963,141 +5165,248 @@
             "description": "Use the current lock version and a fresh commandKey. WITHDRAW retires an unpublished DRAFT, IN_REVIEW or APPROVED candidate. RESTART_DRAFT creates a draft from the latest eligible REJECTED initial candidate before first publication. Onboarding checks ownership, state and lineage."
           },
           "executionProposal": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": "urn:ouf:managed-file-execution-proposal:typed-csv:v2",
-            "description": "Preparation only. CSV cells remain lexical in RAW; explicitly configured string, decimal and date mappings determine materialization types. Owner checks property/access/source/tenant and exact semantic references. No approval, publication, compatibility attestation or runtime authority is issued.",
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "semanticBindings",
-              "semanticPublicationSetRef",
-              "udp",
-              "limits"
-            ],
-            "properties": {
-              "semanticBindings": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "semanticId",
-                    "semanticVersion",
-                    "revisionId",
-                    "publicationSetId"
-                  ],
-                  "properties": {
-                    "semanticId": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 2048,
-                      "pattern": "^[^@\\s]+$"
-                    },
-                    "semanticVersion": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 2048,
-                      "pattern": "^[^@\\s]+$"
-                    },
-                    "revisionId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                    },
-                    "publicationSetId": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-                    }
-                  }
-                }
-              },
-              "semanticPublicationSetRef": {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-              },
-              "udp": {
+            "oneOf": [
+              {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "urn:ouf:managed-file-execution-proposal:typed-csv:v2",
+                "description": "Preparation only. CSV cells remain lexical in RAW; explicitly configured string, decimal and date mappings determine materialization types. Owner checks property/access/source/tenant and exact semantic references. No approval, publication, compatibility attestation or runtime authority is issued.",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "resolution",
-                  "materialization"
+                  "semanticBindings",
+                  "semanticPublicationSetRef",
+                  "udp",
+                  "limits"
                 ],
                 "properties": {
-                  "resolution": {
+                  "semanticBindings": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "semanticId",
+                        "semanticVersion",
+                        "revisionId",
+                        "publicationSetId"
+                      ],
+                      "properties": {
+                        "semanticId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048,
+                          "pattern": "^[^@\\s]+$"
+                        },
+                        "semanticVersion": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048,
+                          "pattern": "^[^@\\s]+$"
+                        },
+                        "revisionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        "publicationSetId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        }
+                      }
+                    }
+                  },
+                  "semanticPublicationSetRef": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "udp": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
-                      "strategyId",
-                      "strategyVersion",
-                      "policyRef",
-                      "governedIdentity"
+                      "resolution",
+                      "materialization"
                     ],
                     "properties": {
-                      "strategyId": {
-                        "const": "GOVERNED_IDENTITY"
-                      },
-                      "strategyVersion": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 2048
-                      },
-                      "policyRef": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 2048
-                      },
-                      "governedIdentity": {
+                      "resolution": {
                         "type": "object",
                         "additionalProperties": false,
                         "required": [
-                          "ref",
-                          "version",
-                          "tenantId",
-                          "canonicalClass",
-                          "sourceId",
-                          "maxCandidates",
-                          "allowAutoNew",
-                          "signals",
-                          "sufficientRules"
+                          "strategyId",
+                          "strategyVersion",
+                          "policyRef",
+                          "governedIdentity"
                         ],
                         "properties": {
-                          "ref": {
+                          "strategyId": {
+                            "const": "GOVERNED_IDENTITY"
+                          },
+                          "strategyVersion": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 2048
                           },
-                          "version": {
+                          "policyRef": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 2048
                           },
-                          "tenantId": {
+                          "governedIdentity": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "ref",
+                              "version",
+                              "tenantId",
+                              "canonicalClass",
+                              "sourceId",
+                              "maxCandidates",
+                              "allowAutoNew",
+                              "signals",
+                              "sufficientRules"
+                            ],
+                            "properties": {
+                              "ref": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "version": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "tenantId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "canonicalClass": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "sourceId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "maxCandidates": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1000
+                              },
+                              "allowAutoNew": {
+                                "type": "boolean"
+                              },
+                              "signals": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 1024,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "semanticRef",
+                                    "comparator",
+                                    "excludesOnDisagreement",
+                                    "uniqueWithinScope",
+                                    "assertionRef"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "semanticRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "comparator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "CONCEPT",
+                                        "TEXT_V1",
+                                        "DECIMAL_V1",
+                                        "JSON_V1"
+                                      ]
+                                    },
+                                    "excludesOnDisagreement": {
+                                      "const": false
+                                    },
+                                    "uniqueWithinScope": {
+                                      "const": false
+                                    },
+                                    "assertionRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    }
+                                  }
+                                }
+                              },
+                              "sufficientRules": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 32,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "signalIds",
+                                    "assertionRef"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "signalIds": {
+                                      "type": "array",
+                                      "minItems": 1,
+                                      "maxItems": 32,
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2048
+                                      },
+                                      "uniqueItems": true
+                                    },
+                                    "assertionRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "materialization": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "policyRef",
+                          "properties",
+                          "bitemporalProperties",
+                          "checkpointInterval"
+                        ],
+                        "properties": {
+                          "policyRef": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 2048
                           },
-                          "canonicalClass": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 2048
-                          },
-                          "sourceId": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 2048
-                          },
-                          "maxCandidates": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "maximum": 1000
-                          },
-                          "allowAutoNew": {
-                            "type": "boolean"
-                          },
-                          "signals": {
+                          "properties": {
                             "type": "array",
                             "minItems": 1,
                             "maxItems": 1024,
@@ -5105,68 +5414,43 @@
                               "type": "object",
                               "additionalProperties": false,
                               "required": [
-                                "id",
-                                "semanticRef",
-                                "comparator",
-                                "excludesOnDisagreement",
-                                "uniqueWithinScope",
-                                "assertionRef"
+                                "sourceField",
+                                "propertyIri",
+                                "datatype",
+                                "accessLabel",
+                                "authorityOrder"
                               ],
                               "properties": {
-                                "id": {
+                                "sourceField": {
                                   "type": "string",
                                   "minLength": 1,
                                   "maxLength": 2048
                                 },
-                                "semanticRef": {
+                                "propertyIri": {
                                   "type": "string",
                                   "minLength": 1,
                                   "maxLength": 2048
                                 },
-                                "comparator": {
-                                  "type": "string",
+                                "datatype": {
                                   "enum": [
-                                    "CONCEPT",
-                                    "TEXT_V1",
-                                    "DECIMAL_V1",
-                                    "JSON_V1"
+                                    "http://www.w3.org/2001/XMLSchema#string",
+                                    "http://www.w3.org/2001/XMLSchema#decimal",
+                                    "http://www.w3.org/2001/XMLSchema#date"
                                   ]
                                 },
-                                "excludesOnDisagreement": {
-                                  "const": false
-                                },
-                                "uniqueWithinScope": {
-                                  "const": false
-                                },
-                                "assertionRef": {
+                                "accessLabel": {
                                   "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 2048
-                                }
-                              }
-                            }
-                          },
-                          "sufficientRules": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 32,
-                            "items": {
-                              "type": "object",
-                              "additionalProperties": false,
-                              "required": [
-                                "id",
-                                "signalIds",
-                                "assertionRef"
-                              ],
-                              "properties": {
-                                "id": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 2048
+                                  "enum": [
+                                    "OPEN",
+                                    "ANONYMOUS",
+                                    "PERSONAL",
+                                    "SENSITIVE",
+                                    "RESTRICTED"
+                                  ]
                                 },
-                                "signalIds": {
+                                "authorityOrder": {
                                   "type": "array",
-                                  "minItems": 1,
+                                  "minItems": 0,
                                   "maxItems": 32,
                                   "items": {
                                     "type": "string",
@@ -5174,101 +5458,49 @@
                                     "maxLength": 2048
                                   },
                                   "uniqueItems": true
-                                },
-                                "assertionRef": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 2048
                                 }
                               }
                             }
+                          },
+                          "bitemporalProperties": {
+                            "type": "array",
+                            "minItems": 0,
+                            "maxItems": 0,
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2048
+                            }
+                          },
+                          "checkpointInterval": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000000
                           }
                         }
                       }
                     }
                   },
-                  "materialization": {
+                  "limits": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": [
-                      "policyRef",
-                      "properties",
-                      "bitemporalProperties",
-                      "checkpointInterval"
+                      "maxRows",
+                      "maxColumns",
+                      "maxCellChars"
                     ],
                     "properties": {
-                      "policyRef": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 2048
+                      "maxRows": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
                       },
-                      "properties": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 1024,
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "sourceField",
-                            "propertyIri",
-                            "datatype",
-                            "accessLabel",
-                            "authorityOrder"
-                          ],
-                          "properties": {
-                            "sourceField": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 2048
-                            },
-                            "propertyIri": {
-                              "type": "string",
-                              "minLength": 1,
-                              "maxLength": 2048
-                            },
-                            "datatype": {
-                              "enum": [
-                                "http://www.w3.org/2001/XMLSchema#string",
-                                "http://www.w3.org/2001/XMLSchema#decimal",
-                                "http://www.w3.org/2001/XMLSchema#date"
-                              ]
-                            },
-                            "accessLabel": {
-                              "type": "string",
-                              "enum": [
-                                "OPEN",
-                                "ANONYMOUS",
-                                "PERSONAL",
-                                "SENSITIVE",
-                                "RESTRICTED"
-                              ]
-                            },
-                            "authorityOrder": {
-                              "type": "array",
-                              "minItems": 0,
-                              "maxItems": 32,
-                              "items": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 2048
-                              },
-                              "uniqueItems": true
-                            }
-                          }
-                        }
+                      "maxColumns": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
                       },
-                      "bitemporalProperties": {
-                        "type": "array",
-                        "minItems": 0,
-                        "maxItems": 0,
-                        "items": {
-                          "type": "string",
-                          "minLength": 1,
-                          "maxLength": 2048
-                        }
-                      },
-                      "checkpointInterval": {
+                      "maxCellChars": {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 1000000
@@ -5277,31 +5509,399 @@
                   }
                 }
               },
-              "limits": {
+              {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "urn:ouf:managed-unit-execution-proposal:v1",
+                "description": "Preparation for a managed extraction unit. The owner checks the mappings and exact semantic references before review.",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
-                  "maxRows",
-                  "maxColumns",
-                  "maxCellChars"
+                  "semanticBindings",
+                  "semanticPublicationSetRef",
+                  "udp",
+                  "limits",
+                  "contract"
                 ],
                 "properties": {
-                  "maxRows": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1000000
+                  "semanticBindings": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "semanticId",
+                        "semanticVersion",
+                        "revisionId",
+                        "publicationSetId"
+                      ],
+                      "properties": {
+                        "semanticId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048,
+                          "pattern": "^[^@\\s]+$"
+                        },
+                        "semanticVersion": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048,
+                          "pattern": "^[^@\\s]+$"
+                        },
+                        "revisionId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        },
+                        "publicationSetId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                        }
+                      }
+                    }
                   },
-                  "maxColumns": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 10000
+                  "semanticPublicationSetRef": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
                   },
-                  "maxCellChars": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1000000
+                  "udp": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "resolution",
+                      "materialization"
+                    ],
+                    "properties": {
+                      "resolution": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "strategyId",
+                          "strategyVersion",
+                          "policyRef",
+                          "governedIdentity"
+                        ],
+                        "properties": {
+                          "strategyId": {
+                            "const": "GOVERNED_IDENTITY"
+                          },
+                          "strategyVersion": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "policyRef": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "governedIdentity": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "ref",
+                              "version",
+                              "tenantId",
+                              "canonicalClass",
+                              "sourceId",
+                              "maxCandidates",
+                              "allowAutoNew",
+                              "signals",
+                              "sufficientRules"
+                            ],
+                            "properties": {
+                              "ref": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "version": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "tenantId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "canonicalClass": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "sourceId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 2048
+                              },
+                              "maxCandidates": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 1000
+                              },
+                              "allowAutoNew": {
+                                "type": "boolean"
+                              },
+                              "signals": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 1024,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "semanticRef",
+                                    "comparator",
+                                    "excludesOnDisagreement",
+                                    "uniqueWithinScope",
+                                    "assertionRef"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "semanticRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "comparator": {
+                                      "type": "string",
+                                      "enum": [
+                                        "CONCEPT",
+                                        "TEXT_V1",
+                                        "DECIMAL_V1",
+                                        "JSON_V1"
+                                      ]
+                                    },
+                                    "excludesOnDisagreement": {
+                                      "const": false
+                                    },
+                                    "uniqueWithinScope": {
+                                      "const": false
+                                    },
+                                    "assertionRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    }
+                                  }
+                                }
+                              },
+                              "sufficientRules": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": 32,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "signalIds",
+                                    "assertionRef"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    },
+                                    "signalIds": {
+                                      "type": "array",
+                                      "minItems": 1,
+                                      "maxItems": 32,
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 2048
+                                      },
+                                      "uniqueItems": true
+                                    },
+                                    "assertionRef": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2048
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "materialization": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "policyRef",
+                          "properties",
+                          "bitemporalProperties",
+                          "checkpointInterval"
+                        ],
+                        "properties": {
+                          "policyRef": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "properties": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 1024,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "sourceField",
+                                "propertyIri",
+                                "datatype",
+                                "accessLabel",
+                                "authorityOrder"
+                              ],
+                              "properties": {
+                                "sourceField": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2048
+                                },
+                                "propertyIri": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2048
+                                },
+                                "datatype": {
+                                  "enum": [
+                                    "http://www.w3.org/2001/XMLSchema#string",
+                                    "http://www.w3.org/2001/XMLSchema#decimal",
+                                    "http://www.w3.org/2001/XMLSchema#date"
+                                  ]
+                                },
+                                "accessLabel": {
+                                  "type": "string",
+                                  "enum": [
+                                    "OPEN",
+                                    "ANONYMOUS",
+                                    "PERSONAL",
+                                    "SENSITIVE",
+                                    "RESTRICTED"
+                                  ]
+                                },
+                                "authorityOrder": {
+                                  "type": "array",
+                                  "minItems": 0,
+                                  "maxItems": 32,
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 2048
+                                  },
+                                  "uniqueItems": true
+                                }
+                              }
+                            }
+                          },
+                          "bitemporalProperties": {
+                            "type": "array",
+                            "minItems": 0,
+                            "maxItems": 0,
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2048
+                            }
+                          },
+                          "checkpointInterval": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000000
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "limits": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "maxRows",
+                      "maxColumns",
+                      "maxCellChars"
+                    ],
+                    "properties": {
+                      "maxRows": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
+                      },
+                      "maxColumns": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      },
+                      "maxCellChars": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
+                      }
+                    }
+                  },
+                  "contract": {
+                    "const": "ouf.managed-unit-execution-proposal.v1"
                   }
                 }
+              }
+            ]
+          },
+          "unitProfileRef": {
+            "$ref": "#/$defs/unitProfileRef"
+          },
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
+          }
+        },
+        "$defs": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "unitRef": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+          },
+          "unitProfileRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profileId",
+              "profileVersion",
+              "unitRef",
+              "schemaHash"
+            ],
+            "properties": {
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "profileVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "schemaHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
               }
             }
           }
@@ -5479,7 +6079,20 @@
           "commandKey",
           "publicationEffect"
         ],
-        "if": { "required": ["assetRef"] },
+        "if": {
+          "anyOf": [
+            {
+              "required": [
+                "assetRef"
+              ]
+            },
+            {
+              "required": [
+                "unitProfileRef"
+              ]
+            }
+          ]
+        },
         "$defs": {
           "reader": {
             "enum": [
@@ -6025,9 +6638,58 @@
             "minItems": 0,
             "maxItems": 1024,
             "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+          },
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "unitRef": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+          },
+          "unitProfileRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profileId",
+              "profileVersion",
+              "unitRef",
+              "schemaHash"
+            ],
+            "properties": {
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "profileVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "schemaHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
           }
         },
-        "then": { "not": { "required": ["changes"] } },
+        "then": { "not": { "required": ["changes"] },
+          "oneOf": [
+            {
+              "required": [
+                "assetRef"
+              ]
+            },
+            {
+              "required": [
+                "unitProfileRef"
+              ]
+            }
+          ] },
         "else": {
           "anyOf": [{ "required": ["changes"] }, { "required": ["compositions"] }],
           "not": { "required": ["newColumns"] }
@@ -6205,6 +6867,9 @@
                 }
               }
             }
+          },
+          "unitProfileRef": {
+            "$ref": "#/$defs/unitProfileRef"
           }
         }
       }
@@ -6723,8 +7388,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "assetId",
-          "profileId",
           "expectedRevision",
           "work"
         ],
@@ -6786,8 +7449,82 @@
                 }
               }
             }
+          },
+          "unitProfileRef": {
+            "$ref": "#/$defs/unitProfileRef"
           }
-        }
+        },
+        "$defs": {
+          "uuid": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "unitRef": {
+            "type": "string",
+            "maxLength": 16,
+            "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+          },
+          "unitProfileRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "profileId",
+              "profileVersion",
+              "unitRef",
+              "schemaHash"
+            ],
+            "properties": {
+              "profileId": {
+                "$ref": "#/$defs/uuid"
+              },
+              "profileVersion": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "unitRef": {
+                "$ref": "#/$defs/unitRef"
+              },
+              "schemaHash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "assetId",
+              "profileId"
+            ],
+            "not": {
+              "required": [
+                "unitProfileRef"
+              ]
+            }
+          },
+          {
+            "required": [
+              "unitProfileRef"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "assetId"
+                  ]
+                },
+                {
+                  "required": [
+                    "profileId"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
       }
     },
     {

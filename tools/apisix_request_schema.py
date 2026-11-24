@@ -16,6 +16,12 @@ def verify_dispatch_arguments(resources):
         if item['kind'] != 'routes' or not (uri == EXECUTE_PATH or uri.startswith(EXECUTE_PATH + '/')):
             continue
         route_id = item['id']
+        if route_id == 'mcp-managed-file-upload':
+            if (uri != EXECUTE_PATH + '/managed.file/upload' or 'request-validation' in route['plugins']
+                    or route['plugins'].get('proxy-control') != {'request_buffering': False}
+                    or route.get('desc') != {'$installation': 'gateway.managedUploadMediaTypes'}):
+                raise ValueError(f'{route_id}: invalid streaming upload installation binding')
+            continue
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
         if route_id in PICKER_ROUTES:
@@ -46,7 +52,6 @@ def inline_dispatch_schema(schema):
     projected = {key: value for key, value in schema.items() if key != '$id'}
     pending = [projected]
     nested_ids = []
-    has_refs = False
     while pending:
         node = pending.pop()
         if isinstance(node, list):
@@ -57,16 +62,23 @@ def inline_dispatch_schema(schema):
             if '$id' in node:
                 nested_ids.append(node)
             if '$ref' in node:
-                has_refs = True
                 if not node['$ref'].startswith('#/'):
                     raise ValueError('dispatch body schema requires local JSON Pointer references')
             pending.extend(node.values())
     if nested_ids:
-        if has_refs:
+        # A local reference inside a nested resource would change its base on
+        # removal. References elsewhere still resolve from the envelope root.
+        if any(contains_ref(node) for node in nested_ids):
             raise ValueError('dispatch body schema must use a single reference root')
-        # Without references, these identifiers have no validation effect.
+        # All remaining local references resolve from the envelope root.
         return apisix_dialect(without_schema_ids(projected))
     return apisix_dialect(projected)
+
+
+def contains_ref(node):
+    if isinstance(node, list):
+        return any(contains_ref(item) for item in node)
+    return isinstance(node, dict) and ('$ref' in node or any(contains_ref(v) for v in node.values()))
 
 
 # Keywords whose values are schemas, maps of schemas or lists of schemas.
@@ -98,6 +110,14 @@ def apisix_dialect(schema):
                 result[key] = [walk(child) for child in value] if isinstance(value, list) else walk(value)
             else:
                 result[key] = value
+        names = result.get('propertyNames')
+        if isinstance(names, dict) and set(names) == {'pattern'}:
+            if 'properties' in result or 'patternProperties' in result or 'additionalProperties' not in result:
+                raise ValueError('unsupported patterned propertyNames projection')
+            # headerRows is a map with one value schema and a closed key pattern.
+            result.pop('propertyNames')
+            result['patternProperties'] = {names['pattern']: result['additionalProperties']}
+            result['additionalProperties'] = False
         if result.get('required') == []:
             del result['required']
         for key in ARRAY_KEYWORDS:

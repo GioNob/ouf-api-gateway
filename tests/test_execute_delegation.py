@@ -9,6 +9,7 @@ import pytest
 from jsonschema import Draft7Validator, FormatChecker
 from lupa.lua54 import LuaRuntime
 
+from tests.release_bundle_fixture import development_upload_media_types
 from tools.delegation_functions import function
 from tools.materialize_apisix_execute_runtime import materialize
 from tools.compile_config import compile_config
@@ -19,7 +20,9 @@ KEY='ab'*32
 INSTALL={'issuerUrl':'https://auth.test/realms/ouf','gatewayAudience':'gateway','mcpServiceIdentity':'workload'}
 
 def runtime():
-    return apply_projection(compile_config(ROOT/'ouf-config'),json.loads((ROOT/'tests/fixtures/installation-projection-lab.json').read_text()))
+    projection = json.loads((ROOT/'tests/fixtures/installation-projection-lab.json').read_text())
+    projection['gateway']['managedUploadMediaTypes'] = development_upload_media_types()
+    return apply_projection(compile_config(ROOT/'ouf-config'), projection)
 
 def human():
     return dict(iss=INSTALL['issuerUrl'],aud='gateway',exp=1300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type='HUMAN')

@@ -102,6 +102,8 @@ def apply_projection(compiled, projection):
         "semanticServiceIdentity": semantic_client,
         "serviceBindings": dict(sorted(service_bindings.items())),
     }
+    if "managedUploadMediaTypes" in projection["gateway"]:
+        out["x-ouf-installation"]["managedUploadMediaTypes"] = _require(projection, "gateway.managedUploadMediaTypes")
     base = dict(out)
     base.pop("configurationSha256", None)
     out["configurationSha256"] = hashlib.sha256(canonical(base).encode()).hexdigest()

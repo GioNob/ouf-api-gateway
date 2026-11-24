@@ -14,7 +14,7 @@ from tests.test_onboarding_review import request as review_request
 from tests.test_semantic_discovery_execute import request as discovery_request
 from tests.test_value_type_schemas import matched_route_context, routes, run_dispatch_rewrite
 from tools.apisix_request_schema import inline_dispatch_schema
-from tools.mcp_dispatch_contract import DISCOVERY_REVIEW_MANIFEST, DISCOVERY_SCOPE, envelope_refs
+from tools.mcp_dispatch_contract import DISCOVERY_REVIEW_MANIFEST, MANIFEST, DISCOVERY_SCOPE, envelope_refs
 
 
 def test_snapshot_provenance():
@@ -30,6 +30,8 @@ def test_release_schema_matches_manifest(routes, route_id):
     fields = schema['properties']
     capability = fields['CapabilityID']['const']
     rows = json.loads(DISCOVERY_REVIEW_MANIFEST.read_bytes())
+    if route_id == 'mcp-managed-file-review-prepare':
+        rows = json.loads(MANIFEST.read_bytes())['capabilities']
     row, = (r for r in rows if r['capabilityId'] == capability)
     args = row['inputSchema']
     args['properties'].pop('analysisId', None)

@@ -41,8 +41,17 @@
         "publicationEffect"
       ],
       "if": {
-        "required": [
-          "assetRef"
+        "anyOf": [
+          {
+            "required": [
+              "assetRef"
+            ]
+          },
+          {
+            "required": [
+              "unitProfileRef"
+            ]
+          }
         ]
       },
       "$defs": {
@@ -1141,6 +1150,43 @@
           "minItems": 0,
           "maxItems": 1024,
           "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+        },
+        "uuid": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "unitRef": {
+          "type": "string",
+          "maxLength": 16,
+          "pattern": "^(table|sheet|layer|collection):(0|[1-9][0-9]{0,3})$"
+        },
+        "unitProfileRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profileId",
+            "profileVersion",
+            "unitRef",
+            "schemaHash"
+          ],
+          "properties": {
+            "profileId": {
+              "$ref": "#/properties/Arguments/$defs/uuid"
+            },
+            "profileVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "unitRef": {
+              "$ref": "#/properties/Arguments/$defs/unitRef"
+            },
+            "schemaHash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
         }
       },
       "then": {
@@ -1148,7 +1194,19 @@
           "required": [
             "changes"
           ]
-        }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "assetRef"
+            ]
+          },
+          {
+            "required": [
+              "unitProfileRef"
+            ]
+          }
+        ]
       },
       "else": {
         "anyOf": [
@@ -1448,6 +1506,9 @@
               }
             }
           }
+        },
+        "unitProfileRef": {
+          "$ref": "#/properties/Arguments/$defs/unitProfileRef"
         }
       }
     },

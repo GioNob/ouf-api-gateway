@@ -2,6 +2,9 @@
 import hashlib
 import json
 import re
+from pathlib import Path
+
+import yaml
 
 
 R2B_ROUTE_IDS = (
@@ -18,7 +21,7 @@ SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
-    'mcp-managed-file-preview', 'mcp-managed-file-review-read',
+    'mcp-managed-file-preview', 'mcp-managed-file-profile', 'mcp-managed-file-upload', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
     *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
@@ -108,10 +111,16 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     return routes
 
 
+def development_upload_media_types():
+    path = Path(__file__).resolve().parents[1] / 'config/environments/dev.yaml'
+    return yaml.safe_load(path.read_bytes())['values']['gateway.managedUploadMediaTypes']
+
+
 def ci_profile(installation, port):
     return {
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
+        'gateway.managedUploadMediaTypes': development_upload_media_types(),
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
         'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
