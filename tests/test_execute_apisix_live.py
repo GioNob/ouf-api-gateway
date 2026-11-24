@@ -33,6 +33,8 @@ from tests.test_release_family_onboarding_mcp import check_onboarding_http, repl
 from tests.test_release_family_semantic_mcp import check_denied_dispatch, check_owner_receipt
 from tests.release_bundle_fixture import (ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS, R2B_ROUTE_IDS,
                                           RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes)
+from tests.public_mcp_fixture import LEGACY_METADATA_PROBE, check_public_mcp_http
+from tools.release_family_public_mcp import PUBLIC_IDS
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -230,7 +232,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
-                self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
+                self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs'),
+                            'request': json.loads(body), 'principal': self.headers.get('X-OUF-Principal-ID'),
+                            'tokenHeaders': [h for h in ('X-Access-Token', 'X-ID-Token', 'X-Userinfo') if h in self.headers]})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
             elif self.path in ('/api/internal/v1/mcp/operations/summary', '/api/internal/v1/mcp/operations/incidents',
@@ -374,13 +378,16 @@ def test_real_apisix_oidc_delegation_and_execute():
         optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
-        doc['routes'] = [r for r in doc['routes'] if r['id'] not in ONBOARDING_IDS]
+        legacy_metadata, = (r for r in doc['routes'] if r.get('uri') == '/.well-known/oauth-protected-resource')
+        doc['routes'] = [r for r in doc['routes'] if r['id'] not in ONBOARDING_IDS and r['id'] not in PUBLIC_IDS]
+        doc['routes'].append(dict(legacy_metadata, id='fixture-legacy-metadata', uri=LEGACY_METADATA_PROBE))
         if bundle_dir:
             doc['routes'].extend(release)
         else:
             doc['routes'].extend(route for route in release if route['id'] in READ_OPERATIONS_IDS or route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
-                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in ONBOARDING_IDS)
+                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in ONBOARDING_IDS
+                                 or route['id'] in PUBLIC_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
@@ -425,6 +432,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         try:
             wait_for_protected_routes(post, probes)
             check_onboarding_http(release, request, token, installation)
+            check_public_mcp_http(request, token, installation)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']

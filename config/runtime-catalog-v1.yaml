@@ -52,3 +52,7 @@ entries:
   gateway.rateLimits.semanticMcp.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.readOperationsMcp.count: *r2bCount
   gateway.rateLimits.readOperationsMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.publicMcp.count: *r2bCount
+  gateway.rateLimits.publicMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.publicMcpMetadata.count: *r2bCount
+  gateway.rateLimits.publicMcpMetadata.timeWindowSeconds: *r2bTimeWindowSeconds

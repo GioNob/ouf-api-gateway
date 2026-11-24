@@ -88,6 +88,20 @@ def trusted_post_function(allowed_actors):
     )
 
 
+def oauth_response_values(installation, required_scope):
+    issuer = require_https_url(installation, "issuerUrl")
+    origin = require_https_url(installation, "publicApiBaseUrl", origin_only=True)
+    challenge = f'Bearer resource_metadata="{origin}{PROTECTED_RESOURCE_METADATA_PATH}", scope="{required_scope}"'
+    metadata = {
+        "authorization_servers": [issuer],
+        "bearer_methods_supported": ["header"],
+        "resource": origin + "/mcp",
+        "resource_name": "OUF MCP Server",
+        "scopes_supported": [required_scope],
+    }
+    return challenge, json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+
+
 def materialize_mcp_route(route, installation, oidc_secret_ref):
     if route.get("uri") != "/mcp":
         raise MaterializationError("MCP endpoint materializer only accepts /mcp")
@@ -112,8 +126,7 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
         raise MaterializationError("missing MCP allowedActorTypes")
 
     issuer = require_https_url(installation, "issuerUrl")
-    public_api_base = require_https_url(installation, "publicApiBaseUrl", origin_only=True)
-    resource_metadata_url = public_api_base + PROTECTED_RESOURCE_METADATA_PATH
+    challenge, _ = oauth_response_values(installation, required_scope)
     service = require_text(backend, "service")
     port = backend.get("port")
     path = require_text(backend, "path")
@@ -171,10 +184,7 @@ def materialize_mcp_route(route, installation, oidc_secret_ref):
         "response-rewrite": {
             "headers": {
                 "set": {
-                    "WWW-Authenticate": (
-                        f'Bearer resource_metadata="{resource_metadata_url}", '
-                        f'scope="{required_scope}"'
-                    )
+                    "WWW-Authenticate": challenge
                 }
             },
             "vars": [["status", "==", 401]],
@@ -209,16 +219,8 @@ def materialize_protected_resource_route(route, installation):
     if not isinstance(policy, dict):
         raise MaterializationError("missing governed MCP route policy")
 
-    issuer = require_https_url(installation, "issuerUrl")
-    public_api_base = require_https_url(installation, "publicApiBaseUrl", origin_only=True)
     required_scope = require_text(policy, "requiredScope")
-    metadata = {
-        "authorization_servers": [issuer],
-        "bearer_methods_supported": ["header"],
-        "resource": public_api_base + "/mcp",
-        "resource_name": "OUF MCP Server",
-        "scopes_supported": [required_scope],
-    }
+    _, metadata = oauth_response_values(installation, required_scope)
 
     return {
         "id": PROTECTED_RESOURCE_ROUTE_ID,
@@ -235,7 +237,7 @@ def materialize_protected_resource_route(route, installation):
             "limit-count": {"count": 120, "time_window": 60, "rejected_code": 429},
             "mocking": {
                 "content_type": "application/json",
-                "response_example": json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+                "response_example": metadata,
                 "response_headers": {
                     "Cache-Control": "public, max-age=300",
                     "X-Content-Type-Options": "nosniff",

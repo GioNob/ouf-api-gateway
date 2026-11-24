@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 
+from tests.public_mcp_fixture import public_mcp_profile
+
 
 # Closed inventory of release 3d69cb4, independent of future families.
 BASE_3D69CB4 = frozenset({
@@ -77,6 +79,7 @@ RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
+    'public-mcp-endpoint', 'public-mcp-oauth-protected-resource',
     *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
@@ -171,6 +174,7 @@ def ci_profile(installation, port):
         **READ_KEYS, **{'services.bindings.' + name: '127.0.0.1' for name in READ_BACKENDS},
         **{'services.ports.' + name: port for name in READ_BACKENDS},
         'gateway.rateLimits.readOperationsMcp.count': 60, 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 60,
+        **public_mcp_profile(installation, port),
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')

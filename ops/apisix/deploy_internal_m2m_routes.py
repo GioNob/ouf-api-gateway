@@ -14,10 +14,12 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-source-revision-read',
                 'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
                 'mcp-authorization-policy-bundle-read',
-                'mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review'}
+                'mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review',
+                'public-mcp-endpoint', 'public-mcp-oauth-protected-resource'}
 
 
 def reject_bundle_owned(ids):
+    ids = set(ids)  # callers pass generators; both checks must see every ID
     if BUNDLE_OWNED.intersection(ids):
         raise ValueError("these routes are owned by the governed Gateway release")
     if READ_OPERATION_IDS.intersection(ids):

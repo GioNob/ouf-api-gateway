@@ -50,6 +50,10 @@ def test_published_terms_release(tmp_path):
         **dict.fromkeys(READ_KEYS, 'secret'), **{'services.bindings.' + name: 'string' for name in READ_BACKENDS},
         **{'services.ports.' + name: 'integer' for name in READ_BACKENDS},
         'gateway.rateLimits.readOperationsMcp.count': 'integer', 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 'integer',
+        'gateway.publicMcpChallenge': 'string', 'gateway.publicMcpMetadataJson': 'string',
+        'services.bindings.ouf-mcp-server': 'string', 'services.ports.ouf-mcp-server': 'integer',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('publicMcp', 'publicMcpMetadata')
+           for field in ('count', 'timeWindowSeconds')},
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
