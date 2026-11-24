@@ -22,7 +22,7 @@ from tools.analysis_protocol import Rejected, digest, parse, wire
 
 
 @contextmanager
-def tls_server(dispatch):
+def tls_server(dispatch=None, *, http_dispatch=None):
     # Ephemeral synthetic credentials scoped to this loopback test only.
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -60,16 +60,24 @@ def tls_server(dispatch):
                                                                  serialization.NoEncryption()))
         class Server(BaseHTTPRequestHandler):
             def do_POST(self):
-                body = self.rfile.read(int(self.headers['Content-Length']))
+                body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
                 try:
-                    result = dispatch(self.path, body)
-                    status = 200
+                    if http_dispatch:
+                        status, result = http_dispatch(self.command, self.path, self.headers, body)
+                    else:
+                        result = dispatch(self.path, body)
+                        status = 200
                 except Rejected as exc:
                     result, status = {'code':exc.code}, exc.status
                 self.send_response(status)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                self.wfile.write(wire(result))
+                try:
+                    self.wfile.write(result if isinstance(result, bytes) else wire(result))
+                except (ConnectionError, ssl.SSLEOFError):
+                    pass  # The timeout PET deliberately closes the client socket first.
+
+            do_GET = do_POST
 
             def log_message(self, *_):
                 pass
