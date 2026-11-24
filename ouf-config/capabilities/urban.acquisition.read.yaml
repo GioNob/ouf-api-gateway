@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: urban.acquisition.read, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: udp
+  operationType: READ
+  scope: lineage.object.read
+  classification: [TENANT_OPERATIONAL]
+  mcp: {toolEligible: true, humanRequired: false}

@@ -16,6 +16,25 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
 def reject_bundle_owned(ids):
     if BUNDLE_OWNED.intersection(ids):
         raise ValueError("discovery and review routes are owned by the governed Gateway release")
+    if READ_OPERATION_IDS.intersection(ids):
+        raise ValueError("read operations are owned by the governed Gateway release")
+
+
+READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'execute-urban-object-search',
+                      'execute-urban-acquisition-read', 'execute-ouf-ingestion-acquisition-read',
+                      *('execute-ouf.' + producer + 'operations.' + mode
+                        for producer in ('', 'gateway.', 'ingestion.') for mode in ('summary', 'incidents'))}
+
+
+READ_OPERATION_PATH = '/internal/capabilities/v1/execute'
+READ_OPERATION_URIS = {READ_OPERATION_PATH, *(READ_OPERATION_PATH + '/' + cap for cap in (
+    'ouf.ingestion.status', 'urban.object.search', 'ouf.ingestion.acquisition.read', 'urban.acquisition.read')),
+    *(READ_OPERATION_PATH + '/' + key.removeprefix('execute-') for key in READ_OPERATION_IDS if key.startswith('execute-ouf.'))}
+
+
+def reject_read_selector(route):
+    if route and READ_OPERATION_URIS.intersection([route.get('uri'), *route.get('uris', [])]):
+        raise ValueError("read operations are owned by the governed Gateway release")
 
 
 def route_value(doc):
@@ -40,6 +59,7 @@ def validate_routes(routes):
         if not isinstance(route_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]+",route_id):
             raise ValueError("invalid route id")
         reject_bundle_owned([route_id])
+        reject_read_selector(route)
         if route_id in ids:
             raise ValueError("duplicate route id")
         ids.add(route_id)
@@ -105,6 +125,8 @@ def snapshot(route_ids,admin):
 
 def restore(previous,admin):
     reject_bundle_owned(previous)
+    for old in previous.values():
+        reject_read_selector(old)
     failures=[]
     for route_id in sorted(previous):
         old=previous[route_id]

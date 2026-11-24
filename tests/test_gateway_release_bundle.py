@@ -9,6 +9,7 @@ from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 from tools import mcp_dispatch_contract
+from tests.release_bundle_fixture import READ_BACKENDS, READ_KEYS
 
 
 def test_published_terms_release(tmp_path):
@@ -45,6 +46,9 @@ def test_published_terms_release(tmp_path):
 
     bundle = json.loads((tmp_path / 'bundle.json').read_bytes())
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
+        **dict.fromkeys(READ_KEYS, 'secret'), **{'services.bindings.' + name: 'string' for name in READ_BACKENDS},
+        **{'services.ports.' + name: 'integer' for name in READ_BACKENDS},
+        'gateway.rateLimits.readOperationsMcp.count': 'integer', 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 'integer',
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES

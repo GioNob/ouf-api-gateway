@@ -22,6 +22,13 @@ def capture_original_body(ceiling):
 end"""
 
 
+def operational_source(with_receipt):
+    source = (ROOT / 'execute_operational.lua').read_text()
+    before, optional = source.split('-- BEGIN PRODUCER RECEIPT\n', 1)
+    receipt, after = optional.split('-- END PRODUCER RECEIPT\n', 1)
+    return before + (receipt if with_receipt else 'ngx.req.set_body_data(cjson.encode(e.Arguments))\n') + after
+
+
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
              use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None, read_mode=None):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
@@ -72,12 +79,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
                 raise ValueError('producer receipt key environment must differ from delegation key')
             # Append after REQUIRED_SCOPE; preserve the order of all existing constants.
             values['RECEIPT_KEY_ENV'] = owner_key_env
-        source = (ROOT / 'execute_operational.lua').read_text()
-        before, optional = source.split('-- BEGIN PRODUCER RECEIPT\n', 1)
-        receipt, after = optional.split('-- END PRODUCER RECEIPT\n', 1)
-        # Omitted opt-in must preserve even the original generated Lua bytes.
-        source = before + (receipt if owner_key_env is not None else
-                           'ngx.req.set_body_data(cjson.encode(e.Arguments))\n') + after
+        source = operational_source(owner_key_env is not None)
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
         return ('return function(conf, ctx)\n' + constants + '\n' +
                 (ROOT / 'delegation.lua').read_text() + '\n' + source + '\nend')

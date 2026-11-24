@@ -16,6 +16,31 @@ DISCOVERY_REVIEW_IDS = [
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 
+BASELINE_51M_IDS = {
+    'mcp-ingestion-run-recovery-link', 'mcp-managed-file-create', 'mcp-managed-file-handoff',
+    'mcp-managed-file-handoff-issue', 'mcp-managed-file-preview', 'mcp-managed-file-review-prepare',
+    'mcp-managed-file-review-read', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status', 'mcp-semantic-review-link',
+    'mcp-semantic-search', 'mcp-semantic-search-batch', 'mcp-source-revision-prepare',
+    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
+    'semantic-human-terms', 'semantic-proposal-create', 'semantic-proposal-read', 'ths-resolution-package-confirm',
+    'ths-resolution-package-read', 'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
+    'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume', 'trusted-human-resolution-review',
+}
+
+READ_OPERATIONS_IDS = (
+    'mcp-generic-execution', 'mcp-ingestion-status', 'execute-ouf-ingestion-acquisition-read',
+    'execute-urban-acquisition-read', 'execute-urban-object-search', 'execute-ouf.operations.incidents',
+    'execute-ouf.operations.summary', 'execute-ouf.gateway.operations.incidents', 'execute-ouf.gateway.operations.summary',
+    'execute-ouf.ingestion.operations.incidents', 'execute-ouf.ingestion.operations.summary',
+)
+READ_BACKENDS = ('ingestion-acquisition-reader', 'udp-acquisition-reader', 'ouf-mcp-server',
+                 'mcp-operational-aggregate', 'ouf-gateway-control-plane')
+READ_KEYS = {'gateway.ingestionReadOwnerKeyEnv': 'OWNER_KEY', 'gateway.udpReadOwnerKeyEnv': 'UDP_KEY',
+             'gateway.gatewayOperationalOwnerKeyEnv': 'GATEWAY_SUMMARY_RECEIPT_KEY',
+             'gateway.ingestionOperationalOwnerKeyEnv': 'INGESTION_SUMMARY_RECEIPT_KEY'}
+
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -24,7 +49,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *READ_OPERATIONS_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -110,6 +135,9 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 
 def ci_profile(installation, port):
     return {
+        **READ_KEYS, **{'services.bindings.' + name: '127.0.0.1' for name in READ_BACKENDS},
+        **{'services.ports.' + name: port for name in READ_BACKENDS},
+        'gateway.rateLimits.readOperationsMcp.count': 60, 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 60,
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],

@@ -10,6 +10,7 @@ from tools.mcp_dispatch_contract import (
 
 def verify_dispatch_arguments(resources):
     """Check every released execute route against its declaration, including nested constraints."""
+    from tools.release_family_read_operations_mcp import ROUTES, arguments as read_arguments
     for item in resources:
         route = item['body']
         uri = route.get('uri', '')
@@ -18,6 +19,11 @@ def verify_dispatch_arguments(resources):
         route_id = item['id']
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
+        if route_id in ROUTES:
+            expected = apisix_dialect(read_arguments(ROUTES[route_id]))
+            if capability != ROUTES[route_id] or json.dumps(schema['properties']['Arguments'], sort_keys=True) != json.dumps(expected, sort_keys=True):
+                raise ValueError(f'{route_id}: read operation differs from its dispatch contract')
+            continue
         if route_id in PICKER_ROUTES:
             target, field, _ = PICKER_ROUTES[route_id]
             if capability != target:

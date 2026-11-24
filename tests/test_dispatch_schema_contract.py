@@ -122,6 +122,7 @@ def test_dispatch_profiles_match_pinned_manifest():
     # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
     assert declared - materialized == {
         'urban.object.related_search', 'ouf.ingestion.status', 'ouf.ingestion.history',
+        'urban.acquisition.read', 'ouf.ingestion.acquisition.read',
         'ouf.operations.explain', 'ouf.semantic.discovery.adopt', 'ouf.semantic.search.batch',
     }
 

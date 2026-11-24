@@ -11,6 +11,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.release_bundle_fixture import ci_profile, load_release_routes
+from tools.release_family_read_operations_mcp import ROUTES as READ_IDS, arguments as read_arguments
 from tests.schema_corpus import corpus
 from tests.test_dispatch_schema_contract import dispatch_body, dispatch_profiles
 from tests.test_execute_delegation import runtime
@@ -124,7 +125,9 @@ def cases(routes):
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
         route_id = route['id']
-        if route_id in PICKER_ROUTES:
+        if route_id in READ_IDS:
+            source = read_arguments(capability)
+        elif route_id in PICKER_ROUTES:
             _, field, _ = PICKER_ROUTES[route_id]
             source = picker_contract(route_id)[field]
         elif capability in contracts:
