@@ -17,7 +17,7 @@ return function(conf, ctx)
         return ngx.exit(400)
     end
     local headers = {Authorization=ngx.var.http_authorization, ['Content-Type']='application/json'}
-    if route.uri ~= '/internal/analysis/v1/mandates/dispatch' then
+    if route.uri ~= '__SERVICE_ONLY_PATH__' then
         headers['X-OUF-Delegation'] = ngx.req.get_headers()['x-ouf-delegation']
     end
     local http = require('resty.http').new()
@@ -32,7 +32,7 @@ return function(conf, ctx)
         if err then http:close() return unavailable() end
         if not chunk then break end
         size = size + #chunk
-        if size > 1048576 then http:close() return unavailable() end
+        if size > __MAX_RESPONSE_BYTES__ then http:close() return unavailable() end
         parts[#parts+1] = chunk
     end
     http:close()

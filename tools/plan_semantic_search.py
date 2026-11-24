@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BINDINGS, bound_capability
-from tools.analysis_protocol import BASE as MANDATE_PATH
+from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ def inventory_routes(inventory):
 def search_plan(desired, inventory, current_revision, *, mandates=False):
     live = inventory_routes(inventory)
     bindings = ({'mcp-analysis-mandate-' + action: (None, MANDATE_PATH + action, None)
-                 for action in ('issue', 'dispatch', 'revoke')} if mandates else SEARCH_BINDINGS)
+                 for action in ACTIONS} if mandates else SEARCH_BINDINGS)
     targets = [r for r in desired if r['id'] in bindings]
     installations = {(r['labels']['ouf-installation'], r['labels']['ouf-installation-revision']) for r in targets}
     if len(installations) != 1 or not all(isinstance(v, str) and v for v in next(iter(installations))):

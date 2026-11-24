@@ -99,7 +99,7 @@ class MandatePET(unittest.TestCase):
         if not self.allowed or (query['action'] == 'admin-revoke' and not self.admin):
             return dict(requestHash=digest(body), allowed=False)
         return dict(requestHash=digest(body), allowed=True, policyRef='policy1', grantRef='grant1', decisionRef=new_ref(),
-                    validUntil=5000, grantExpiresAt=5000 if query['action'].endswith('revoke') else 4600,
+                    validUntil=5000, grantExpiresAt=4600 if query['action'] in ('issue', 'dispatch') else 5000,
                     allowedOperations=list(BINDINGS), roles=['viewer'],
                     client='human-client', acr='interactive')
 
@@ -111,6 +111,122 @@ class MandatePET(unittest.TestCase):
     def send(self, action, b, proof=None):
         status, body, meta = self.api.handle(action, wire(b), WORKER, proof)
         return status, parse(body), meta
+
+    def poll(self, generation='1', mandate=None):
+        return self.send('status', dict(mandateId=mandate or self.m['mandateId'], generation=generation))
+
+    def test_status_read_only_and_minimal_audit(self):
+        """GW-51P-01. A paused worker can poll through WSGI with dispatch disabled."""
+        self.api = self.make_api(enabled=False)
+        request = wire(dict(mandateId=self.m['mandateId'], generation='1'))
+        env = dict(PATH_INFO='/internal/analysis/v1/mandates/status', REQUEST_METHOD='POST',
+                   CONTENT_TYPE='application/json', CONTENT_LENGTH=str(len(request)), HTTP_AUTHORIZATION=WORKER)
+        previous = self.store.get(self.m['mandateId'])
+        refs = []
+        for _ in range(2):
+            response = Mock()
+            raw, = handler(self.api)({**env, 'wsgi.input': io.BytesIO(request)}, response)
+            self.assertEqual(response.call_args.args[0], '200 OK')
+            self.assertLessEqual(len(raw), 1024)
+            reply = parse(raw)
+            refs.append(reply.pop('decisionRef'))
+            self.assertEqual(reply, dict(mandateId=self.m['mandateId'], generation='1',
+                                         state='ACTIVE', expiresAt=self.m['expiresAt']))
+        self.assertNotEqual(*refs)
+        self.assertEqual(previous, self.store.get(self.m['mandateId']))
+        with self.store.transaction() as db:
+            for table, count in (('analysis_command_v1', 1), ('analysis_attempt_v1', 0), ('analysis_discovery_v1', 0)):
+                self.assertEqual(db.execute(f'select count(*) from {table}').fetchone()[0], count)
+            for ref in refs:
+                row, = db.execute('select evidence from analysis_audit_v1 where decision=?', (ref,)).fetchone()
+                audit = parse(row)
+                self.assertEqual(set(audit), {'action', 'outcome', 'mandateId', 'generation', 'workloadRef'})
+                self.assertEqual((audit['action'], audit['outcome']), ('status', 'ACTIVE'))
+                self.assertRegex(audit['workloadRef'], '^[a-f0-9]{64}$')
+        self.owner.post.assert_not_called()
+
+    def test_status_revocation_and_superseded_generation(self):
+        """GW-51P-02. Revoke during the read decision fences the old generation."""
+        def revoke_during_status(raw, headers):
+            if parse(raw)['action'] == 'status':
+                self.policy.evidence.side_effect = self.decide
+                self.assertEqual(self.send('revoke', self.revoke, self.proof())[0], 200)
+            return self.decide(raw, headers)
+
+        self.policy.evidence.side_effect = revoke_during_status
+        self.assertEqual(self.poll()[:2], (409, {'code': 'ANALYSIS_STALE_EXECUTION'}))
+        self.now = 4600
+        status, reply, _ = self.poll('2')
+        self.assertEqual((status, reply['state'], reply['generation']), (200, 'REVOKED', '2'))
+        self.assertEqual(reply['expiresAt'], self.m['expiresAt'])
+
+    def test_status_expired(self):
+        """GW-51P-03. Expiry at the deadline is observed without changing the record."""
+        self.now = 4599
+        self.assertEqual(self.poll()[1]['state'], 'ACTIVE')
+        self.now += 1
+        self.assertEqual(self.poll()[1]['state'], 'EXPIRED')
+        self.assertEqual(self.store.get(self.m['mandateId'])['state'], 'ACTIVE')
+        self.assertEqual(self.poll('2')[:2], (409, {'code': 'ANALYSIS_STALE_EXECUTION'}))
+
+    def test_status_foreign_subject(self):
+        """GW-51P-04. Two HUMAN mandates share the same plan, tenant and MCP client."""
+        second = self.send('issue', self.issue, self.proof('other'))[1]['mandateId']
+        def authorize_read(raw, headers):
+            q = parse(raw)
+            self.assertEqual((q['action'], q['actor']), ('status', 'SERVICE'))
+            if (q['workloadSubject'], q['tenant'], q['subject'], q['mandateId']) != (
+                    'worker-id', 'tenant', 'human', self.m['mandateId']):
+                return dict(requestHash=digest(raw), allowed=False)
+            return self.decide(raw, headers)
+
+        self.policy.evidence.side_effect = authorize_read
+        self.assertEqual(self.poll()[0], 200)
+        unknown = (404, {'code': 'ANALYSIS_MANDATE_UNKNOWN'}, {})
+        self.assertEqual(self.poll('0', second), unknown)
+        self.assertEqual(self.poll(mandate=new_ref()), unknown)
+        self.claims['sub'] = 'other-worker-id'
+        self.assertEqual(self.poll(), unknown)
+        self.claims['tenant_id'] = 'other-tenant'
+        self.assertEqual(self.poll(), unknown)
+        self.iam.decisions = None
+        self.claims.update(sub='worker-id', tenant_id='tenant')
+        self.assertEqual(self.poll()[:2], (503, {'code': 'ANALYSIS_AUTHORITY_UNAVAILABLE'}))
+
+    def test_status_foreign_workload(self):
+        """GW-51P-05. An authenticated foreign service sees the unknown-reference error."""
+        self.claims['client_id'] = 'other-service'
+        self.assertEqual(self.poll()[:2], (404, {'code': 'ANALYSIS_MANDATE_UNKNOWN'}))
+        self.claims['active'] = False
+        self.assertEqual(self.poll()[0], 403)
+
+    def test_status_quota(self):
+        """GW-51P-06. Failed lookups consume quota shared across restarts and concurrent readers."""
+        for value in (True, 0, 3601, '60'):
+            with self.assertRaises(ValueError):
+                self.make_api(status_reads_per_minute=value)
+        self.api = self.make_api(status_reads_per_minute=2)
+        self.assertEqual(self.poll(mandate=new_ref())[0], 404)
+        self.api = self.make_api(status_reads_per_minute=2)
+        with ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(lambda _: self.poll(), range(2)))
+        self.assertEqual(sorted(r[0] for r in results), [200, 429])
+        self.now += 59
+        self.assertEqual(self.poll(), (429, {'code': 'ANALYSIS_BACKOFF'}, {'Retry-After': '1'}))
+        self.assertEqual(self.send('revoke', self.revoke, self.proof())[0], 200)
+        self.now += 1
+        self.assertEqual(self.poll('2')[1]['state'], 'REVOKED')
+
+    def test_status_input(self):
+        """GW-51P-07. Exact wire body, bounded before reading the private request stream."""
+        request = dict(mandateId=self.m['mandateId'], generation='1')
+        for bad in ({}, dict(request, generation=1), dict(request, generation='01'),
+                    dict(request, mandateId='unknown'), dict(request, subject='human')):
+            self.assertEqual(self.send('status', bad)[:2], (400, {'code': 'ANALYSIS_INPUT_INVALID'}))
+        response = Mock()
+        raw, = handler(self.api)(dict(PATH_INFO='/internal/analysis/v1/mandates/status', REQUEST_METHOD='POST',
+                                      CONTENT_TYPE='application/json', CONTENT_LENGTH='1025'), response)
+        self.assertEqual(parse(raw), {'code': 'ANALYSIS_INPUT_INVALID'})
 
     def test_commands_restart_and_scope(self):
         """GW-51N-01. Issue idempotency, closed bodies, protected identity and versioned revoke."""

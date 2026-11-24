@@ -57,7 +57,11 @@ def resources(bundle):
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    assert len(bundle['resources']) == 34
+    # GW-51P-08. Canonical resource bytes from the stacked task-51n generator.
+    assert len(bundle['resources']) == 35
+    task_51n = [row for row in bundle['resources'] if row['id'] != 'mcp-analysis-mandate-status']
+    assert len(task_51n) == 34 and sha256(canonical_json(task_51n)) == (
+        '61d2873c9caffc52e49da307c76b35802c2ed013fc426fb79bb506b3b676c180')
     task_51m = [row for row in bundle['resources'] if row['id'] not in MANDATE_IDS]
     assert len(task_51m) == 31 and sha256(canonical_json(task_51m)) == (
         '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6')
