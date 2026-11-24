@@ -34,6 +34,10 @@ BINDINGS = {
     'semantic.discovery.status': ('ouf.semantic.discovery.status', '/semantic/discovery/status'),
     'semantic.discovery.candidates': ('ouf.semantic.discovery.candidates', '/semantic/discovery/candidates'),
 }
+# MCP tool names that differ from the mandate operation. The real MCP manifest
+# (1.17.0-published-batch-v1 onwards) publishes the internal batch as
+# `semantic.search.batch` (sprint-03 task-58a).
+TOOL_NAMES = {SEARCH_BATCH: 'semantic.search.batch'}
 ERRORS = {400: 'INPUT_INVALID', 403: 'AUTHORITY_DENIED', 404: 'MANDATE_UNKNOWN',
           409: 'STALE_EXECUTION', 410: 'MANDATE_EXPIRED', 429: 'BACKOFF', 503: 'AUTHORITY_UNAVAILABLE'}
 
@@ -231,7 +235,7 @@ class Catalog:
             row, = candidates
             expected = capability_contracts()[cap]
             limit = row.get('baseCostEnvelope', {}).get('hardMaxResultBytes')
-            if (row.get('publicationState') != 'ACTIVE' or row.get('toolName', cap) != op
+            if (row.get('publicationState') != 'ACTIVE' or row.get('toolName', cap) != TOOL_NAMES.get(op, op)
                     or row.get('toolEligible') != (op != SEARCH_BATCH)
                     or type(limit) is not int or not 1 <= limit <= expected['baseCostEnvelope']['hardMaxResultBytes']
                     or any(row.get(k) != expected[k] for k in ('gatewayBindingRef', 'owner', 'operationClass',

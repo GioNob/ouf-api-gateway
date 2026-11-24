@@ -12,7 +12,7 @@ from tests import test_analysis_mandate as fixtures
 from tests.test_analysis_mandate import KEY, OP, PROFILE
 from tests.test_execute_delegation import Denied, Engine, workload
 from tests.test_value_type_schemas import matched_route_context, routes, run_dispatch_rewrite
-from tools.analysis_protocol import BINDINGS, SEARCH_BATCH, Catalog, parse, wire
+from tools.analysis_protocol import BINDINGS, SEARCH_BATCH, TOOL_NAMES, Catalog, parse, wire
 from tools.analysis_protocol import delegation
 from tools.analysis_mandate import new_ref
 from tools.mcp_dispatch_contract import capability_contracts
@@ -32,7 +32,7 @@ def test_receipt_at_owner_and_expiry(routes, operation, route_id):
         route['plugins'] = {**route['plugins'], 'openid-connect': {
             **route['plugins']['openid-connect'], 'claim_validator': {'issuer':{'valid_issuers':[pet.iam.issuer]}}}}
         cap = BINDINGS[operation][0]
-        snap = dict(capability_contracts()[cap], publicationState='ACTIVE', toolName=operation)
+        snap = dict(capability_contracts()[cap], publicationState='ACTIVE', toolName=TOOL_NAMES.get(operation, operation))
         catalog = Catalog(wire({'capabilities':[snap]}))
         pet.api.catalog = catalog
         scope = 'ouf.semantic.search' if operation == SEARCH_BATCH else 'ouf.semantic.discovery'

@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 from tools.analysis_clients import RemoteIAM, Reservations
 from tools.analysis_mandate import Mandates, new_ref
-from tools.analysis_protocol import BINDINGS, CONTRACT, Catalog, Rejected, delegation, digest, parse, wire
+from tools.analysis_protocol import BINDINGS, CONTRACT, SEARCH_BATCH, TOOL_NAMES, Catalog, Rejected, delegation, digest, parse, wire
 from tools.analysis_store import MandateStore
 from tools.analysis_service import handler
 from tools.mcp_dispatch_contract import capability_contracts
@@ -432,10 +432,16 @@ def test_current_pinned_catalog():
     rows = []
     for name, (cap, _) in BINDINGS.items():
         row = copy.deepcopy(capability_contracts()[cap])
-        row.update(publicationState='ACTIVE', toolName=name)
+        row.update(publicationState='ACTIVE', toolName=TOOL_NAMES.get(name, name))
         rows.append(row)
     catalog = Catalog(wire({'capabilities': rows}))
     assert set(catalog.entries) == set(BINDINGS)
+    # GW-58A-01: the batch row keeps the MCP tool name; the operation name is not a tool.
+    renamed = copy.deepcopy(rows)
+    for row in renamed:
+        if row['capabilityId'] == SEARCH_BATCH:
+            row['toolName'] = SEARCH_BATCH
+    assert SEARCH_BATCH not in Catalog(wire({'capabilities': renamed})).entries
     args = {'view': 'COLUMNS', 'assetId': PROFILE['assetId'], 'profileId': PROFILE['profileId']}
     assert catalog.resolve({'operation':'source.file.preview', 'arguments':args}, PROFILE)[1].endswith('/managed.file/preview')
     for other in ({'view':'ASSETS'}, dict(args, assetId=new_ref())):
