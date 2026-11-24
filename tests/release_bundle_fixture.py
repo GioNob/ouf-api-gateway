@@ -15,7 +15,7 @@ DISCOVERY_REVIEW_IDS = [
 ]
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
-MANDATE_IDS = tuple('mcp-analysis-mandate-' + action for action in ('issue', 'dispatch', 'revoke'))
+MANDATE_IDS = tuple('mcp-analysis-mandate-' + action for action in ('issue', 'dispatch', 'revoke', 'status'))
 
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',

@@ -7,7 +7,7 @@ import ssl
 
 from tools.analysis_clients import Endpoint, RemoteIAM, Reservations
 from tools.analysis_mandate import Mandates
-from tools.analysis_protocol import BASE, Catalog, Rejected, exact, matches, parse, require, wire
+from tools.analysis_protocol import ACTIONS, BASE, STATUS_MAX_BYTES, Catalog, Rejected, exact, matches, parse, require, wire
 from tools.analysis_store import MandateStore
 
 
@@ -23,7 +23,8 @@ def application():
     cfg = parse(Path(os.environ['OUF_ANALYSIS_CONFIG']).read_bytes())
     required = ('contract store manifestFile issuer audience workload delegationKeyEnv introspection decisions '
                 'reservations execute timeoutSeconds mandateTtlSeconds proofTtlSeconds maxResultBytes')
-    if (not (exact(cfg, required) or exact(cfg, required + ' dispatchEnabled'))
+    if (type(cfg) is not dict or not set(required.split()) <= cfg.keys()
+            or cfg.keys() - set(required.split()) - {'dispatchEnabled', 'statusReadsPerMinute'}
             or cfg['contract'] != 'ouf.analysis.installation.v1'
             or not matches(cfg['delegationKeyEnv'], '[A-Z][A-Z0-9_]{0,127}')
             or not all(isinstance(cfg[k], str) and cfg[k] for k in ('issuer', 'audience', 'workload'))):
@@ -37,7 +38,8 @@ def application():
     api = Mandates(MandateStore(cfg['store']), Catalog(Path(cfg['manifestFile']).read_bytes()), iam,
                    Reservations(https_endpoint(cfg['reservations'], timeout)), execute,
                    os.environ[cfg['delegationKeyEnv']].encode('ascii'), enabled=cfg.get('dispatchEnabled', False),
-                   ttl=cfg['mandateTtlSeconds'], proof_ttl=cfg['proofTtlSeconds'], max_result=cfg['maxResultBytes'])
+                   ttl=cfg['mandateTtlSeconds'], proof_ttl=cfg['proofTtlSeconds'], max_result=cfg['maxResultBytes'],
+                   status_reads_per_minute=cfg.get('statusReadsPerMinute', 60))
     return handler(api)
 
 
@@ -45,12 +47,13 @@ def handler(api):
     def serve(env, start_response):
         try:
             path = env['PATH_INFO']
-            require(path in {BASE + action for action in ('issue', 'dispatch', 'revoke')}
+            require(path in {BASE + action for action in ACTIONS}
                     and env['REQUEST_METHOD'] == 'POST' and not env.get('QUERY_STRING')
                     and not env.get('HTTP_CONTENT_ENCODING')
                     and env.get('CONTENT_TYPE', '').partition(';')[0] == 'application/json')
             size = env.get('CONTENT_LENGTH', '')
-            require(matches(size, '[1-9][0-9]{0,5}') and int(size) <= 131072)
+            limit = STATUS_MAX_BYTES if path == BASE + 'status' else 131072
+            require(matches(size, '[1-9][0-9]{0,5}') and int(size) <= limit)
             data = env['wsgi.input'].read(int(size))
             require(len(data) == int(size))
             status, body, headers = api.handle(path[len(BASE):], data, env.get('HTTP_AUTHORIZATION'),

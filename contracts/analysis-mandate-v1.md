@@ -1,6 +1,19 @@
 # Gateway analysis mandates v1
 
-Sprint 03, tranche T2. Predecessor `3d69cb4` (task-51m). The three internal POST bindings implement C.2 of `ouf.analysis.mandate.v1`. The dispatch response preserves the owner status and bytes. `X-OUF-Analysis-Decision` and `X-Correlation-ID` identify the Gateway admission and are authenticated on the Gateway-to-MCP HTTPS connection. Clients must verify the Gateway certificate. Issue and interactive revoke carry the existing signed `X-OUF-Delegation` and the MCP workload bearer. Revoke without a delegation requires a positive IAM decision for `admin-revoke` on the specific mandate.
+Sprint 03, tranche T2. Task-51p adds a fourth internal POST binding to task-51n (`4ced53e`) so a paused MCP worker can observe its mandate under C.2 and C.3 of `ouf.analysis.mandate.v1`. The dispatch response preserves the owner status and bytes. `X-OUF-Analysis-Decision` and `X-Correlation-ID` identify the Gateway admission and are authenticated on the Gateway-to-MCP HTTPS connection. Clients must verify the Gateway certificate. Issue and interactive revoke carry the existing signed `X-OUF-Delegation` and the MCP workload bearer. Revoke without a delegation requires a positive IAM decision for `admin-revoke` on the specific mandate.
+
+## Worker status during a pause
+
+`POST /internal/analysis/v1/mandates/status` accepts exactly `{mandateId, generation}`. The ID is a UUID and the generation uses the same unsigned decimal string as dispatch. The worker presents its service bearer. The authority authenticates it through the dispatch introspection adapter. It checks issuer, tenant and workload against the mandate, then requests an IAM decision for the service principal to observe this specific mandate and protected HUMAN subject. The IAM adapter must independently establish that association. A shared MCP client ID or a subject copied from the target record alone cannot establish it. This read works with dispatch disabled and without an active attempt reservation.
+
+| Result | Worker contract |
+|---|---|
+| 200 | Exactly `{mandateId, generation, state, expiresAt, decisionRef}`. An active mandate becomes `EXPIRED` at its recorded UTC deadline. An explicitly revoked mandate stays `REVOKED`. The opaque `decisionRef` identifies the audit entry for this read. |
+| 403 / 404 | Invalid service credentials yield `403 ANALYSIS_AUTHORITY_DENIED`. Unknown IDs, foreign workloads or subjects, and denied observation yield `404 ANALYSIS_MANDATE_UNKNOWN` even with an incorrect generation. |
+| 409 | After authorization, any generation mismatch returns only `ANALYSIS_STALE_EXECUTION`. Revocation advances the generation. A paused worker holding the previous generation must stop that execution and reconcile through MCP's authoritative state. It can observe `REVOKED` when it holds the current generation. |
+| 429 / 503 | Local quota exhaustion returns `429 ANALYSIS_BACKOFF` and seconds until the window ends in `Retry-After`. An unavailable IAM decision yields `503 ANALYSIS_AUTHORITY_UNAVAILABLE`. The worker applies its existing bounded pause budget. |
+
+The Gateway samples state and expiry after IAM returns, in the transaction that appends the read audit. Successful polls record the opaque mandate and workload references, requested generation and observed state. A poll preserves the mandate, expiry, command ledger and dispatch accounting. Both request and response have a 1024-byte ceiling.
 
 ## Installation register (D-065)
 
@@ -8,9 +21,10 @@ The private Gateway service exposes the WSGI factory `tools.analysis_service:app
 
 | Installation field | Scope, bounds and activation |
 |---|---|
-| `services.bindings.ouf-gateway-analysis-mandates`, `services.ports.ouf-gateway-analysis-mandates` | Bundle host and port of the private Gateway listener. Use its certificate DNS name. The three RouteBindings govern the inbound body ceiling and relay timeout. |
+| `services.bindings.ouf-gateway-analysis-mandates`, `services.ports.ouf-gateway-analysis-mandates` | Bundle host and port of the private Gateway listener. Use its certificate DNS name. Each RouteBinding governs its inbound body ceiling and relay timeout. |
 | `OUF_ANALYSIS_CONFIG` | Path to private UTF-8 JSON configuration. Required `contract` is `ouf.analysis.installation.v1`. Reload by coordinated service restart. |
 | `dispatchEnabled` | Optional installation boolean, default `false`. Activate only after IAM, reservation, owner verification, deduplication and capacity gates. Issue and revoke remain available independently. |
+| `statusReadsPerMinute` | Optional integer 1–3600, default 60. Maximum authenticated status lookups per 60-second window across the installation's MCP workload. The first charged lookup starts the window. Unknown, denied and stale lookups count. All authority processes share the counter in the existing store. Coordinated restart applies a changed limit and preserves usage. |
 | `store` | Existing Gateway SQLite file on durable local storage. All authority processes for this installation must open the **same file**. Mount loss fails startup. Run a single storage authority for remote APISIX replicas. Size and back up the database for the ledger and audit retention. |
 | `manifestFile` | Immutable, installation-published MCP JSON snapshot. `manifestChecksum` is SHA-256 of the supplied file bytes. Each enabled entry must be ACTIVE and match the checked-in capability, owner, operation class, binding and schema. The provisional batch declaration alone cannot enable T2. |
 | `issuer`, `audience`, `workload` | Required OIDC issuer, Gateway audience and MCP service client. Match the governed execute routes and projected OIDC settings. |
@@ -38,7 +52,7 @@ The private MCP endpoint authenticates the Gateway client certificate. It checks
 
 The authority sends the service bearer only to the configured RFC 7662 introspection endpoint and to governed execute. Introspection must return active SERVICE identity, exact issuer, audience, MCP client ID, tenant, subject and live expiry. The separate decision adapter evaluates current grants for this issuer, actor, tenant, protected HUMAN subject and resource on every command and dispatch. OUF and pre-existing IAM installations may implement this interface with their own policy systems.
 
-Each decision POST contains `contract="ouf.analysis.authority-check.v1"`, a fresh `nonce`, `action` (`issue`, `dispatch`, `revoke` or `admin-revoke`), `issuer`, `workload`, `workloadSubject`, `tenant`, `subject`, `actor`, `actorRef`, `analysisId`, full `profile` and `manifestChecksum`. Existing mandates add `mandateId`, `grantRef` and `policyRef`. Dispatch adds `operation`, `intentKey`, `argumentsHash` and `resourceId`. HUMAN commands add `delegatedClient`, `delegatedScope` and `acr`. The adapter must authorize the exact action, including the administrative role when requested.
+Each decision POST contains `contract="ouf.analysis.authority-check.v1"`, a fresh `nonce`, `action` (`issue`, `dispatch`, `revoke`, `admin-revoke` or `status`), `issuer`, `workload`, `workloadSubject`, `tenant`, `subject`, `actor`, `actorRef`, `analysisId`, full `profile` and `manifestChecksum`. Existing mandates add `mandateId`, `grantRef` and `policyRef`. Dispatch adds `operation`, `intentKey`, `argumentsHash` and `resourceId`. HUMAN commands add `delegatedClient`, `delegatedScope` and `acr`. The adapter must authorize the exact action, including the administrative role when requested. For `status`, the decision and its validity bounds cover current observation rights, including observation after the execution mandate expires or is revoked.
 
 A denial returns the request hash and `allowed=false` or HTTP 403. An allow returns exactly `requestHash`, `allowed=true`, `policyRef`, `grantRef`, `decisionRef`, `validUntil`, `grantExpiresAt` (Unix seconds), `allowedOperations`, `roles`, `acr`, and `client` for the effective HUMAN context. The Gateway intersects operations with delegated scope, pinned catalog and the five-operation allowlist. Discovery retains its common execute scope. The adapter must obtain decision and expiry evidence from the actual IAM.
 
@@ -51,6 +65,7 @@ A denial returns the request hash and `allowed=false` or HTTP 403. An allow retu
 | `analysis_discovery_v1` | Stable subject, intent, owner key hash and argument fingerprint across discovery retries |
 | `analysis_attempt_v1` | Atomic admission, attempt uniqueness, fence, ordinal and reservation references, owner outcome and revocation crossing |
 | `analysis_audit_v1` | Decision, protected scope and profile hashes, operation, generation, effect and MCP change sequence when available |
+| `analysis_status_quota_v1` | Single installation-wide row containing the end of the status window and its lookup count |
 
 Revocation marks admitted or uncertain attempts in the same transaction that advances the generation. Its audit row contains the in-flight count. An owner response crossing revocation returns 409 and authenticated `X-OUF-Analysis-Effect: IN_FLIGHT`; the durable attempt retains the observed owner status and request ID when available. A crash can leave an ADMITTED row or an UNCERTAIN outcome. Recovery uses MCP accounting, owner status and Semantic deduplication with the original owner key and fingerprint. Automatic deletion, retry and budget renewal are outside this Gateway owner.
 

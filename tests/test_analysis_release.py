@@ -96,14 +96,19 @@ def test_second_plan_unchanged(routes):
     """GW-51N-10. Exact route resources round-trip through the governed installation plan."""
     targets = [routes[k] for k in MANDATE_IDS]
     revision = targets[0]['labels']['ouf-installation-revision']
+    # GW-51P-09. Upgrade a task-51n inventory with one create and no updates.
+    old = [r for r in routes.values() if r['id'] != 'mcp-analysis-mandate-status']
+    upgraded = search_plan(targets, {'total': len(old), 'list': [{'value': r} for r in old]}, revision, mandates=True)
+    assert {c.logical_id: c.action for c in upgraded} == {
+        route_id: 'create' if route_id == 'mcp-analysis-mandate-status' else 'unchanged' for route_id in MANDATE_IDS}
     plan = search_plan(targets, {'total':0, 'list':[]}, revision, mandates=True)
-    assert [c.action for c in plan] == ['create'] * 3
-    readback = {'total':3, 'list':[{'value': c.after} for c in plan]}
-    assert [c.action for c in search_plan(targets, readback, revision, mandates=True)] == ['unchanged'] * 3
+    assert [c.action for c in plan] == ['create'] * 4
+    readback = {'total':4, 'list':[{'value': c.after} for c in plan]}
+    assert [c.action for c in search_plan(targets, readback, revision, mandates=True)] == ['unchanged'] * 4
     assert all(c.after is None for c in restore_plan(plan, readback))
 
 
-@pytest.mark.parametrize('action', ['issue', 'dispatch', 'revoke'])
+@pytest.mark.parametrize('action', ['issue', 'dispatch', 'revoke', 'status'])
 def test_private_route_forwards_only_selected_headers(routes, action):
     """GW-51N-11. Execute the bundle's private HTTPS relay with a synthetic upstream."""
     route = routes['mcp-analysis-mandate-' + action]
@@ -130,6 +135,24 @@ def test_private_route_forwards_only_selected_headers(routes, action):
     req = engine.lua.globals()[b'outgoing']
     assert req[b'body'] == engine.body and req[b'path'] == route['uri'].encode()
     allowed = {b'Authorization', b'Content-Type'}
-    if action != 'dispatch':
+    if action in ('issue', 'revoke'):
         allowed.add(b'X-OUF-Delegation')
     assert set(req[b'headers'].keys()) == allowed
+
+
+def test_status_relay_caps_upstream_response(routes):
+    """GW-51P-10. The released Lua enforces the byte limit even across response chunks."""
+    route = routes['mcp-analysis-mandate-status']
+    engine = Engine(workload(), {})
+    engine.modules[b'resty.http'] = engine.lua.eval(b"""{
+        new=function() return {
+            set_timeout=function() end, connect=function() return true end, close=function() end,
+            request=function()
+                local chunks = {string.rep('x', 1024), 'x'}
+                return {status=200, headers={}, body_reader=function() return table.remove(chunks, 1) end}
+            end
+        } end
+    }""")
+    post, = route['plugins']['serverless-post-function']['functions']
+    with pytest.raises(Denied, match='503'):
+        engine.lua.execute(post.encode())(None, matched_route_context(engine, route))

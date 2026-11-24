@@ -10,6 +10,8 @@ from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BATCH, capability_c
 
 BASE = '/internal/analysis/v1/mandates/'
 CONTRACT = 'ouf.analysis.mandate.v1'
+ACTIONS = ('issue', 'dispatch', 'revoke', 'status')
+STATUS_MAX_BYTES = 1024
 BINDINGS = {
     'source.file.preview': ('ouf.managed-source.preview', '/managed.file/preview'),
     SEARCH_BATCH: (SEARCH_BATCH, '/semantic/consultation/search-batch'),
@@ -89,11 +91,12 @@ def seq(value):
 def validate(action, b):
     fields = {'issue': 'contract analysisId profile manifestChecksum commandKey',
               'dispatch': 'mandateId generation analysisId intentKey attemptId fence operation arguments',
-              'revoke': 'mandateId expectedGeneration commandKey'}
+              'revoke': 'mandateId expectedGeneration commandKey',
+              'status': 'mandateId generation'}
     require(action in fields and exact(b, fields[action]))
-    if action != 'dispatch':
+    if action in ('issue', 'revoke'):
         require(is_uuid(b['commandKey'], v4=True))
-    if action != 'revoke':
+    if action in ('issue', 'dispatch'):
         require(is_digest(b['analysisId']))
     if action != 'issue':
         require(is_uuid(b['mandateId']))
@@ -108,6 +111,8 @@ def validate(action, b):
     elif action == 'dispatch':
         require(seq(b['generation']) and is_digest(b['intentKey']) and is_uuid(b['attemptId'])
                 and seq(b['fence']) and isinstance(b['operation'], str) and type(b['arguments']) is dict)
+    elif action == 'status':
+        require(seq(b['generation']))
     else:
         require(seq(b['expectedGeneration']))
 

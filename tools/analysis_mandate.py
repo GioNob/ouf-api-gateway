@@ -5,7 +5,7 @@ import time
 import uuid
 
 from tools.analysis_protocol import (
-    BINDINGS, Rejected, delegation, digest, human_proof, is_uuid, parse, require, validate, wire,
+    ACTIONS, BINDINGS, STATUS_MAX_BYTES, Rejected, delegation, digest, human_proof, is_uuid, parse, require, validate, wire,
 )
 
 
@@ -33,31 +33,35 @@ def execute_scope(op, row):
 
 class Mandates:
     def __init__(self, store, catalog, iam, reservations, execute, key, *, enabled=False,
-                 ttl=3600, proof_ttl=30, max_result=1048576, clock=time.time):
+                 ttl=3600, proof_ttl=30, max_result=1048576, status_reads_per_minute=60, clock=time.time):
         if (type(enabled) is not bool or type(ttl) is not int or not 1 <= ttl <= 86400
                 or type(proof_ttl) is not int or not 1 <= proof_ttl <= 30
                 or type(max_result) is not int or not 1 <= max_result <= 1048576
+                or type(status_reads_per_minute) is not int or not 1 <= status_reads_per_minute <= 3600
                 or len(key) != 64 or any(c not in b'0123456789abcdefABCDEF' for c in key)):
             raise ValueError('invalid mandate installation profile')
         self.store, self.catalog, self.iam = store, catalog, iam
         self.reservations, self.execute, self.key = reservations, execute, key
         self.enabled, self.ttl, self.proof_ttl, self.max_result = enabled, ttl, proof_ttl, max_result
         self.clock = clock
+        self.status_reads_per_minute = status_reads_per_minute
 
     def now(self):
         return int(self.clock())
 
     def handle(self, action, body, bearer, proof=None):
-        ref, evidence = new_ref(), {'action': action if action in ('issue', 'dispatch', 'revoke') else 'UNKNOWN'}
+        ref, evidence = new_ref(), {'action': action if action in ACTIONS else 'UNKNOWN'}
         try:
-            require(len(body) <= 131072)
+            require(len(body) <= (STATUS_MAX_BYTES if action == 'status' else 131072))
             b = parse(body)
             validate(action, b)
             for k in ('analysisId', 'mandateId', 'generation', 'intentKey', 'attemptId', 'fence'):
                 if k in b:
                     evidence[k] = b[k]
-            w = self.iam.authenticate(bearer, self.now())
+            w = self.iam.authenticate(bearer, self.now(), foreign_workload_status=404 if action == 'status' else 403)
             evidence['workloadRef'] = subject_key(self.iam.issuer, w['tenant_id'], w['sub'])
+            if action == 'status':
+                return 200, wire(self.status(b, w, ref, evidence)), {}
             if action == 'dispatch':
                 require(self.enabled, 403)
                 return self.dispatch(b, w, bearer, ref, evidence)
@@ -88,6 +92,32 @@ class Mandates:
         if p:
             query.update(delegatedClient=p['client'], delegatedScope=p['scope'], acr=p['acr'])
         return self.iam.decide(query, self.now())
+
+    def status(self, b, w, ref, evidence):
+        self.store.charge_status(self.now(), self.status_reads_per_minute)
+        m = self.store.get(b['mandateId'])
+        require(m['issuer'] == self.iam.issuer and m['tenant'] == w['tenant_id']
+                and m['workload'] == w['client_id'], 404)
+        # A shared service identity alone does not identify the protected HUMAN.
+        # Authorize this read independently of the execution grant and attempt.
+        try:
+            d = self.decision('status', b, w, None, m)
+        except Rejected as exc:
+            if exc.status == 403:
+                raise Rejected(404) from exc
+            raise
+        with self.store.transaction() as db:
+            now = self.now()
+            require(now < w['exp'], 403)
+            require(now < min(d['validUntil'], d['grantExpiresAt']), 404)
+            m = self.store.read(db, b['mandateId'])
+            require(m['generation'] == b['generation'], 409)
+            state = m['state']
+            if state == 'ACTIVE' and now >= m['expires']:
+                state = 'EXPIRED'
+            self.store.audit(db, ref, {**evidence, 'outcome': state})
+            return dict(mandateId=m['id'], generation=m['generation'], state=state,
+                        expiresAt=instant(m['expires']), decisionRef=ref)
 
     def command(self, action, b, w, p, ref):
         actor = subject_key(self.iam.issuer, w['tenant_id'], p['principal'] if p else w['sub'])

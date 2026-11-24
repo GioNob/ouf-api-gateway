@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from ops.apisix.deploy_semantic_human import validate
+from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH, STATUS_MAX_BYTES
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
@@ -125,10 +126,10 @@ def release_resources():
     # (the mandate authority rejects duplicate keys before any normalization).
     execute, = (r for r in mediated['routes'] if r.get('uri') == '/internal/capabilities/v1/execute')
     mandate_lua = (Path(__file__).parent / 'lua/analysis_mandate.lua').read_text(encoding='utf-8')
-    for action in ('issue', 'dispatch', 'revoke'):
+    for action in ACTIONS:
         route_id = 'mcp-analysis-mandate-' + action
         binding = bindings[route_id]
-        path = '/internal/analysis/v1/mandates/' + action
+        path = MANDATE_PATH + action
         backend = binding['x-ouf-backend-binding']
         cap, policy = binding['x-ouf-capability'], binding['x-ouf-policy']
         if (binding['uri'] != path or binding['methods'] != ['POST'] or binding.get('vars')
@@ -136,7 +137,8 @@ def release_resources():
                 or binding['labels']['exposure'] != 'internal' or cap['owner'] != 'gateway'
                 or binding['labels']['source'] != 'gateway-analysis-mandates@1.0.0'
                 or cap['capabilityId'] != 'ouf.analysis.mandate.' + action or cap['toolEligible']
-                or cap['operationType'] != 'COMMAND' or cap['humanRequired'] != (action == 'issue')
+                or cap['operationType'] != ('READ' if action == 'status' else 'COMMAND')
+                or cap['humanRequired'] != (action == 'issue')
                 or policy['identity'] != 'M2M' or policy['allowedActorTypes'] != ['SERVICE']
                 or policy['requiredScope'] != cap['capabilityId']
                 or policy['allowedServiceIdentities'] != [clients['mcpServer']]):
@@ -144,11 +146,13 @@ def release_resources():
         oidc = copy.deepcopy(execute['plugins']['openid-connect'])
         oidc['claim_validator']['issuer'] = {'valid_issuers': [installation('gateway.issuerUrl')]}
         timeout = policy['timeoutSeconds']
+        relay = mandate_lua.replace('__SERVICE_ONLY_PATH__', path if action == 'status' else MANDATE_PATH + 'dispatch')
+        relay = relay.replace('__MAX_RESPONSE_BYTES__', str(STATUS_MAX_BYTES if action == 'status' else 1048576))
         route = {'id': route_id, 'uri': path, 'methods': ['POST'],
                  'labels': {'ouf-mediation': 'analysis-mandate-v1', 'ouf-exposure': 'internal',
                             'ouf-installation-revision': installation('revision')},
                  'plugins': {'openid-connect': oidc, 'client-control': {'max_body_size': policy['maxRequestBytes']},
-                             'serverless-post-function': {'phase': 'access', 'functions': [mandate_lua]}},
+                             'serverless-post-function': {'phase': 'access', 'functions': [relay]}},
                  'upstream': {'scheme': 'https', 'type': 'roundrobin', 'retries': 0,
                               'timeout': dict(connect=timeout, send=timeout, read=timeout),
                               'nodes': {f"{backend['service']}:{backend['port']}": 1}}}

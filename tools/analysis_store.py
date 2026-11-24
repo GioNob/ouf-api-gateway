@@ -24,6 +24,8 @@ create table if not exists analysis_discovery_v1 (
  arguments_hash text not null, primary key(mandate,intent), unique(subject_ref,owner_key_hash));
 create table if not exists analysis_audit_v1 (
  sequence integer primary key, decision text not null, evidence blob not null);
+create table if not exists analysis_status_quota_v1 (
+ id integer primary key check(id=1), window_end integer not null, reads integer not null);
 """
 
 
@@ -55,6 +57,18 @@ class MandateStore:
     def get(self, mandate):
         with closing(self.connect()) as db:
             return self.read(db, mandate)
+
+    def charge_status(self, now, limit):
+        # A single private authority serves one installation and one MCP client.
+        # Commit before lookup so unknown and stale references consume the same quota.
+        with self.transaction() as db:
+            row = db.execute('select window_end, reads from analysis_status_quota_v1 where id=1').fetchone()
+            if row and now < row[0]:
+                if row[1] >= limit:
+                    raise Rejected(429, retry_after=str(row[0] - now))
+                db.execute('update analysis_status_quota_v1 set reads=reads+1 where id=1')
+            else:
+                db.execute('insert or replace into analysis_status_quota_v1 values (1,?,1)', (now + 60,))
 
     @staticmethod
     def read(db, mandate):
