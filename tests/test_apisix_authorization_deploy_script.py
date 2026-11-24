@@ -1,13 +1,9 @@
+import shutil
+import subprocess
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
 
-def test_authorization_bundle_deploy_script_is_fail_closed_and_secret_safe():
-    script = (ROOT / "ops" / "apisix" / "deploy_authorization_bundle_route.sh").read_text()
-    assert "OUF_APISIX_MATERIALIZATION" in script
-    assert "APISIX_OIDC_SECRET_ENV_MISSING" in script
-    assert "APISIX_AUTH_BUNDLE_NEGATIVE_HTTP" in script
-    assert "restore" in script
-    assert "X-API-KEY" in script
-    assert "cat \"$ADMIN_KEY_FILE\"" in script
-    assert "echo \"$ADMIN_KEY_FILE\"" not in script
+def test_shell_installer_retired():
+    script = Path(__file__).resolve().parents[1] / 'ops/apisix/deploy_authorization_bundle_route.sh'
+    result = subprocess.run([shutil.which('bash'), str(script)], capture_output=True, text=True)
+    assert result.returncode and 'governed Gateway release' in result.stderr

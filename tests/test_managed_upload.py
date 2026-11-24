@@ -63,8 +63,6 @@ def test_wrong_scope_or_path_is_denied():
 
 def test_route_never_adds_body_validation_or_json_buffering():
     route=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
-    from ops.apisix.deploy_managed_file_upload import validate
-    validate(route)
     assert route['id']=='mcp-managed-file-upload' and route['methods']==['POST']
     assert route['plugins']['proxy-control']=={'request_buffering':False}
     assert 'request-validation' not in route['plugins']

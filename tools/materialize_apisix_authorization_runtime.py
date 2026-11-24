@@ -38,8 +38,9 @@ def strip_untrusted_headers():
         "end"
     )
 
-def workload_guard(allowed_services, allowed_actors):
-    services = ",".join(f"[{lua_quote(v)}]=true" for v in allowed_services)
+def workload_guard(allowed_services, allowed_actors, *, service_labels=False):
+    services = ",".join(f"[ctx.matched_route.value.labels[{lua_quote(v)}]]=true" if service_labels
+                        else f"[{lua_quote(v)}]=true" for v in allowed_services)
     actors = ",".join(f"[{lua_quote(v)}]=true" for v in allowed_actors)
     return (
         "return function(conf, ctx) "

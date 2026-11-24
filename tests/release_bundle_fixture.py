@@ -16,7 +16,46 @@ DISCOVERY_REVIEW_IDS = [
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
 
+BASELINE_3D69CB4_IDS = {
+    'mcp-ingestion-run-recovery-link',
+    'mcp-managed-file-create',
+    'mcp-managed-file-handoff',
+    'mcp-managed-file-handoff-issue',
+    'mcp-managed-file-preview',
+    'mcp-managed-file-review-prepare',
+    'mcp-managed-file-review-read',
+    'mcp-semantic-discovery-adopt',
+    'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request',
+    'mcp-semantic-discovery-status',
+    'mcp-semantic-review-link',
+    'mcp-semantic-search',
+    'mcp-semantic-search-batch',
+    'mcp-source-revision-prepare',
+    'r2b-publication-resolution',
+    'r2b-semantic-reference',
+    'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list',
+    'r4a-udp-runtime-handoff-write',
+    'r4a-udp-runtime-lake-write',
+    'semantic-human-terms',
+    'semantic-proposal-create',
+    'semantic-proposal-read',
+    'ths-resolution-package-confirm',
+    'ths-resolution-package-read',
+    'trusted-human-ingestion-run-abort',
+    'trusted-human-ingestion-run-read',
+    'trusted-human-ingestion-run-recovery',
+    'trusted-human-ingestion-run-resume',
+    'trusted-human-resolution-review',
+}
+
+ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-source-revision-read',
+                  'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
+                  'mcp-authorization-policy-bundle-read')
+
 RELEASE_ROUTE_IDS = sorted([
+    *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
@@ -111,6 +150,9 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 def ci_profile(installation, port):
     return {
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
+        'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
+        **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')
+           for field, value in [('count', 60), ('timeWindowSeconds', 60)]},
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],

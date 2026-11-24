@@ -1,0 +1,2073 @@
+{
+  "provenance": {
+    "repository": "GioNob/ouf-mcp-server",
+    "commit": "4b395686ab1dccb80e37e63d26a8228b472d05ac",
+    "path": "internal/manifest/capabilities.json",
+    "version": "1.17.0-published-batch-v1",
+    "sha256": "ec67c43add39551d561a1ffa142dbaf1d6437b584d85b3892f07c29e0aff3acc"
+  },
+  "capabilities": [
+    {
+      "toolName": "authorization.permissions.read",
+      "nextPolicy": "authorization.permissions.read",
+      "capabilityId": "authorization.permissions.read",
+      "purpose": "Inspect configured grants, the tenant role catalogue, or active HUMAN-compatible capability descriptors; view CAPABILITIES supports complete role proposals",
+      "useWhen": [
+        "an authorized user requests permission administration"
+      ],
+      "doNotUseWhen": [
+        "confirming, publishing, changing superadmin association or editing IAM accounts"
+      ],
+      "preferredAlternatives": [
+        "Trusted Human Surface"
+      ],
+      "operationalLimits": {
+        "maxGrants": 200
+      },
+      "resultSemantics": "Configured grants or a bounded proposal receipt with trusted human review path; never an approval",
+      "securityNotes": [
+        "Gateway verifies workload and delegation; owner reevaluates current policy",
+        "Confirmation is only on the direct authenticated THS; no human bearer is forwarded by MCP"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "authorization",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "authorization.permissions.read",
+      "gatewayBindingRef": "capability://authorization.permissions.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 200,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "subjectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "externalRoleRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "after": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "policyRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "GRANTS",
+              "ROLES",
+              "CAPABILITIES"
+            ]
+          }
+        },
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "externalRoleRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "policyRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "GRANTS",
+                  "ROLES",
+                  "CAPABILITIES"
+                ],
+                "const": "ROLES"
+              }
+            },
+            "required": [
+              "view"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "subjectId"
+                  ]
+                },
+                {
+                  "required": [
+                    "externalRoleRef"
+                  ]
+                },
+                {
+                  "required": [
+                    "limit"
+                  ]
+                },
+                {
+                  "required": [
+                    "after"
+                  ]
+                },
+                {
+                  "required": [
+                    "policyRef"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "externalRoleRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "policyRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "GRANTS",
+                  "ROLES",
+                  "CAPABILITIES"
+                ],
+                "const": "CAPABILITIES"
+              }
+            },
+            "required": [
+              "view"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "subjectId"
+                  ]
+                },
+                {
+                  "required": [
+                    "externalRoleRef"
+                  ]
+                },
+                {
+                  "required": [
+                    "limit"
+                  ]
+                },
+                {
+                  "required": [
+                    "after"
+                  ]
+                },
+                {
+                  "required": [
+                    "policyRef"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "subjectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "externalRoleRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              },
+              "after": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "policyRef": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "view": {
+                "type": "string",
+                "enum": [
+                  "GRANTS",
+                  "ROLES",
+                  "CAPABILITIES"
+                ],
+                "const": "GRANTS"
+              }
+            },
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subjectId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "externalRoleRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "after": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "policyRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "view": {
+                    "type": "string",
+                    "enum": [
+                      "GRANTS",
+                      "ROLES",
+                      "CAPABILITIES"
+                    ],
+                    "const": "GRANTS"
+                  }
+                },
+                "required": [
+                  "subjectId"
+                ],
+                "not": {
+                  "required": [
+                    "externalRoleRef"
+                  ]
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subjectId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "externalRoleRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 200
+                  },
+                  "after": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "policyRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "view": {
+                    "type": "string",
+                    "enum": [
+                      "GRANTS",
+                      "ROLES",
+                      "CAPABILITIES"
+                    ],
+                    "const": "GRANTS"
+                  }
+                },
+                "required": [
+                  "externalRoleRef"
+                ],
+                "not": {
+                  "required": [
+                    "subjectId"
+                  ]
+                }
+              }
+            ],
+            "required": []
+          }
+        ]
+      }
+    },
+    {
+      "toolName": "authorization.permissions.propose",
+      "nextPolicy": "permission",
+      "capabilityId": "authorization.permissions.propose",
+      "purpose": "Prepare a grant change or a complete replacement of the tenant OUF role catalogue for human THS review; read view ROLES first and preserve unrelated entries. Never publishes permissions.",
+      "useWhen": [
+        "an authorized user requests permission administration"
+      ],
+      "doNotUseWhen": [
+        "confirming, publishing, changing superadmin association or editing IAM accounts"
+      ],
+      "preferredAlternatives": [
+        "Trusted Human Surface"
+      ],
+      "operationalLimits": {
+        "maxRoleGeneratedGrants": 200,
+        "maxRoleProposalBytes": 48000,
+        "maxGrantChanges": 1
+      },
+      "resultSemantics": "Configured grants or a bounded proposal receipt with trusted human review path; never an approval",
+      "securityNotes": [
+        "Gateway verifies workload and delegation; owner reevaluates current policy",
+        "Confirmation is only on the direct authenticated THS; no human bearer is forwarded by MCP"
+      ],
+      "mcpClass": "MCP_PROPOSAL_ONLY",
+      "owner": "authorization",
+      "operationClass": "COMMAND",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "authorization.permissions.propose",
+      "gatewayBindingRef": "capability://authorization.permissions.propose",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 200,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "reason"
+        ],
+        "properties": {
+          "operation": {
+            "enum": [
+              "UPSERT",
+              "REVOKE",
+              "REPLACE_ROLES"
+            ]
+          },
+          "grantId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+          },
+          "grant": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "grantId",
+              "capabilityId",
+              "tenantId",
+              "validFrom",
+              "validUntil"
+            ],
+            "properties": {
+              "grantId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "capabilityId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "tenantId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "subjectId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "servicePrincipalId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "organizationId": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "validFrom": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "validUntil": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "constraints": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "effect": {
+                    "enum": [
+                      "ALLOW",
+                      "DENY"
+                    ]
+                  },
+                  "externalRoleRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 128
+                  },
+                  "resourceType": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 128
+                  },
+                  "resourceId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "resourceAttributes": {
+                    "type": "object",
+                    "maxProperties": 32,
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    }
+                  },
+                  "allowedDataLabels": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "allowedDetailLevels": {
+                    "type": "array",
+                    "maxItems": 16,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "requiredAcr": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 128
+                  },
+                  "requiredAmr": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    }
+                  },
+                  "maxAuthenticationAgeSeconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1,
+                    "maximum": 86400
+                  }
+                }
+              }
+            }
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "roleCatalogue": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "issuer",
+              "roles",
+              "assignments"
+            ],
+            "properties": {
+              "issuer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "roles": {
+                "type": "array",
+                "maxItems": 100,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "roleId",
+                    "displayName",
+                    "permissions"
+                  ],
+                  "properties": {
+                    "roleId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                    },
+                    "displayName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "capabilityId"
+                        ],
+                        "properties": {
+                          "capabilityId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          },
+                          "constraints": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "effect": {
+                                "enum": [
+                                  "ALLOW",
+                                  "DENY"
+                                ]
+                              },
+                              "externalRoleRef": {
+                                "type": "null"
+                              },
+                              "resourceType": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "maxLength": 128
+                              },
+                              "resourceId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "maxLength": 256
+                              },
+                              "resourceAttributes": {
+                                "type": "object",
+                                "maxProperties": 32,
+                                "additionalProperties": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 512
+                                }
+                              },
+                              "allowedDataLabels": {
+                                "type": "array",
+                                "maxItems": 32,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128
+                                }
+                              },
+                              "allowedDetailLevels": {
+                                "type": "array",
+                                "maxItems": 16,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128
+                                }
+                              },
+                              "requiredAcr": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "maxLength": 128
+                              },
+                              "requiredAmr": {
+                                "type": "array",
+                                "maxItems": 32,
+                                "uniqueItems": true,
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 128
+                                }
+                              },
+                              "maxAuthenticationAgeSeconds": {
+                                "type": [
+                                  "integer",
+                                  "null"
+                                ],
+                                "minimum": 1,
+                                "maximum": 86400
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "assignments": {
+                "type": "array",
+                "maxItems": 1000,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "assignmentId",
+                    "roleId",
+                    "validFrom",
+                    "validUntil"
+                  ],
+                  "properties": {
+                    "assignmentId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                    },
+                    "roleId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                    },
+                    "subjectId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[!-~]{1,255}$"
+                    },
+                    "externalRoleRef": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                    },
+                    "validFrom": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "validUntil": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "assignmentId",
+                        "roleId",
+                        "validFrom",
+                        "validUntil",
+                        "subjectId"
+                      ],
+                      "properties": {
+                        "assignmentId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "subjectId": {
+                          "type": "string",
+                          "pattern": "^[!-~]{1,255}$"
+                        },
+                        "externalRoleRef": {
+                          "type": "null",
+                          "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                        },
+                        "validFrom": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "assignmentId",
+                        "roleId",
+                        "validFrom",
+                        "validUntil",
+                        "externalRoleRef"
+                      ],
+                      "properties": {
+                        "assignmentId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "subjectId": {
+                          "type": "null",
+                          "pattern": "^[!-~]{1,255}$"
+                        },
+                        "externalRoleRef": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                        },
+                        "validFrom": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation",
+              "reason",
+              "grantId"
+            ],
+            "properties": {
+              "operation": {
+                "enum": [
+                  "UPSERT",
+                  "REVOKE"
+                ]
+              },
+              "grantId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+              },
+              "grant": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "grantId",
+                  "capabilityId",
+                  "tenantId",
+                  "validFrom",
+                  "validUntil"
+                ],
+                "properties": {
+                  "grantId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "capabilityId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "tenantId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "subjectId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "servicePrincipalId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "organizationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "validFrom": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "validUntil": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "constraints": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "effect": {
+                        "enum": [
+                          "ALLOW",
+                          "DENY"
+                        ]
+                      },
+                      "externalRoleRef": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "resourceType": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "resourceId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 256
+                      },
+                      "resourceAttributes": {
+                        "type": "object",
+                        "maxProperties": 32,
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512
+                        }
+                      },
+                      "allowedDataLabels": {
+                        "type": "array",
+                        "maxItems": 32,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "allowedDetailLevels": {
+                        "type": "array",
+                        "maxItems": 16,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "requiredAcr": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "requiredAmr": {
+                        "type": "array",
+                        "maxItems": 32,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "maxAuthenticationAgeSeconds": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 1,
+                        "maximum": 86400
+                      }
+                    }
+                  }
+                }
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "roleCatalogue": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "issuer",
+                  "roles",
+                  "assignments"
+                ],
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "roles": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "roleId",
+                        "displayName",
+                        "permissions"
+                      ],
+                      "properties": {
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "permissions": {
+                          "type": "array",
+                          "maxItems": 100,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "capabilityId"
+                            ],
+                            "properties": {
+                              "capabilityId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "constraints": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "effect": {
+                                    "enum": [
+                                      "ALLOW",
+                                      "DENY"
+                                    ]
+                                  },
+                                  "externalRoleRef": {
+                                    "type": "null"
+                                  },
+                                  "resourceType": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 128
+                                  },
+                                  "resourceId": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 256
+                                  },
+                                  "resourceAttributes": {
+                                    "type": "object",
+                                    "maxProperties": 32,
+                                    "additionalProperties": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 512
+                                    }
+                                  },
+                                  "allowedDataLabels": {
+                                    "type": "array",
+                                    "maxItems": 32,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "allowedDetailLevels": {
+                                    "type": "array",
+                                    "maxItems": 16,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "requiredAcr": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 128
+                                  },
+                                  "requiredAmr": {
+                                    "type": "array",
+                                    "maxItems": 32,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "maxAuthenticationAgeSeconds": {
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ],
+                                    "minimum": 1,
+                                    "maximum": 86400
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "assignments": {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "assignmentId",
+                        "roleId",
+                        "validFrom",
+                        "validUntil"
+                      ],
+                      "properties": {
+                        "assignmentId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "subjectId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[!-~]{1,255}$"
+                        },
+                        "externalRoleRef": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                        },
+                        "validFrom": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "assignmentId",
+                            "roleId",
+                            "validFrom",
+                            "validUntil",
+                            "subjectId"
+                          ],
+                          "properties": {
+                            "assignmentId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "subjectId": {
+                              "type": "string",
+                              "pattern": "^[!-~]{1,255}$"
+                            },
+                            "externalRoleRef": {
+                              "type": "null",
+                              "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                            },
+                            "validFrom": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "validUntil": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "assignmentId",
+                            "roleId",
+                            "validFrom",
+                            "validUntil",
+                            "externalRoleRef"
+                          ],
+                          "properties": {
+                            "assignmentId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "subjectId": {
+                              "type": "null",
+                              "pattern": "^[!-~]{1,255}$"
+                            },
+                            "externalRoleRef": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                            },
+                            "validFrom": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "validUntil": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "not": {
+              "required": [
+                "roleCatalogue"
+              ]
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation",
+              "reason",
+              "roleCatalogue"
+            ],
+            "properties": {
+              "operation": {
+                "enum": [
+                  "UPSERT",
+                  "REVOKE",
+                  "REPLACE_ROLES"
+                ],
+                "const": "REPLACE_ROLES"
+              },
+              "grantId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+              },
+              "grant": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "grantId",
+                  "capabilityId",
+                  "tenantId",
+                  "validFrom",
+                  "validUntil"
+                ],
+                "properties": {
+                  "grantId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "capabilityId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "tenantId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "subjectId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "servicePrincipalId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "organizationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "maxLength": 256
+                  },
+                  "validFrom": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "validUntil": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "constraints": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "effect": {
+                        "enum": [
+                          "ALLOW",
+                          "DENY"
+                        ]
+                      },
+                      "externalRoleRef": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "resourceType": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "resourceId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 256
+                      },
+                      "resourceAttributes": {
+                        "type": "object",
+                        "maxProperties": 32,
+                        "additionalProperties": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512
+                        }
+                      },
+                      "allowedDataLabels": {
+                        "type": "array",
+                        "maxItems": 32,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "allowedDetailLevels": {
+                        "type": "array",
+                        "maxItems": 16,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "requiredAcr": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 128
+                      },
+                      "requiredAmr": {
+                        "type": "array",
+                        "maxItems": 32,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128
+                        }
+                      },
+                      "maxAuthenticationAgeSeconds": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 1,
+                        "maximum": 86400
+                      }
+                    }
+                  }
+                }
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "roleCatalogue": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "issuer",
+                  "roles",
+                  "assignments"
+                ],
+                "properties": {
+                  "issuer": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "roles": {
+                    "type": "array",
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "roleId",
+                        "displayName",
+                        "permissions"
+                      ],
+                      "properties": {
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "permissions": {
+                          "type": "array",
+                          "maxItems": 100,
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "capabilityId"
+                            ],
+                            "properties": {
+                              "capabilityId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256
+                              },
+                              "constraints": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "effect": {
+                                    "enum": [
+                                      "ALLOW",
+                                      "DENY"
+                                    ]
+                                  },
+                                  "externalRoleRef": {
+                                    "type": "null"
+                                  },
+                                  "resourceType": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 128
+                                  },
+                                  "resourceId": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 256
+                                  },
+                                  "resourceAttributes": {
+                                    "type": "object",
+                                    "maxProperties": 32,
+                                    "additionalProperties": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 512
+                                    }
+                                  },
+                                  "allowedDataLabels": {
+                                    "type": "array",
+                                    "maxItems": 32,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "allowedDetailLevels": {
+                                    "type": "array",
+                                    "maxItems": 16,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "requiredAcr": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ],
+                                    "maxLength": 128
+                                  },
+                                  "requiredAmr": {
+                                    "type": "array",
+                                    "maxItems": 32,
+                                    "uniqueItems": true,
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 128
+                                    }
+                                  },
+                                  "maxAuthenticationAgeSeconds": {
+                                    "type": [
+                                      "integer",
+                                      "null"
+                                    ],
+                                    "minimum": 1,
+                                    "maximum": 86400
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "assignments": {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "assignmentId",
+                        "roleId",
+                        "validFrom",
+                        "validUntil"
+                      ],
+                      "properties": {
+                        "assignmentId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "roleId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                        },
+                        "subjectId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[!-~]{1,255}$"
+                        },
+                        "externalRoleRef": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                        },
+                        "validFrom": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "validUntil": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "assignmentId",
+                            "roleId",
+                            "validFrom",
+                            "validUntil",
+                            "subjectId"
+                          ],
+                          "properties": {
+                            "assignmentId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "subjectId": {
+                              "type": "string",
+                              "pattern": "^[!-~]{1,255}$"
+                            },
+                            "externalRoleRef": {
+                              "type": "null",
+                              "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                            },
+                            "validFrom": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "validUntil": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "assignmentId",
+                            "roleId",
+                            "validFrom",
+                            "validUntil",
+                            "externalRoleRef"
+                          ],
+                          "properties": {
+                            "assignmentId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "roleId": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+                            },
+                            "subjectId": {
+                              "type": "null",
+                              "pattern": "^[!-~]{1,255}$"
+                            },
+                            "externalRoleRef": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_:./-]{1,128}$"
+                            },
+                            "validFrom": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "validUntil": {
+                              "type": "string",
+                              "format": "date-time"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "grantId"
+                  ]
+                },
+                {
+                  "required": [
+                    "grant"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "toolName": "authorization.proposal.read",
+      "nextPolicy": "permission",
+      "capabilityId": "authorization.proposal.read",
+      "purpose": "Read the outcome of a permission proposal created by the authenticated caller",
+      "useWhen": [
+        "an authorized user requests permission administration"
+      ],
+      "doNotUseWhen": [
+        "confirming, publishing, changing superadmin association or editing IAM accounts"
+      ],
+      "preferredAlternatives": [
+        "Trusted Human Surface"
+      ],
+      "operationalLimits": {
+        "maxGrants": 1
+      },
+      "resultSemantics": "Configured grants or a bounded proposal receipt with trusted human review path; never an approval",
+      "securityNotes": [
+        "Gateway verifies workload and delegation; owner reevaluates current policy",
+        "Confirmation is only on the direct authenticated THS; no human bearer is forwarded by MCP"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "authorization",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "authorization.proposal.read",
+      "gatewayBindingRef": "capability://authorization.proposal.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 200,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proposalId"
+        ],
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "source.file.upload",
+      "handoffInputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "handoffId"
+        ],
+        "properties": {
+          "handoffId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "nextPolicy": "upload",
+      "capabilityId": "ouf.managed-source.file.upload",
+      "purpose": "Stage an authenticated user's CSV through the governed Gateway",
+      "useWhen": [
+        "the authenticated human wants to choose a local CSV through the first-party picker, or a supported host supplies a governed file parameter"
+      ],
+      "doNotUseWhen": [
+        "the requested upload mode is not configured"
+      ],
+      "preferredAlternatives": [
+        "request the user to choose a CSV from the first-party OUF picker"
+      ],
+      "operationalLimits": {
+        "maxArgumentsBytes": 4096,
+        "maxResultBytes": 4096
+      },
+      "resultSemantics": "An idempotent staged asset identity; profiling and DRAFT creation are separate actions",
+      "securityNotes": [
+        "The host URL stays in private request memory and never enters the Gateway envelope",
+        "Gateway checks delegated HUMAN scope; Onboarding verifies streamed bytes and owner receipt"
+      ],
+      "mcpClass": "MCP_PROPOSAL_ONLY",
+      "owner": "onboarding",
+      "operationClass": "COMMAND",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.managed-source.file.upload",
+      "gatewayBindingRef": "capability://ouf.managed-source.file.upload",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 4096,
+        "hardMaxElapsedMs": 30000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file"
+        ],
+        "properties": {
+          "file": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "file_id",
+              "download_url"
+            ],
+            "properties": {
+              "file_id": {
+                "type": "string",
+                "pattern": "^file_[A-Za-z0-9_-]{1,128}$"
+              },
+              "download_url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "mime_type": {
+                "type": "string",
+                "const": "text/csv"
+              },
+              "file_name": {
+                "type": "string",
+                "maxLength": 255
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "toolName": "source.file.profile",
+      "nextPolicy": "profile",
+      "capabilityId": "ouf.managed-source.file.profile",
+      "purpose": "Queue profiling of a managed file owned by the authenticated human",
+      "useWhen": [
+        "the user uploaded a CSV through the governed HUMAN attachment flow and knows its asset ID",
+        "Build VALUE_MAP entries from the column's distinctValues list in the completed profile. Use source.file.preview to read the result when this tool returns a job receipt. If distinctValues is absent or the profile only reports a count, tell the user that the column is unsuitable for an agent-built VALUE_MAP"
+      ],
+      "doNotUseWhen": [
+        "the user has no asset ID or wants to read a different user’s file"
+      ],
+      "preferredAlternatives": [
+        "upload via the governed Agent Host attachment bridge"
+      ],
+      "operationalLimits": {
+        "maxArgumentsBytes": 1024,
+        "maxResultBytes": 65536
+      },
+      "resultSemantics": "An idempotent profile job receipt or owner profile result, with distinctValues when available under the same authorization, access labels and redaction as source.file.preview",
+      "securityNotes": [
+        "HUMAN delegation and exact asset ownership are checked by Gateway and Onboarding",
+        "No file bytes, base64, filesystem paths or user-chosen URLs in tool arguments"
+      ],
+      "mcpClass": "MCP_PROPOSAL_ONLY",
+      "owner": "onboarding",
+      "operationClass": "COMMAND",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.managed-source.file.profile",
+      "gatewayBindingRef": "capability://ouf.managed-source.file.profile",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 65536,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assetId"
+        ],
+        "properties": {
+          "commandKey": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "assetId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "source.onboarding.revision.read",
+      "nextPolicy": "onboarding",
+      "capabilityId": "ouf.onboarding.revision.read",
+      "purpose": "Read property rules of a source version, or reconcile an exact revision command after a lost response",
+      "useWhen": [
+        "read the active parent before changing property policies or replacing its CSV",
+        "recover the current review receipt after a lost prepare response using the original sourceId, parentVersionId and commandKey"
+      ],
+      "doNotUseWhen": [
+        "human approval, activation, arbitrary configuration replacement or historical replay is requested"
+      ],
+      "preferredAlternatives": [
+        "source.onboarding.revision.read with the original sourceId, parentVersionId and commandKey after an ambiguous preparation"
+      ],
+      "operationalLimits": {
+        "maxArgumentsBytes": 4096,
+        "maxResultBytes": 65536
+      },
+      "resultSemantics": "Version/hash/lock and bounded rule projection or native review receipt. For a file replacement the receipt includes the recorded newColumns decisions and mappings for that version, including an empty array for historical replacements. Activation can start a new acquisition under retained scheduler configuration.",
+      "securityNotes": [
+        "Exact source/version authorization and existing managed-file ownership remain enforced",
+        "Keep the same commandKey after interruptions; changed intent is a new governed revision",
+        "The native HUMAN review discloses publication effects; no approval or activation is delegated"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "onboarding",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.onboarding.revision.read",
+      "gatewayBindingRef": "capability://ouf.onboarding.revision.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 65536,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+          },
+          "onboardingVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parentVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "commandKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "onboardingVersionId"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "parentVersionId"
+                  ]
+                },
+                {
+                  "required": [
+                    "commandKey"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "parentVersionId",
+              "commandKey"
+            ],
+            "not": {
+              "required": [
+                "onboardingVersionId"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

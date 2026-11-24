@@ -29,7 +29,8 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tests.test_release_family_onboarding_mcp import check_onboarding_http, reply_onboarding_owner
+from tests.release_bundle_fixture import ONBOARDING_IDS, R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -184,6 +185,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     dispatch_bodies = {}
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
+            if reply_onboarding_owner(self, b''): return
             if self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
@@ -198,6 +200,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
+            if reply_onboarding_owner(self, body): return
             if self.path in R2B_CASES:
                 self.r2b()
             elif self.path.startswith(terms_path):
@@ -249,7 +252,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
+    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False,extra_headers=None):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
         if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
             headers['Idempotency-Key'] = body['IdempotencyKey']
@@ -257,6 +260,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             headers.update({'X-OUF-Gateway-Verified': 'true', 'X-OUF-Tenant-ID': 'forged-tenant',
                             'X-OUF-Service-Principal': installation['ingestionServiceIdentity']})
         if bearer:headers['Authorization']='Bearer '+bearer
+        headers.update(extra_headers or {})
         if proof:headers['X-OUF-Delegation']=proof
         data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode()
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=data,headers=headers,method=method)
@@ -354,12 +358,13 @@ def test_real_apisix_oidc_delegation_and_execute():
         optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
+        doc['routes'] = [r for r in doc['routes'] if r['id'] not in ONBOARDING_IDS]
         if bundle_dir:
             doc['routes'].extend(release)
         else:
             doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
-                                 or route['id'] in R2B_ROUTE_IDS)
+                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in ONBOARDING_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
@@ -379,6 +384,7 @@ def test_real_apisix_oidc_delegation_and_execute():
                 probes['/internal/capabilities/v1/execute/' + suffix] = dispatch(tool_name)
         config = {
             'apisix': {'node_listen': port, 'enable_admin': False},
+            'plugins': sorted({plugin for route in doc['routes'] for plugin in route.get('plugins', {})}),
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
                                       'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
@@ -401,6 +407,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            check_onboarding_http(release, request, token, installation)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
@@ -456,7 +463,7 @@ def test_real_apisix_oidc_delegation_and_execute():
 
             if bundle_dir:
                 for route in doc['routes']:
-                    if not is_dispatch(route):
+                    if not is_dispatch(route) or route['id'] == 'mcp-managed-file-upload':
                         continue
                     schema = route['plugins']['request-validation']['body_schema']
                     invalid = dispatch_body(schema, ['private-source-value'])

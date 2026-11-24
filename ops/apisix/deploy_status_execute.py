@@ -11,6 +11,11 @@ import re
 import subprocess
 import tempfile
 
+try:  # repository root on sys.path (tests, python -m)
+    from ops.apisix.deploy_internal_m2m_routes import reject_bundle_owned
+except ImportError:  # run as a script from ops/apisix
+    from deploy_internal_m2m_routes import reject_bundle_owned
+
 
 def inherits_env(nginx, name):
     escaped = re.escape(name)
@@ -26,6 +31,7 @@ def route_value(doc):
 
 def apply_routes(routes, request):
     """Snapshot before any write; on partial failure restore all attempted IDs."""
+    reject_bundle_owned(r['id'] for r in routes)
     previous = {}
     for route in routes:
         code, value = request('GET', route['id'])
@@ -121,6 +127,7 @@ def main():
         previous=json.loads(args.restore.read_text())
         if not isinstance(previous,dict) or len(previous)!=3 or any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(k)) for k in previous):
             raise SystemExit('invalid snapshot')
+        reject_bundle_owned(previous)
         admin=Admin(args)
         try:
             for route_id,old in previous.items():
