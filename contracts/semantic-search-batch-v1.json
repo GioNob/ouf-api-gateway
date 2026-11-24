@@ -1,0 +1,49 @@
+{
+  "provenance": {
+    "kind": "contract-derived",
+    "source": "Contratto sprint-03 — Analisi semantica v2, 2.0.0, 2026-11-23, A.1–A.3",
+    "sourceSha256": "cbffb37d86190faf616e3d9b9109f3b102b3627b7c20376d87c947c6f0aa3f7d"
+  },
+  "capabilityId": "ouf.semantic.search.batch",
+  "gatewayBindingRef": "capability://ouf.semantic.search.batch",
+  "owner": "semantic",
+  "operationClass": "READ",
+  "requiredAuthorizationCapability": "ouf.semantic.search",
+  "allowedActors": ["HUMAN"],
+  "toolEligible": false,
+  "baseCostEnvelope": {"hardMaxResultBytes": 262144},
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["contract", "limitPerIntent", "intents"],
+    "properties": {
+      "contract": {"type": "string", "const": "ouf.semantic.published-batch.v1"},
+      "limitPerIntent": {"type": "integer", "minimum": 1, "maximum": 8},
+      "intents": {
+        "type": "array", "minItems": 1, "maxItems": 64,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["intentId", "intent", "preferredLanguages", "requestedArtifactType", "context"],
+          "properties": {
+            "intentId": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+            "intent": {"type": "string", "minLength": 1, "maxLength": 256},
+            "preferredLanguages": {
+              "type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8}){0,3}$"}
+            },
+            "requestedArtifactType": {"type": "string", "enum": ["PROPERTY", "CLASS", "DATATYPE"]},
+            "context": {
+              "type": "object", "additionalProperties": false,
+              "properties": {
+                "namespace": {"type": "string", "minLength": 1, "maxLength": 512},
+                "domain": {"type": "string", "minLength": 1, "maxLength": 2048},
+                "range": {"type": "string", "minLength": 1, "maxLength": 2048}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

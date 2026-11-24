@@ -11,7 +11,10 @@ ROUTE_CLASSES = {
 
 
 def limit_count(route_id, settings=None):
-    route_class = ROUTE_CLASSES[route_id]
+    return rate_limit_profile(ROUTE_CLASSES[route_id], settings)
+
+
+def rate_limit_profile(route_class, settings=None):
     if settings is None:
         prefix = f'gateway.rateLimits.{route_class}.'
         values = {name: {'$installation': prefix + name}

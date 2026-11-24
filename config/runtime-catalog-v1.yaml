@@ -38,3 +38,9 @@ entries:
   gateway.rateLimits.r2bPublication.count: *r2bCount
   gateway.rateLimits.r2bPublication.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.r2bPublication.key: *r2bKey
+  gateway.rateLimits.semanticSearch.count: *r2bCount
+  gateway.rateLimits.semanticSearch.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.semanticSearch.key: *r2bKey
+  gateway.rateLimits.semanticSearchBatch.count: *r2bCount
+  gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.semanticSearchBatch.key: *r2bKey

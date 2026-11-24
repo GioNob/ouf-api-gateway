@@ -14,6 +14,8 @@ DISCOVERY_REVIEW_IDS = [
     'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status',
 ]
 
+SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
+
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -22,10 +24,11 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
 ])
 
-RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication')
+RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
+                'semanticSearch', 'semanticSearchBatch')
 
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
@@ -117,6 +120,7 @@ def ci_profile(installation, port):
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
         'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY', 'gateway.semanticDiscoveryOwnerKeyEnv': 'DISCOVERY_KEY',
+        'gateway.semanticReadOwnerKeyEnv': 'READ_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,

@@ -22,8 +22,13 @@ for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
 end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
-ngx.req.read_body()
-local body = ngx.req.get_body_data()
+local body
+if READ_MODE then
+    body = ctx.ouf_original_body
+else
+    ngx.req.read_body()
+    body = ngx.req.get_body_data()
+end
 if not body or #body > 65536 then return fail(413) end
 local e = cjson.decode(body)
 -- request-validation enforces the closed permission envelope before this function.
@@ -32,24 +37,45 @@ local i = e.Identity
 if i.PrincipalID ~= p.principal or i.TenantID ~= p.tenant or i.ActorType ~= p.actor
     or i.AuthenticationContextRef ~= p.acr or i.ServicePrincipalID ~= p.client then return fail(403) end
 local operations = {search={'ouf.semantic.search','READ'},get={'ouf.semantic.consultation.read','READ','ouf.semantic.read'}}
-local name = ngx.var.uri:match('/([a-z]+)$')
+if READ_MODE == 'search-batch' then operations['search-batch'] = {'ouf.semantic.search.batch','READ','ouf.semantic.search'} end
+local name = ngx.var.uri:match('/([a-z-]+)$')
+if READ_MODE and name ~= READ_MODE then return fail(403) end
 local operation = name and operations[name]
 if not operation or e.CapabilityID ~= operation[1]
     or e.GatewayBindingRef ~= 'capability://' .. e.CapabilityID or e.Owner ~= 'semantic'
     or e.OperationClass ~= operation[2] or not scope_has(p.scope, operation[3] or e.CapabilityID) then return fail(403) end
 local a=e.Arguments
 if type(a)~='table' then return fail(400) end
-if name=='search' then
+if name=='search-batch' then
+    -- request-validation checks the closed schema; these two identities span array items.
+    local function invalid_batch()
+        ngx.status = 400
+        ngx.header.content_type = 'application/json'
+        ngx.say('{"code":"SEM_BATCH_ARGUMENTS_INVALID"}')
+        return ngx.exit(400)
+    end
+    local ids = {}
+    for _, intent in ipairs(a.intents) do
+        if ids[intent.intentId] then return invalid_batch() end
+        ids[intent.intentId] = true
+        local languages = {}
+        for _, language in ipairs(intent.preferredLanguages) do
+            local key = language:lower()
+            if languages[key] then return invalid_batch() end
+            languages[key] = true
+        end
+    end
+elseif name=='search' and not READ_MODE then
     if type(a.q)~='string' or #a.q<1 or #a.q>256 then return fail(400) end
     if a.limit~=nil and (type(a.limit)~='number' or a.limit%1~=0 or a.limit<1 or a.limit>100) then return fail(400) end
-    local kinds={CLASS=true,PROPERTY=true,RELATIONSHIP=true,VOCABULARY=true,CONCEPT=true,ONTOLOGY=true}
+    -- MATERIALIZE SEARCH TYPES
     if a.type~=nil and (type(a.type)~='string' or not kinds[a.type]) then return fail(400) end
     local allowed={q=true,limit=true,type=true,namespace=512,domain=2048,range=2048}
     for k,v in pairs(a) do
         if not allowed[k] then return fail(400) end
         if type(allowed[k])=='number' and (type(v)~='string' or #v<1 or #v>allowed[k]) then return fail(400) end
     end
-else
+elseif name=='get' then
     local function uuid(v)
         return type(v)=='string' and #v==36 and v:match('^[%x-]+$')
             and v:sub(9,9)=='-' and v:sub(14,14)=='-' and v:sub(19,19)=='-' and v:sub(24,24)=='-'

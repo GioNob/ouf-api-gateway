@@ -17,11 +17,13 @@ from tools.r2b_limits import ROUTE_CLASSES
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
 from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
+from tools.materialize_semantic_read import materialize_governed as search_routes
 from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
-from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
+from tools.apisix_request_schema import verify_dispatch_arguments
+from tools.mcp_dispatch_contract import SEARCH_BINDINGS, THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v2'
@@ -117,7 +119,9 @@ def release_resources():
     mediated = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
     discovery = discovery_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_DISCOVERY', 'BUNDLE_INPUT_SEMANTIC')
     mediated['routes'].extend(discovery)
+    mediated['routes'].extend(search_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_READ'))
     dispatch_bindings = {
+        **{key: ('ouf-semantic-registry', 'gateway.semanticReadOwnerKeyEnv') for key in SEARCH_BINDINGS},
         'mcp-semantic-discovery-request': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
         'mcp-semantic-discovery-status': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
         'mcp-semantic-discovery-candidates': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
@@ -236,6 +240,7 @@ def generate(output, source_commit, workflow_path, run_id):
     if not re.fullmatch(r'[0-9]+', run_id):
         raise ValueError('expected numeric workflow run ID')
     resources = ordered_resources(release_resources())
+    verify_dispatch_arguments(resources)
     encoded = canonical(resources)
     if b'bundle-input-' in encoded or b'BUNDLE_INPUT_' in encoded or b'installation://' in encoded:
         raise ValueError('unconverted installation input')

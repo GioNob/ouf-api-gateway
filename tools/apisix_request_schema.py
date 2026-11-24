@@ -1,6 +1,34 @@
 """Project self-contained dispatch schemas into APISIX request-validation."""
 
-from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS
+import json
+
+from tools.mcp_dispatch_contract import (
+    EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts,
+    dispatch_input_schema, envelope_refs, picker_contract,
+)
+
+
+def verify_dispatch_arguments(resources):
+    """Check every released execute route against its declaration, including nested constraints."""
+    for item in resources:
+        route = item['body']
+        uri = route.get('uri', '')
+        if item['kind'] != 'routes' or not (uri == EXECUTE_PATH or uri.startswith(EXECUTE_PATH + '/')):
+            continue
+        route_id = item['id']
+        schema = route['plugins']['request-validation']['body_schema']
+        capability = bound_capability(schema)
+        if route_id in PICKER_ROUTES:
+            target, field, _ = PICKER_ROUTES[route_id]
+            if capability != target:
+                raise ValueError(f'{route_id}: unexpected picker capability')
+            arguments = picker_contract(route_id)[field]
+        else:
+            arguments = dispatch_input_schema(capability, capability_contracts()[capability]['inputSchema'])
+        expected = inline_dispatch_schema({'properties': {'Arguments': envelope_refs(arguments)}})
+        actual = schema['properties']['Arguments']
+        if json.dumps(actual, sort_keys=True) != json.dumps(expected['properties']['Arguments'], sort_keys=True):
+            raise ValueError(f'{route_id}: Arguments differ from {capability} contract')
 
 
 def dispatch_validation(schema, request_limit):
