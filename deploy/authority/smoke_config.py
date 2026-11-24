@@ -18,7 +18,9 @@ def generate(root):
     (root / 'iam-store' / 'iam.db').touch()
     p = profile()
     save('profile.json', p)
-    save('iam.json', dict(profileFile='/config/profile.json', resourceServer='fixture-verifier',
+    # C5 (task-58f): the resource-server comes from the approved profile; an explicit
+    # override must be identical, so the smoke uses the profile's own client.
+    save('iam.json', dict(profileFile='/config/profile.json', resourceServer=p['grant']['resourceServer']['clientId'],
                           secretEnv='FIXTURE_IAM', caFile='/pki/ca.pem', store='/state/iam.db',
                           gatewayTlsPrincipal='urn:fixture:gateway'))
     cfg = dict(contract='ouf.analysis.installation.v1', store='/state/gateway.db',
