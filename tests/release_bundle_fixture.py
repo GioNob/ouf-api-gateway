@@ -3,6 +3,8 @@ import hashlib
 import json
 import re
 
+from tests.public_mcp_fixture import public_mcp_profile
+
 
 R2B_ROUTE_IDS = (
     'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
@@ -20,6 +22,7 @@ RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
     'mcp-source-revision-prepare',
+    'public-mcp-endpoint', 'public-mcp-oauth-protected-resource',
     *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
@@ -110,6 +113,7 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 
 def ci_profile(installation, port):
     return {
+        **public_mcp_profile(installation, port),
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],

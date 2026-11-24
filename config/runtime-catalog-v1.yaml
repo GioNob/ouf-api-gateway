@@ -44,3 +44,7 @@ entries:
   gateway.rateLimits.semanticSearchBatch.count: *r2bCount
   gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearchBatch.key: *r2bKey
+  gateway.rateLimits.publicMcp.count: *r2bCount
+  gateway.rateLimits.publicMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.publicMcpMetadata.count: *r2bCount
+  gateway.rateLimits.publicMcpMetadata.timeWindowSeconds: *r2bTimeWindowSeconds

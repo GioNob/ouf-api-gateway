@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply three reviewed APISIX routes, retaining a private rollback snapshot.
+"""Apply the legacy status execute route, retaining a private rollback snapshot.
 
 No credentials in argv/output. Admin traffic stays in APISIX's network namespace.
 """
@@ -10,6 +10,16 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+
+
+STATUS_ID = 'mcp-generic-execution'
+PUBLIC_MCP_IDS = {'public-mcp-endpoint', 'public-mcp-oauth-protected-resource'}
+
+
+def status_snapshot(previous):
+    if not isinstance(previous, dict) or set(previous) not in ({STATUS_ID}, PUBLIC_MCP_IDS | {STATUS_ID}):
+        raise SystemExit('invalid status snapshot')
+    return {STATUS_ID: previous[STATUS_ID]}
 
 
 def inherits_env(nginx, name):
@@ -26,6 +36,8 @@ def route_value(doc):
 
 def apply_routes(routes, request):
     """Snapshot before any write; on partial failure restore all attempted IDs."""
+    if any(route['id'] in PUBLIC_MCP_IDS for route in routes):
+        raise ValueError('public MCP routes are owned by the governed Gateway release')
     previous = {}
     for route in routes:
         code, value = request('GET', route['id'])
@@ -118,9 +130,7 @@ def main():
     if bool(args.materialization)==bool(args.restore):
         parser.error('choose exactly one of --materialization or --restore')
     if args.restore:
-        previous=json.loads(args.restore.read_text())
-        if not isinstance(previous,dict) or len(previous)!=3 or any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(k)) for k in previous):
-            raise SystemExit('invalid snapshot')
+        previous=status_snapshot(json.loads(args.restore.read_text()))
         admin=Admin(args)
         try:
             for route_id,old in previous.items():
@@ -134,12 +144,9 @@ def main():
             (admin.work/'admin.header').unlink(missing_ok=True)
         return
     doc=json.loads(args.materialization.read_text())
-    routes=doc['routes']
-    expected={'/mcp':['POST'],'/.well-known/oauth-protected-resource':['GET'],'/internal/capabilities/v1/execute':['POST']}
-    if len(routes)!=3 or {r['uri']:r['methods'] for r in routes}!=expected:
-        raise SystemExit('expected the three reviewed status profile routes')
-    if any(not re.fullmatch(r'[A-Za-z0-9_-]+',str(r['id'])) for r in routes):
-        raise SystemExit('invalid route id')
+    routes=[r for r in doc['routes'] if r['id'] == STATUS_ID]
+    if len(routes)!=1 or routes[0]['uri']!='/internal/capabilities/v1/execute' or routes[0]['methods']!=['POST']:
+        raise SystemExit('expected the reviewed status execute route')
     env_name=doc.get('delegationKeyEnv','')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',env_name):
         raise SystemExit('invalid delegation environment name')

@@ -24,7 +24,7 @@ end"""
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
              use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None, read_mode=None):
-    if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
+    if use_route_labels and kind not in ('issue_delegation', 'execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
                                          'execute_managed_file_retained', 'execute_semantic_discovery', 'execute_discovery_adopt',
                                          'execute_semantic_read'):
         raise ValueError('unsupported installation-bound function')
@@ -96,8 +96,11 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
             expression = (f'labels[{json.dumps(INSTALLATION_LABELS[key])}]'
                           if key in INSTALLATION_LABELS else json.dumps(value))
             lines.append(f'local {key} = {expression}')
-        lines.append('if not ISSUER or not AUDIENCE or not MCP_WORKLOAD or not OWNER_KEY_ENV '
-                     'or not DELEGATION_KEY_ENV or OWNER_KEY_ENV == DELEGATION_KEY_ENV then return ngx.exit(503) end')
+        if kind == 'issue_delegation':
+            lines.append('if not ISSUER or not AUDIENCE or not MCP_WORKLOAD or not DELEGATION_KEY_ENV then return ngx.exit(503) end')
+        else:
+            lines.append('if not ISSUER or not AUDIENCE or not MCP_WORKLOAD or not OWNER_KEY_ENV '
+                         'or not DELEGATION_KEY_ENV or OWNER_KEY_ENV == DELEGATION_KEY_ENV then return ngx.exit(503) end')
         constants = '\n'.join(lines)
     else:
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
