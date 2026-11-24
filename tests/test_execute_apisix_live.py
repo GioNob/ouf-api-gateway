@@ -182,6 +182,8 @@ def test_real_apisix_oidc_delegation_and_execute():
     }
     dispatch_calls = []
     dispatch_bodies = {}
+    upload_calls = []
+    xlsx_media_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path=='/discovery':
@@ -205,6 +207,11 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in human_runs:
                 self.human_run()
+            elif self.path == '/api/internal/v1/onboarding/managed-file-mcp/upload':
+                upload_calls.append(self.path)
+                self.reply({'hash': 'sha256:' + hashlib.sha256(body).hexdigest(),
+                            'mediaType': self.headers.get('Content-Type'),
+                            'receipt': self.headers.get('X-OUF-Managed-File-Receipt')})
             elif self.path in ({owner for owner, _, _ in wave2_dispatch.values()} |
                                {owner for _, owner in dispatch_paths.values()}):
                 dispatch_calls.append(self.path)
@@ -249,8 +256,9 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
+    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False,extra_headers=None):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
+        headers.update(extra_headers or {})
         if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
             headers['Idempotency-Key'] = body['IdempotencyKey']
         if path.split('?')[0] in R2B_CASES:
@@ -455,8 +463,33 @@ def test_real_apisix_oidc_delegation_and_execute():
             assert json.loads(result) == {'sessionRequired': True, 'authorization': None}
 
             if bundle_dir:
+                upload_uri = '/internal/capabilities/v1/execute/managed.file/upload'
+                scope = 'ouf.managed-source.file.upload'
+                status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
+                assert status == 200
+                upload_proof = json.loads(result)['proof']
+                for media_type, version in [('text/csv', 1), (xlsx_media_type, 2), ('application/json', None)]:
+                    payload = b'column\nvalue\n' if version == 1 else b'PK\x03\x04synthetic-binary\x00'
+                    checksum = 'sha256:' + hashlib.sha256(payload).hexdigest()
+                    headers = {'Content-Type': media_type, 'X-Content-SHA256': checksum, 'X-OUF-File-ID': 'file_ci'}
+                    status, result = request('POST', upload_uri, payload, token('SERVICE'), upload_proof,
+                                             extra_headers=headers)
+                    if version is None:
+                        assert status == 400 and INVALID_TOOL_ARGUMENTS.encode() in result
+                        continue
+                    assert status == 200, (status, result)
+                    echo = json.loads(result)
+                    assert echo['hash'] == checksum and echo['mediaType'] == media_type
+                    encoded, sig = echo['receipt'].encode().split(b'.')
+                    domain = f'ouf-managed-file-upload-v{version}.'.encode()
+                    assert hmac.compare_digest(base64.urlsafe_b64decode(sig + b'=='),
+                                               hmac.digest(b'cd' * 32, domain + encoded, 'sha256'))
+                    claims = json.loads(base64.urlsafe_b64decode(encoded + b'=='))
+                    assert claims['v'] == version and claims['expectedHash'] == checksum
+                    assert claims.get('mediaType') == (media_type if version == 2 else None)
+                assert len(upload_calls) == 2
                 for route in doc['routes']:
-                    if not is_dispatch(route):
+                    if not is_dispatch(route) or route['id'] == 'mcp-managed-file-upload':
                         continue
                     schema = route['plugins']['request-validation']['body_schema']
                     invalid = dispatch_body(schema, ['private-source-value'])

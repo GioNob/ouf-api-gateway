@@ -131,8 +131,7 @@ def test_review_schema_bounds_and_login_custody():
     with pytest.raises(ValueError, match='OAuth login'): materialize(existing, rt, 'DELEGATION_KEY', 'ONBOARDING_OWNER_KEY')
 
 
-@pytest.mark.parametrize("datatype", ["string", "decimal", "date"])
-def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt(datatype):
+def execution_proposal(datatype):
     publication = '00000000-0000-4000-8000-000000000002'
     iri = 'https://schema.org/name'
     policy = {'ref': 'identity-policy', 'version': '1', 'tenantId': 'tenant-a', 'canonicalClass': 'https://schema.org/PerformingArtsTheater',
@@ -148,6 +147,12 @@ def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt(dat
                          'datatype': 'http://www.w3.org/2001/XMLSchema#'+datatype, 'accessLabel': 'OPEN', 'authorityOrder': ['teatri']}],
                          'bitemporalProperties': [], 'checkpointInterval': 1}},
                 'limits': {'maxRows': 100, 'maxColumns': 20, 'maxCellChars': 1000}}
+    return proposal
+
+
+@pytest.mark.parametrize("datatype", ["string", "decimal", "date"])
+def test_nested_execution_proposal_is_bounded_and_preserved_by_owner_receipt(datatype):
+    proposal = execution_proposal(datatype)
     e = request();e['Arguments']['executionProposal'] = proposal
     # GW-51J-WIDE. A wide source can pin a distinct semantic reference for each column.
     pin, = proposal['semanticBindings']

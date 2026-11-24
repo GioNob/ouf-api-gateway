@@ -70,7 +70,7 @@ local encoded = encode64(cjson.encode(receipt))
 local hmac = require('resty.openssl.hmac').new(owner_key,'sha256')
 local signed = hmac and hmac:final('ouf-source-revision-owner-v1.'..encoded)
 if not signed then return fail(503) end
-if name == 'prepare' and e.Arguments.assetRef ~= nil then
+if name == 'prepare' and (e.Arguments.assetRef ~= nil or e.Arguments.unitProfileRef ~= nil) then
     -- Format the schema-bounded integer exactly, including large lock versions.
     local version = e.Arguments.expectedVersion
     if type(version) ~= 'number' or version < 0 or version > 9007199254740991 or version % 1 ~= 0 then

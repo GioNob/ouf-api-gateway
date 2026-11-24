@@ -31,11 +31,19 @@ local length = headers['content-length']
 local hash = headers['x-content-sha256']
 local file_id = headers['x-ouf-file-id']
 local key = headers['idempotency-key']
+local media_type = headers['content-type']
+local allowed = ctx.matched_route.value.desc
+if type(allowed) ~= 'string' or allowed == '' then return fail(503) end
+local admitted = false
+for entry in (allowed..','):gmatch('([^,]*),') do
+    if not entry:match('^[a-z0-9][a-z0-9.+-]*/[a-z0-9][a-z0-9.+-]*$') then return fail(503) end
+    if entry == media_type then admitted = true end
+end
 if type(length) ~= 'string' or not length:match('^[1-9][0-9]*$') or #length > 8
     or tonumber(length) > 10485760 or type(hash) ~= 'string' or not hash:match('^sha256:[0-9a-f]+$')
     or #hash ~= 71 or type(file_id) ~= 'string' or not file_id:match('^file_[A-Za-z0-9_-]+$')
     or #file_id > 133 or type(key) ~= 'string' or not key:match('^[A-Za-z0-9_.:-]+$')
-    or #key > 128 or headers['content-type'] ~= 'text/csv' then return fail(400) end
+    or #key > 128 or not admitted then return fail(400) end
 for name, _ in pairs(headers) do
     local lower = name:lower()
     if lower:sub(1,6) == 'x-ouf-' or lower == 'authorization' or lower == 'cookie'
@@ -51,9 +59,15 @@ local receipt = {v=1,purpose='managed-file-upload-owner',method='POST',
     iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
     workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,acr=p.acr,
     roles=roles,scope=p.scope,idempotencyKey=key}
+local domain = 'ouf-managed-file-upload-v1.'
+if media_type ~= 'text/csv' then
+    receipt.v = 2
+    receipt.mediaType = media_type
+    domain = 'ouf-managed-file-upload-v2.'
+end
 local encoded = encode64(cjson.encode(receipt))
 local hmac = require('resty.openssl.hmac').new(owner_key,'sha256')
-local signed = hmac and hmac:final('ouf-managed-file-upload-v1.'..encoded)
+local signed = hmac and hmac:final(domain..encoded)
 if not signed then return fail(503) end
 ngx.req.set_header('X-OUF-Managed-File-Receipt',encoded..'.'..encode64(signed))
 ngx.req.clear_header('X-OUF-File-ID')

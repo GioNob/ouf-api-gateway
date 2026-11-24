@@ -26,7 +26,7 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
              use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None, read_mode=None):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
                                          'execute_managed_file_retained', 'execute_semantic_discovery', 'execute_discovery_adopt',
-                                         'execute_semantic_read'):
+                                         'execute_semantic_read', 'execute_managed_upload'):
         raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')

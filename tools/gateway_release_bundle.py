@@ -15,6 +15,7 @@ from tools.delegation_functions import INSTALLATION_LABELS
 from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
 from tools.r2b_limits import ROUTE_CLASSES
 from tools.materialize_managed_file_mcp import materialize as managed_file
+from tools.materialize_managed_upload import materialize as managed_upload
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
 from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
 from tools.materialize_semantic_read import materialize_governed as search_routes
@@ -85,7 +86,7 @@ def release_resources():
         'mcp': {'environment': {'MCP_OIDC_CLIENT_ID': clients['mcpServer']}},
         'gateway': {'issuerUrl': 'https://bundle-input-issuer.invalid',
                     'publicApiBaseUrl': 'https://bundle-input-api.invalid',
-                    'requiredAudience': 'bundle-input-audience'},
+                    'requiredAudience': 'bundle-input-audience', 'managedUploadMediaTypes': 'text/csv'},
     }
     runtime = apply_projection(compile_config(ROOT / 'ouf-config'), projection)
     secret_ref = '$ENV://BUNDLE_INPUT_OIDC'
@@ -109,6 +110,9 @@ def release_resources():
     delegation = 'BUNDLE_INPUT_DELEGATION'
     onboarding = 'BUNDLE_INPUT_ONBOARDING'
     managed = managed_file(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
+    upload = managed_upload(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
+    upload['desc'] = installation('gateway.managedUploadMediaTypes')
+    managed['routes'].append(upload)
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
@@ -133,6 +137,8 @@ def release_resources():
         'mcp-managed-file-handoff': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-handoff-issue': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-preview': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-profile': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-upload': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-review-read': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
     }

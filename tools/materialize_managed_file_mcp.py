@@ -60,7 +60,7 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
         # Retain the installed reader and receipt checks during adoption.
         source = 'execute_managed_file_retained' if mode == 'handoff' else 'execute_managed_file'
         post = function(source, runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
-                        use_route_labels=use_route_labels and mode != 'profile', issue_handoff=mode == 'handoff-issue')
+                        use_route_labels=use_route_labels, issue_handoff=mode == 'handoff-issue')
         route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}

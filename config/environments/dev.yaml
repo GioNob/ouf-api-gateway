@@ -2,6 +2,7 @@ apiVersion: ouf.trieste.it/v1
 kind: GatewayEnvironmentOverlay
 environment: dev
 values:
+  gateway.managedUploadMediaTypes: text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
   publication.batchSize: 25
   publication.convergenceTimeout: 30
   rateLimit.defaultPerMinute: 100

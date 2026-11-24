@@ -19,13 +19,11 @@ ADOPTED_ROUTE_IDS = {
     'r2b-handoff-write': 'r4a-udp-runtime-handoff-write',
     'r2b-publication-feed': 'r4a-onboarding-runtime-publications-list',
 }
-# resourcesSha256 emitted by the unmodified 6ae4886 release generator.
-BASELINE_RESOURCES_SHA256 = 'e7d669a1552f87c10cbefae3ed5013eb3a368e693fe14963795081760ed7cf30'
+# Retained 6ae4886 resources with their original IDs, excluding later governed additions and unit routes.
+BASELINE_RESOURCES_SHA256 = 'c403d7adad7cc75069ad46e8712f26e63224a78492638ef76330904d0309d0c9'
 # Digests of the canonical arrays emitted by the unmodified 9064a5f release generator.
-TASK_51D2_RESOURCES_SHA256 = 'ecb8a08122854dbc54dd7d592ea1ceca33e97a481bb2ab3ffa8cc9e6380cb550'
 TASK_51D2_PLACEHOLDERS_SHA256 = '90a9dbc7f6d05d7f26f79a799cd24eac6e38ba50a7e51168db367617d68c5695'
 PICKER_IDS = {'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue'}
-TASK_51I_RESOURCES_SHA256 = 'c0beb3b5e2bc2282b7205f30ef586e302cfcfbafe6ef4f1755ed859ed1acaac4'
 
 # Frozen reconstruction, not a snapshot of the installation. Keep the hashes
 # independent of the materializer, including selectors, plugins, Lua and nodes.
@@ -56,17 +54,20 @@ def resources(bundle):
 
 
 def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
-    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    assert len(bundle['resources']) == 31
-    task_51j = [row for row in bundle['resources'] if row['id'] not in SEARCH_IDS]
-    assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
-        '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
-    predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
-    assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
-    retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
-    assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
+    """GW-62D-BUNDLE. Freeze every other field of the 3d69cb4 release."""
+    assert len(bundle['resources']) == 33
+    rows = [item for item in copy.deepcopy(bundle['resources'])
+            if item['id'] not in ('mcp-managed-file-profile', 'mcp-managed-file-upload')]
+    for item in rows:
+        if item['id'] in ('mcp-managed-file-preview', 'mcp-managed-file-create',
+                          'mcp-managed-file-review-prepare', 'mcp-source-revision-prepare'):
+            plugins = item['body']['plugins']
+            del plugins['request-validation']['body_schema']['properties']['Arguments']
+            if item['id'] == 'mcp-source-revision-prepare':
+                del plugins['serverless-post-function']['functions']
+    assert len(rows) == 31 and sha256(canonical_json(rows)) == '6fafa87eed9b8c6166edcad0d314b6954df0ecc84d34881c3df1b7568b4dd87e'
     assert sha256(canonical_json([p for p in bundle['placeholders']
-                                  if p['name'] not in ('gateway.semanticDiscoveryOwnerKeyEnv',
+                                  if p['name'] not in ('gateway.managedUploadMediaTypes', 'gateway.semanticDiscoveryOwnerKeyEnv',
                                                        'gateway.semanticReadOwnerKeyEnv')
                                   and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
 
@@ -124,8 +125,10 @@ def test_adopted_route_ids_and_unique_selectors(resources):
 def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
+    unit_ids = {'mcp-managed-file-profile', 'mcp-managed-file-upload', 'mcp-managed-file-create',
+                'mcp-managed-file-preview', 'mcp-source-revision-prepare'}
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle['resources'] if item['id'] not in unit_ids | PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 
