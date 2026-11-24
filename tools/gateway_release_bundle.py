@@ -9,7 +9,9 @@ import tempfile
 from pathlib import Path
 
 from ops.apisix.deploy_semantic_human import validate
-from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH, STATUS_MAX_BYTES
+from tools.analysis_protocol import (
+    ACTIONS, BASE as MANDATE_PATH, RENEWALS, RENEWAL_REQUEST_MAX, RENEWAL_SELECTORS, STATUS_MAX_BYTES,
+)
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
@@ -77,6 +79,27 @@ def placeholder_type(name):
     return 'string'
 
 
+def renewal_page(template, binding, action):
+    method, uri, regex = RENEWAL_SELECTORS[binding['id']]
+    selector = [['uri', '~~', regex]]
+    cap = 'ouf.analysis.renewal.' + action
+    policy = binding['x-ouf-policy']
+    if (binding['uri'] != uri or binding['methods'] != [method] or binding.get('vars') != selector
+            or binding['x-ouf-backend-binding'] != {'service': 'ouf-onboarding', 'port': 8080, 'path': uri}
+            or binding['labels']['exposure'] != 'public' or policy['identity'] != 'OIDC'
+            or policy['allowedActorTypes'] != ['HUMAN'] or policy['requiredScope'] != cap
+            or binding['x-ouf-capability']['capabilityId'] != cap
+            or not 1 <= policy['maxRequestBytes'] <= RENEWAL_REQUEST_MAX or not 1 <= policy['timeoutSeconds'] <= 30):
+        raise ValueError('renewal THS binding drift: ' + binding['id'])
+    route = copy.deepcopy(template)
+    route.update(id=binding['id'], uri=binding['uri'], methods=[method], vars=selector)
+    route['labels'].update({'ouf-capability': cap, 'ouf-installation-revision': installation('revision')})
+    route['plugins']['client-control'] = {'max_body_size': policy['maxRequestBytes']}
+    timeout = policy['timeoutSeconds']
+    route['upstream']['timeout'] = dict(connect=min(3, timeout), send=min(3, timeout), read=timeout)
+    return route
+
+
 def release_resources():
     # Exercise the same D-058 projection and materializer guards as a private
     # installation. These build-only inputs must never be distributed.
@@ -115,6 +138,9 @@ def release_resources():
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
             resources.append(route_resource(route, 'ouf-onboarding'))
+            for action in ('read', 'decide'):
+                binding = bindings['trusted-human-analysis-renewal-' + action]
+                resources.append(route_resource(renewal_page(route, binding, action), 'ouf-onboarding'))
         elif route['id'] in RUN_ROUTES:
             resources.append(route_resource(route, 'ouf-ingestion-runtime'))
     revisions = revision_prepare(reviewed, runtime, delegation, onboarding, use_route_labels=True)
@@ -126,27 +152,34 @@ def release_resources():
     # (the mandate authority rejects duplicate keys before any normalization).
     execute, = (r for r in mediated['routes'] if r.get('uri') == '/internal/capabilities/v1/execute')
     mandate_lua = (Path(__file__).parent / 'lua/analysis_mandate.lua').read_text(encoding='utf-8')
-    for action in ACTIONS:
-        route_id = 'mcp-analysis-mandate-' + action
+    for action in (*ACTIONS, 'read', 'decide'):
+        review = action in ('read', 'decide')
+        renewal = review or action == 'renewal-check'
+        route_id = ('onboarding-analysis-renewal-' if review else 'mcp-analysis-mandate-') + action
         binding = bindings[route_id]
-        path = MANDATE_PATH + action
+        path = (RENEWALS if review else MANDATE_PATH) + action
         backend = binding['x-ouf-backend-binding']
         cap, policy = binding['x-ouf-capability'], binding['x-ouf-policy']
         if (binding['uri'] != path or binding['methods'] != ['POST'] or binding.get('vars')
                 or backend['path'] != path or backend['service'] != 'ouf-gateway-analysis-mandates'
-                or binding['labels']['exposure'] != 'internal' or cap['owner'] != 'gateway'
+                or binding['labels']['exposure'] != 'internal' or cap['owner'] != ('mcp' if review else 'gateway')
                 or binding['labels']['source'] != 'gateway-analysis-mandates@1.0.0'
-                or cap['capabilityId'] != 'ouf.analysis.mandate.' + action or cap['toolEligible']
-                or cap['operationType'] != ('READ' if action == 'status' else 'COMMAND')
-                or cap['humanRequired'] != (action == 'issue')
-                or policy['identity'] != 'M2M' or policy['allowedActorTypes'] != ['SERVICE']
+                or cap['capabilityId'] != ('ouf.analysis.renewal.' if review else 'ouf.analysis.mandate.') + action
+                or cap['toolEligible'] or cap['operationType'] != ('READ' if action in ('status', 'read', 'renewal-check') else 'COMMAND')
+                or cap['humanRequired'] != (renewal or action == 'issue')
+                or policy['identity'] != ('OIDC' if review else 'M2M')
+                or policy['allowedActorTypes'] != (['HUMAN'] if review else ['SERVICE'])
                 or policy['requiredScope'] != cap['capabilityId']
-                or policy['allowedServiceIdentities'] != [clients['mcpServer']]):
+                or policy['allowedServiceIdentities'] != (['ouf-onboarding'] if review else [clients['mcpServer']])
+                or renewal and (backend['port'] != 8443 or not 1 <= policy['maxRequestBytes'] <= RENEWAL_REQUEST_MAX
+                                or not 1 <= policy['timeoutSeconds'] <= 30)):
             raise ValueError(f'{route_id}: mandate binding drift')
         oidc = copy.deepcopy(execute['plugins']['openid-connect'])
         oidc['claim_validator']['issuer'] = {'valid_issuers': [installation('gateway.issuerUrl')]}
+        if renewal:
+            oidc['required_scopes'] = [cap['capabilityId']]
         timeout = policy['timeoutSeconds']
-        relay = mandate_lua.replace('__SERVICE_ONLY_PATH__', path if action == 'status' else MANDATE_PATH + 'dispatch')
+        relay = mandate_lua.replace('__SERVICE_ONLY_PATH__', path if review or action == 'status' else MANDATE_PATH + 'dispatch')
         relay = relay.replace('__MAX_RESPONSE_BYTES__', str(STATUS_MAX_BYTES if action == 'status' else 1048576))
         route = {'id': route_id, 'uri': path, 'methods': ['POST'],
                  'labels': {'ouf-mediation': 'analysis-mandate-v1', 'ouf-exposure': 'internal',
@@ -156,6 +189,13 @@ def release_resources():
                  'upstream': {'scheme': 'https', 'type': 'roundrobin', 'retries': 0,
                               'timeout': dict(connect=timeout, send=timeout, read=timeout),
                               'nodes': {f"{backend['service']}:{backend['port']}": 1}}}
+        if renewal:
+            route['labels']['ouf-capability'] = cap['capabilityId']
+            route['plugins']['response-rewrite'] = {
+                'vars': [['status', 'in', [401, 403]]], 'status_code': 403,
+                'headers': {'set': {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}},
+                'body': '{"code":"ANALYSIS_AUTHORITY_DENIED"}',
+            }
         resources.append(route_resource(route, backend['service']))
     dispatch_bindings = {
         **{key: ('ouf-semantic-registry', 'gateway.semanticReadOwnerKeyEnv') for key in SEARCH_BINDINGS},

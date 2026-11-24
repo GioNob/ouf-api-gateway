@@ -108,10 +108,11 @@ def test_second_plan_unchanged(routes):
     assert all(c.after is None for c in restore_plan(plan, readback))
 
 
-@pytest.mark.parametrize('action', ['issue', 'dispatch', 'revoke', 'status'])
-def test_private_route_forwards_only_selected_headers(routes, action):
-    """GW-51N-11. Execute the bundle's private HTTPS relay with a synthetic upstream."""
-    route = routes['mcp-analysis-mandate-' + action]
+@pytest.mark.parametrize('route_id', [*MANDATE_IDS, 'mcp-analysis-mandate-renewal-check',
+                                     'onboarding-analysis-renewal-read', 'onboarding-analysis-renewal-decide'])
+def test_private_route_forwards_only_selected_headers(routes, route_id):
+    """GW-51N-11 / GW-55C-03. Execute the released private HTTPS relay with a synthetic upstream."""
+    route = routes[route_id]
     engine = Engine(workload(), {'X-OUF-Delegation':'fixture-delegation', 'X-OUF-Principal-ID':'untrusted',
                                  'X-OUF-Semantic-Read-Receipt':'untrusted', 'Cookie':'untrusted'})
     engine.modules[b'resty.http'] = engine.lua.eval(b"""{
@@ -135,7 +136,7 @@ def test_private_route_forwards_only_selected_headers(routes, action):
     req = engine.lua.globals()[b'outgoing']
     assert req[b'body'] == engine.body and req[b'path'] == route['uri'].encode()
     allowed = {b'Authorization', b'Content-Type'}
-    if action in ('issue', 'revoke'):
+    if route_id in ('mcp-analysis-mandate-issue', 'mcp-analysis-mandate-revoke', 'mcp-analysis-mandate-renewal-check'):
         allowed.add(b'X-OUF-Delegation')
     assert set(req[b'headers'].keys()) == allowed
 

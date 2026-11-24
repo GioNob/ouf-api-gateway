@@ -53,20 +53,31 @@ class RemoteIAM:
         self.introspection, self.decisions = introspection, decisions
         self.issuer, self.audience, self.workload = issuer, audience, workload
 
-    def authenticate(self, bearer, now, *, foreign_workload_status=403):
+    def _claims(self, bearer, now, actor):
         require(isinstance(bearer, str) and bearer.startswith('Bearer ') and 7 < len(bearer) <= 16384, 403)
         c = self.introspection.evidence(urlencode({'token': bearer[7:]}).encode('ascii'),
                                         {'Content-Type': 'application/x-www-form-urlencoded'})
         aud = c.get('aud')
         require(c.get('active') is True and c.get('iss') == self.issuer
                 and (aud == self.audience or type(aud) is list and self.audience in aud)
-                and c.get('ouf_actor_type') == 'SERVICE'
+                and c.get('ouf_actor_type') == actor
                 and isinstance(c.get('client_id'), str) and bool(c['client_id'])
                 and isinstance(c.get('sub'), str) and bool(c['sub'])
                 and isinstance(c.get('tenant_id'), str) and bool(c['tenant_id'])
                 and type(c.get('exp')) is int and c['exp'] > now, 403)
-        require(c['client_id'] == self.workload, foreign_workload_status)
         return c
+
+    def authenticate(self, bearer, now, *, foreign_workload_status=403):
+        claims = self._claims(bearer, now, 'SERVICE')
+        require(claims['client_id'] == self.workload, foreign_workload_status)
+        return claims
+
+    def authenticate_ths(self, bearer, now, client, scope):
+        claims = self._claims(bearer, now, 'HUMAN')
+        require(claims['client_id'] == client and claims.get('azp', client) == client
+                and isinstance(claims.get('acr'), str) and claims['acr']
+                and isinstance(claims.get('scope'), str) and scope in claims['scope'].split(), 403)
+        return claims
 
     def decide(self, query, now):
         require(self.decisions is not None, 503)

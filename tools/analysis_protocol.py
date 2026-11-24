@@ -10,7 +10,20 @@ from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BATCH, capability_c
 
 BASE = '/internal/analysis/v1/mandates/'
 CONTRACT = 'ouf.analysis.mandate.v1'
-ACTIONS = ('issue', 'dispatch', 'revoke', 'status')
+ACTIONS = ('issue', 'dispatch', 'revoke', 'status', 'renewal-check')
+RENEWALS = '/internal/analysis/v1/renewals/'
+RENEWAL_COMMAND = 'reviewRef proposalVersion proposalHash expectedSeq commandKey decision items'
+RENEWAL_REQUEST_MAX = 131072
+REVIEW_PREFIX = '/trusted-human/analysis-renewal/'
+REVIEW_REF = '[A-Za-z0-9_~-][A-Za-z0-9._~-]*'
+REVIEW_GET = '^' + REVIEW_PREFIX + REVIEW_REF + '(?:/(?:' + REVIEW_REF + '/)*' + REVIEW_REF + r'\.(?:js|css))?$'
+RENEWAL_SELECTORS = {
+    'mcp-analysis-mandate-renewal-check': ('POST', BASE + 'renewal-check', None),
+    'onboarding-analysis-renewal-read': ('POST', RENEWALS + 'read', None),
+    'onboarding-analysis-renewal-decide': ('POST', RENEWALS + 'decide', None),
+    'trusted-human-analysis-renewal-read': ('GET', REVIEW_PREFIX + '*', REVIEW_GET),
+    'trusted-human-analysis-renewal-decide': ('POST', REVIEW_PREFIX + '*', '^' + REVIEW_PREFIX + REVIEW_REF + '/decision$'),
+}
 STATUS_MAX_BYTES = 1024
 BINDINGS = {
     'source.file.preview': ('ouf.managed-source.preview', '/managed.file/preview'),
@@ -88,15 +101,30 @@ def seq(value):
     return matches(value, '0|[1-9][0-9]{0,18}') and int(value) <= 2**63 - 1
 
 
+def validate_review(action, b):
+    require(exact(b, 'reviewRef' if action == 'read' else RENEWAL_COMMAND))
+    require(matches(b['reviewRef'], REVIEW_REF))
+    if action != 'read':
+        version = b['proposalVersion']
+        # Both representations share the positive signed 64-bit range of the decimal sequences.
+        require((type(version) is int and 1 <= version <= 2**63 - 1 or seq(version) and version != '0')
+                and is_digest(b['proposalHash']) and seq(b['expectedSeq']) and is_uuid(b['commandKey'], v4=True)
+                and b['decision'] in ('APPROVE', 'CHANGES_REQUESTED', 'CLOSE_PARTIAL')
+                and type(b['items']) is list)
+        for item in b['items']:
+            require(exact(item, 'field comment') and all(type(v) is str and v.strip() for v in item.values()))
+
+
 def validate(action, b):
     fields = {'issue': 'contract analysisId profile manifestChecksum commandKey',
               'dispatch': 'mandateId generation analysisId intentKey attemptId fence operation arguments',
               'revoke': 'mandateId expectedGeneration commandKey',
-              'status': 'mandateId generation'}
+              'status': 'mandateId generation',
+              'renewal-check': 'mandateId generation analysisId incidentId ' + RENEWAL_COMMAND}
     require(action in fields and exact(b, fields[action]))
     if action in ('issue', 'revoke'):
         require(is_uuid(b['commandKey'], v4=True))
-    if action in ('issue', 'dispatch'):
+    if action in ('issue', 'dispatch', 'renewal-check'):
         require(is_digest(b['analysisId']))
     if action != 'issue':
         require(is_uuid(b['mandateId']))
@@ -111,6 +139,9 @@ def validate(action, b):
     elif action == 'dispatch':
         require(seq(b['generation']) and is_digest(b['intentKey']) and is_uuid(b['attemptId'])
                 and seq(b['fence']) and isinstance(b['operation'], str) and type(b['arguments']) is dict)
+    elif action == 'renewal-check':
+        require(seq(b['generation']) and opaque(b['incidentId']))
+        validate_review('decide', {k: b[k] for k in RENEWAL_COMMAND.split()})
     elif action == 'status':
         require(seq(b['generation']))
     else:
@@ -127,7 +158,7 @@ def delegation(payload, key):
     return encoded + '.' + b64(signature)
 
 
-def human_proof(value, key, issuer, audience, workload, tenant, now):
+def human_proof(value, key, issuer, audience, workload, tenant, now, *, purpose='mcp-execute'):
     require(isinstance(value, str) and len(value) <= 16384 and
             matches(value, r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}'), 403)
     encoded, signature = value.split('.')
@@ -137,7 +168,7 @@ def human_proof(value, key, issuer, audience, workload, tenant, now):
         p = parse(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
     except (ValueError, Rejected) as exc:
         raise Rejected(403) from exc
-    require(type(p) is dict and p.get('purpose') == 'mcp-execute' and p.get('actor') == 'HUMAN'
+    require(type(p) is dict and p.get('purpose') == purpose and p.get('actor') == 'HUMAN'
             and p.get('v') == 1 and p.get('iss') == issuer and p.get('aud') == audience
             and p.get('workload') == workload and p.get('tenant') == tenant
             and type(p.get('iat')) is int and type(p.get('exp')) is int

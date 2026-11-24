@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.analysis.renewal.decide, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: mcp
+  operationType: COMMAND
+  scope: ouf.analysis.renewal.decide
+  classification: [SECURITY_SENSITIVE]
+  mcp: {toolEligible: false, humanRequired: true}

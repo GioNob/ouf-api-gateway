@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tools.mcp_dispatch_contract import EXECUTE_PATH, SEARCH_BINDINGS, bound_capability
-from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH
+from tools.analysis_protocol import ACTIONS, BASE as MANDATE_PATH, RENEWAL_SELECTORS
 
 
 @dataclass(frozen=True)
@@ -25,8 +25,8 @@ class Change:
         return 'unchanged' if next(changed_paths(self.before, self.after), None) is None else 'update'
 
 
-def overlaps(route, uri):
-    if route.get('methods') and 'POST' not in route['methods']:
+def overlaps(route, uri, method='POST'):
+    if route.get('methods') and method not in route['methods']:
         return False
     for path in route.get('uris', [route.get('uri')]):
         if not isinstance(path, str):
@@ -36,6 +36,12 @@ def overlaps(route, uri):
                            for part in path.split('/'))
         if re.fullmatch(pattern, uri):
             return True
+        if uri.endswith('/*'):
+            # Conservatively reconcile a concrete child or parameterized subtree of this prefix.
+            prefix = uri[:-1]
+            fixed = re.split(r'\*|(?<=/):', path, maxsplit=1)[0]
+            if fixed.startswith(prefix) or (fixed != path and prefix.startswith(fixed)):
+                return True
     return False
 
 
@@ -60,10 +66,12 @@ def inventory_routes(inventory):
     return live
 
 
-def search_plan(desired, inventory, current_revision, *, mandates=False):
+def search_plan(desired, inventory, current_revision, *, mandates=False, renewals=False):
     live = inventory_routes(inventory)
     bindings = ({'mcp-analysis-mandate-' + action: (None, MANDATE_PATH + action, None)
-                 for action in ACTIONS} if mandates else SEARCH_BINDINGS)
+                 for action in ACTIONS if action != 'renewal-check'} if mandates else SEARCH_BINDINGS)
+    if renewals:
+        bindings = {key: (None, uri, None) for key, (_, uri, _) in RENEWAL_SELECTORS.items()}
     targets = [r for r in desired if r['id'] in bindings]
     installations = {(r['labels']['ouf-installation'], r['labels']['ouf-installation-revision']) for r in targets}
     if len(installations) != 1 or not all(isinstance(v, str) and v for v in next(iter(installations))):
@@ -71,24 +79,29 @@ def search_plan(desired, inventory, current_revision, *, mandates=False):
     changes = []
     for logical_id, (cap, suffix, owner_op) in bindings.items():
         target, = (r for r in targets if r['id'] == logical_id)
-        uri = suffix if mandates else EXECUTE_PATH + suffix
-        if target['uri'] != uri or target['methods'] != ['POST']:
+        uri = suffix if mandates or renewals else EXECUTE_PATH + suffix
+        method, _, regex = RENEWAL_SELECTORS[logical_id] if renewals else ('POST', uri, None)
+        selector = [['uri', '~~', regex]] if regex else None
+        if target['uri'] != uri or target['methods'] != [method] or target.get('vars') != selector:
             raise ValueError(f'{logical_id}: unexpected release selector')
-        owner_path = None if mandates else '/api/internal/v1/semantic/consultation/' + owner_op
-        matches = [key for key, r in live.items() if overlaps(r, uri)]
+        owner_path = None if mandates or renewals else '/api/internal/v1/semantic/consultation/' + owner_op
+        matches = [key for key, r in live.items() if overlaps(r, uri, method)]
         if logical_id in live and logical_id not in matches:
             raise ValueError(f'{logical_id}: ID occupied by another route')
         for key in matches:
             r = live[key]
             labels = r.get('labels', {})
             plugins = r.get('plugins', {})
-            if (r.get('uris', [r.get('uri')]) != [uri] or r.get('methods') != ['POST']
-                    or any(r.get(k) for k in ('vars', 'host', 'hosts', 'remote_addr', 'remote_addrs', 'filter_func'))
+            if (r.get('uris', [r.get('uri')]) != [uri] or r.get('methods') != [method] or (r.get('vars') or None) != selector
+                    or any(r.get(k) for k in ('host', 'hosts', 'remote_addr', 'remote_addrs', 'filter_func'))
                     or labels.get('ouf-installation') != target['labels']['ouf-installation']
                     or labels.get('ouf-installation-revision') != current_revision
                     or plugins.get('proxy-rewrite', {}).get('uri') != owner_path):
                 raise ValueError(f'{logical_id}: selector, owner or installation drift at {key}')
-            if mandates:
+            if renewals:
+                if key != logical_id or labels.get('ouf-capability') != target['labels']['ouf-capability']:
+                    raise ValueError(f'{logical_id}: conflicting installed renewal binding at {key}')
+            elif mandates:
                 if labels.get('ouf-mediation') != 'analysis-mandate-v1':
                     raise ValueError(f'{logical_id}: installed mandate binding drift at {key}')
             elif bound_capability(plugins['request-validation']['body_schema']) != cap:
@@ -107,9 +120,10 @@ def restore_plan(plan, readback):
     live = inventory_routes(readback)
     affected = {c.target_id for c in plan}
     for c in plan:
-        uri = ((c.after or c.before)['uri'] if c.logical_id.startswith('mcp-analysis-mandate-')
-               else EXECUTE_PATH + SEARCH_BINDINGS[c.logical_id][1])
-        if any(overlaps(r, uri) for key, r in live.items() if key not in affected):
+        # The plan admits retired duplicates only with exactly one selector URI and method.
+        target = c.after or c.before
+        uri, = target.get('uris', [target.get('uri')])
+        if any(overlaps(r, uri, target['methods'][0]) for key, r in live.items() if key not in affected):
             raise ValueError('unexpected search selector at restore')
         if next(changed_paths(c.after, live.get(c.target_id)), None) is not None:
             raise ValueError(f'{c.logical_id}: restore readback drift at {c.target_id}')
@@ -136,11 +150,11 @@ if __name__ == '__main__':
     parser.add_argument('--resolved-routes', required=True, type=Path, help='resolved APISIX routes array')
     parser.add_argument('--inventory', required=True, type=Path, help='complete APISIX routes list response')
     parser.add_argument('--current-revision', required=True)
-    parser.add_argument('--family', choices=('semantic-search', 'analysis-mandate'), default='semantic-search')
+    parser.add_argument('--family', choices=('semantic-search', 'analysis-mandate', 'analysis-renewal'), default='semantic-search')
     parser.add_argument('--restore-inventory', type=Path, help='post-apply readback for a restore plan')
     args = parser.parse_args()
     plan = search_plan(json.loads(args.resolved_routes.read_bytes()), json.loads(args.inventory.read_bytes()),
-                       args.current_revision, mandates=args.family == 'analysis-mandate')
+                       args.current_revision, mandates=args.family == 'analysis-mandate', renewals=args.family == 'analysis-renewal')
     if args.restore_inventory:
         plan = restore_plan(plan, json.loads(args.restore_inventory.read_bytes()))
     print(json.dumps([{'logicalId': c.logical_id, 'id': c.target_id, 'action': c.action,

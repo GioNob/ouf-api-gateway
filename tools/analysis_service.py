@@ -7,7 +7,10 @@ import ssl
 
 from tools.analysis_clients import Endpoint, RemoteIAM, Reservations
 from tools.analysis_mandate import Mandates
-from tools.analysis_protocol import ACTIONS, BASE, STATUS_MAX_BYTES, Catalog, Rejected, exact, matches, parse, require, wire
+from tools.analysis_protocol import (
+    ACTIONS, BASE, RENEWALS, RENEWAL_REQUEST_MAX, STATUS_MAX_BYTES, Catalog, Rejected, exact, matches, parse, require, wire,
+)
+from tools.analysis_renewal import Renewals
 from tools.analysis_store import MandateStore
 
 
@@ -24,7 +27,7 @@ def application():
     required = ('contract store manifestFile issuer audience workload delegationKeyEnv introspection decisions '
                 'reservations execute timeoutSeconds mandateTtlSeconds proofTtlSeconds maxResultBytes')
     if (type(cfg) is not dict or not set(required.split()) <= cfg.keys()
-            or cfg.keys() - set(required.split()) - {'dispatchEnabled', 'statusReadsPerMinute'}
+            or cfg.keys() - set(required.split()) - {'dispatchEnabled', 'statusReadsPerMinute', 'renewalChannel'}
             or cfg['contract'] != 'ouf.analysis.installation.v1'
             or not matches(cfg['delegationKeyEnv'], '[A-Z][A-Z0-9_]{0,127}')
             or not all(isinstance(cfg[k], str) and cfg[k] for k in ('issuer', 'audience', 'workload'))):
@@ -40,24 +43,37 @@ def application():
                    os.environ[cfg['delegationKeyEnv']].encode('ascii'), enabled=cfg.get('dispatchEnabled', False),
                    ttl=cfg['mandateTtlSeconds'], proof_ttl=cfg['proofTtlSeconds'], max_result=cfg['maxResultBytes'],
                    status_reads_per_minute=cfg.get('statusReadsPerMinute', 60))
-    return handler(api)
+    channel = None
+    if 'renewalChannel' in cfg:
+        profile = cfg['renewalChannel']
+        if not exact(profile, 'mcp thsClient'):
+            raise ValueError('invalid renewal channel profile')
+        channel = Renewals(api, https_endpoint(profile['mcp'], timeout), profile['thsClient'])
+    return handler(api, channel)
 
 
-def handler(api):
+def handler(api, channel=None):
+    mandate_paths = {BASE + action: action for action in ACTIONS}
+    review_paths = {RENEWALS + action: action for action in ('read', 'decide')}
+
     def serve(env, start_response):
         try:
             path = env['PATH_INFO']
-            require(path in {BASE + action for action in ACTIONS}
+            require((path in mandate_paths or path in review_paths)
                     and env['REQUEST_METHOD'] == 'POST' and not env.get('QUERY_STRING')
                     and not env.get('HTTP_CONTENT_ENCODING')
                     and env.get('CONTENT_TYPE', '').partition(';')[0] == 'application/json')
             size = env.get('CONTENT_LENGTH', '')
-            limit = STATUS_MAX_BYTES if path == BASE + 'status' else 131072
+            limit = STATUS_MAX_BYTES if path == BASE + 'status' else RENEWAL_REQUEST_MAX
             require(matches(size, '[1-9][0-9]{0,5}') and int(size) <= limit)
             data = env['wsgi.input'].read(int(size))
             require(len(data) == int(size))
-            status, body, headers = api.handle(path[len(BASE):], data, env.get('HTTP_AUTHORIZATION'),
-                                               env.get('HTTP_X_OUF_DELEGATION'))
+            bearer = env.get('HTTP_AUTHORIZATION')
+            if path in review_paths:
+                require(channel is not None, 503)
+                status, body, headers = channel.forward(review_paths[path], data, bearer)
+            else:
+                status, body, headers = api.handle(mandate_paths[path], data, bearer, env.get('HTTP_X_OUF_DELEGATION'))
         except Rejected as exc:
             status, body = exc.status, wire({'code': exc.code})
             headers = {'Retry-After': exc.retry_after} if exc.retry_after else {}
