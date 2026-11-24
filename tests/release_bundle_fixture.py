@@ -4,6 +4,41 @@ import json
 import re
 
 
+# Closed inventory of release 3d69cb4, independent of future families.
+BASE_3D69CB4 = frozenset({
+    'mcp-ingestion-run-recovery-link',
+    'mcp-managed-file-create',
+    'mcp-managed-file-handoff',
+    'mcp-managed-file-handoff-issue',
+    'mcp-managed-file-preview',
+    'mcp-managed-file-review-prepare',
+    'mcp-managed-file-review-read',
+    'mcp-semantic-discovery-adopt',
+    'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request',
+    'mcp-semantic-discovery-status',
+    'mcp-semantic-review-link',
+    'mcp-semantic-search',
+    'mcp-semantic-search-batch',
+    'mcp-source-revision-prepare',
+    'r2b-publication-resolution',
+    'r2b-semantic-reference',
+    'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list',
+    'r4a-udp-runtime-handoff-write',
+    'r4a-udp-runtime-lake-write',
+    'semantic-human-terms',
+    'semantic-proposal-create',
+    'semantic-proposal-read',
+    'ths-resolution-package-confirm',
+    'ths-resolution-package-read',
+    'trusted-human-ingestion-run-abort',
+    'trusted-human-ingestion-run-read',
+    'trusted-human-ingestion-run-recovery',
+    'trusted-human-ingestion-run-resume',
+    'trusted-human-resolution-review',
+})
+
 R2B_ROUTE_IDS = (
     'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
     'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
@@ -15,6 +50,7 @@ DISCOVERY_REVIEW_IDS = [
 ]
 
 SEARCH_IDS = ('mcp-semantic-search', 'mcp-semantic-search-batch')
+SEMANTIC_MCP_IDS = ('mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review')
 
 RELEASE_ROUTE_IDS = sorted([
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
@@ -24,7 +60,7 @@ RELEASE_ROUTE_IDS = sorted([
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS,
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS,
 ])
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
@@ -110,6 +146,7 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
 
 def ci_profile(installation, port):
     return {
+        'gateway.rateLimits.semanticMcp.count': 12, 'gateway.rateLimits.semanticMcp.timeWindowSeconds': 60,
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],

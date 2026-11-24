@@ -152,6 +152,8 @@ def compile_config(config_root):
                 arguments = contract[PICKER_ROUTES[route_id][1]]
             else:
                 stem = DISCOVERY_REVIEW_SCHEMAS.get(capability_id)
+                if route_id == 'mcp-semantic-get':
+                    stem = 'semantic-get'
                 if capability_id in (SEARCH_SCOPE, SEARCH_BATCH):
                     stem = 'semantic-search'  # Same bounded HUMAN read envelope, distinct Arguments.
                 filename = f'mcp-gateway-{stem}-dispatch-v1.json' if stem else 'mcp-gateway-dispatch-v1.json'
@@ -167,7 +169,11 @@ def compile_config(config_root):
             }.items():
                 fields[field] = {'const': value}
             result = fields['MaxResultBytes']
-            result['maximum'] = result_ceiling(capability_id, result['maximum'])
+            if route_id == 'mcp-semantic-get':
+                # The installed read envelope is itself bounded by the owner's result ceiling.
+                result['maximum'] = contract['operationalLimits']['maxResultBytes']
+            else:
+                result['maximum'] = result_ceiling(capability_id, result['maximum'])
             plugins['request-validation'] = dispatch_validation(schema, spec['policy']['maxRequestBytes'])
         selector={"vars": [["uri", "~~", uri_regex]]} if uri_regex else {}
         routes.append({

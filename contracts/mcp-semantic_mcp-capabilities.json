@@ -1,0 +1,235 @@
+{
+  "provenance": {
+    "repository": "GioNob/ouf-mcp-server",
+    "commit": "4b395686ab1dccb80e37e63d26a8228b472d05ac",
+    "version": "1.17.0-published-batch-v1",
+    "sha256": "ec67c43add39551d561a1ffa142dbaf1d6437b584d85b3892f07c29e0aff3acc"
+  },
+  "capabilities": [
+    {
+      "toolName": "semantic.review.prepare",
+      "nextPolicy": "validation",
+      "capabilityId": "ouf.semantic.review.prepare",
+      "purpose": "Validate the exact DRAFT row version and retain errors and warnings",
+      "useWhen": [
+        "preparing authorized native semantic proposals for human review"
+      ],
+      "doNotUseWhen": [
+        "approving, publishing, activating, adopting external terms or bypassing owner decisions"
+      ],
+      "preferredAlternatives": [
+        "Trusted Human Surface"
+      ],
+      "operationalLimits": {
+        "maxArtifacts": 1,
+        "maxRequestBytes": 65536,
+        "profile": "ouf.semantic-proposal-channel.v1"
+      },
+      "resultSemantics": "Owner receipt only; a review reference is not human approval or publication. Read current challenge in the THS before decision.",
+      "securityNotes": [
+        "Current owner authorization and Gateway signed delegation are required",
+        "Stable commandKey is mandatory for mutation; ambiguous effects require receipt reconciliation",
+        "Owner and authority references are proposal values, not grants"
+      ],
+      "mcpClass": "MCP_PROPOSAL_ONLY",
+      "owner": "semantic",
+      "operationClass": "COMMAND",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.semantic.review.prepare",
+      "gatewayBindingRef": "capability://ouf.semantic.review.prepare",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revisionId",
+          "expectedRowVersion",
+          "commandKey"
+        ],
+        "properties": {
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
+          },
+          "revisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRowVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commandKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "semantic.approval.request",
+      "nextPolicy": "semanticDecision",
+      "capabilityId": "ouf.semantic.approval.request",
+      "purpose": "Request a THS review challenge for the current green validated DRAFT",
+      "useWhen": [
+        "preparing authorized native semantic proposals for human review"
+      ],
+      "doNotUseWhen": [
+        "approving, publishing, activating, adopting external terms or bypassing owner decisions"
+      ],
+      "preferredAlternatives": [
+        "Trusted Human Surface"
+      ],
+      "operationalLimits": {
+        "maxArtifacts": 1,
+        "maxRequestBytes": 65536,
+        "profile": "ouf.semantic-proposal-channel.v1"
+      },
+      "resultSemantics": "Owner receipt only; a review reference is not human approval or publication. Read current challenge in the THS before decision.",
+      "securityNotes": [
+        "Current owner authorization and Gateway signed delegation are required",
+        "Stable commandKey is mandatory for mutation; ambiguous effects require receipt reconciliation",
+        "Owner and authority references are proposal values, not grants"
+      ],
+      "mcpClass": "MCP_PROPOSAL_ONLY",
+      "owner": "semantic",
+      "operationClass": "COMMAND",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.semantic.approval.request",
+      "gatewayBindingRef": "capability://ouf.semantic.approval.request",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revisionId",
+          "expectedRowVersion",
+          "commandKey",
+          "validationRunId"
+        ],
+        "properties": {
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
+          },
+          "revisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRowVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "commandKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+          },
+          "validationRunId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "semantic.get",
+      "nextPolicy": "semantic.get",
+      "capabilityId": "ouf.semantic.consultation.read",
+      "purpose": "Read one exact published semantic reference including its definition and constraints",
+      "useWhen": [
+        "source mapping needs official semantic metadata and immutable references",
+        "Check the exact published vocabulary and its concepts before using them in a VALUE_MAP proposal"
+      ],
+      "doNotUseWhen": [
+        "publication, approval or arbitrary external query execution is requested"
+      ],
+      "preferredAlternatives": [
+        "semantic.search"
+      ],
+      "operationalLimits": {
+        "maxResults": 1,
+        "maxResultBytes": 262144
+      },
+      "resultSemantics": "Owner metadata with exact revision/publication pins; no adoption or lifecycle mutation; dependency truncation is explicit",
+      "securityNotes": [
+        "Gateway workload and signed delegation required",
+        "Owner revalidates purpose-bound receipt and current authorization policy",
+        "No latest revision fallback; historical reads never approve new mappings"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "semantic",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.semantic.consultation.read",
+      "gatewayBindingRef": "capability://ouf.semantic.consultation.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 1,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "semanticId",
+          "revisionId",
+          "publicationSetId"
+        ],
+        "properties": {
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
+          },
+          "semanticId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "revisionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publicationSetId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  ]
+}

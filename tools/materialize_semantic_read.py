@@ -86,9 +86,9 @@ def materialize(existing,installation,delegation_key_env,semantic_key_env,semant
         r.update(id=route_ids[name],uri=uri,methods=['POST'])
         r['labels']['ouf-mediation']='semantic-read-v1'
         schema = json.loads((ROOT / f'schemas/mcp-gateway-semantic-{name}-dispatch-v1.json').read_bytes())
-        if name == 'search':
-            source = capability_contracts()[SEARCH_SCOPE]['inputSchema']
-            schema['properties']['Arguments'] = envelope_refs(dispatch_input_schema(SEARCH_SCOPE, source))
+        capability = schema['properties']['CapabilityID']['const']
+        source = capability_contracts()[capability]['inputSchema']
+        schema['properties']['Arguments'] = envelope_refs(dispatch_input_schema(capability, source))
         r['plugins']['request-validation'] = dispatch_validation(schema, 65536)
         r['plugins']['serverless-post-function']={'phase':'access','functions':[function('execute_semantic_read',installation,delegation_key_env,semantic_key_env)]}
         r['plugins']['proxy-rewrite']={'uri':'/api/internal/v1/semantic/consultation/'+name}

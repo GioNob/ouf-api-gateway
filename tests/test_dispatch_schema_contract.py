@@ -4,6 +4,8 @@ import json
 
 from jsonschema import Draft7Validator, FormatChecker
 
+from tests.test_release_family_semantic_mcp import dispatch_case as semantic_mcp_case
+from tests.release_bundle_fixture import SEMANTIC_MCP_IDS
 from tests.test_execute_delegation import envelope
 from tests.test_file_loop_coherence import retained_installation
 from tests.test_onboarding_review import request as review_request
@@ -116,7 +118,10 @@ def test_dispatch_profiles_match_pinned_manifest():
         assert fields['Arguments'] == expected['properties']['Arguments'], (uri, capability)
         budget = max(contract.get('operationalLimits', {}).get('maxResultBytes', 0),
                      contract['baseCostEnvelope']['hardMaxResultBytes'])
-        assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
+        if route['id'] == 'mcp-semantic-get':
+            assert fields['MaxResultBytes']['maximum'] == contract['operationalLimits']['maxResultBytes']
+        else:
+            assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
         (declared if compiled else materialized).add(capability)
 
     # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
@@ -196,6 +201,8 @@ def wave2_dispatch_cases(routes=()):
             _, accepted, rejected = cases[uri]
             rejected.append(dict(accepted[0], **{argument: 'private-source-value'}))
     for route in routes:
+        if route['id'] in SEMANTIC_MCP_IDS:
+            cases[route['uri']] = semantic_mcp_case(route['id'])
         if route['id'] in THS_LINK_DISPATCH_CASES:
             cases[route['uri']] = THS_LINK_DISPATCH_CASES[route['id']]
         if route['id'] == 'mcp-semantic-search':

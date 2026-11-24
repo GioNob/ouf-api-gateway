@@ -4,6 +4,8 @@ import re
 from functools import cache
 from pathlib import Path
 
+from tools import release_family_semantic_mcp as semantic_mcp
+
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
@@ -73,6 +75,7 @@ def capability_contracts():
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
     by_id.update(updated)
+    by_id.update(semantic_mcp.declarations())
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -83,7 +86,8 @@ def capability_contracts():
 
 def dispatch_input_schema(capability, schema):
     """The MCP kernel consumes optional analysisId before dispatch for these tools."""
-    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
+    local_analysis = capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values()
+    if local_analysis and 'analysisId' in schema.get('properties', {}):
         if 'analysisId' in schema.get('required', []):
             raise ValueError(f'{capability}: analysisId must remain optional MCP context')
         return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}

@@ -45,6 +45,7 @@ def test_published_terms_release(tmp_path):
 
     bundle = json.loads((tmp_path / 'bundle.json').read_bytes())
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
+        'gateway.rateLimits.semanticMcp.count': 'integer', 'gateway.rateLimits.semanticMcp.timeWindowSeconds': 'integer',
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES

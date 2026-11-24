@@ -10,12 +10,13 @@ import tempfile
 
 # Both the legacy bulk installer and its rollback accept caller-supplied IDs.
 BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-request',
+                'mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review',
                 'mcp-semantic-discovery-status', 'mcp-semantic-discovery-candidates', 'mcp-semantic-discovery-adopt'}
 
 
 def reject_bundle_owned(ids):
     if BUNDLE_OWNED.intersection(ids):
-        raise ValueError("discovery and review routes are owned by the governed Gateway release")
+        raise ValueError("these routes are owned by the governed Gateway release")
 
 
 def route_value(doc):
