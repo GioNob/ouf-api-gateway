@@ -361,7 +361,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             # Only summary is backed by the Java owner in this test.
             next(r for r in reads if r['uri'] == summary_uri)['upstream']['nodes'][0]['port'] = owner_port
         read_uris = {r['uri'] for r in reads}
-        doc['routes'] = [r for r in doc['routes'] if r['uri'] not in read_uris]
+        doc['routes'] = [r for r in doc['routes'] if r.get('uri') not in read_uris]
         optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
