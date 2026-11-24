@@ -81,3 +81,22 @@ The redirect URI must be copied exactly from the ChatGPT MCP connection manageme
 - ChatGPT completes Authorization Code + PKCE against the governed HUMAN/AI client;
 - discovered tools match the MCP server manifest;
 - restart preserves both routes and rollback evidence is retained.
+
+## Operational installation record — 2026-09-19
+
+The [Keycloak / ChatGPT / MCP installation runbook](https://github.com/GioNob/ouf-mcp-server/blob/fix/constrained-policy-cache-roundtrip/docs/INSTALLAZIONE_KEYCLOAK_CHATGPT.md)
+records the actual lab configuration, exact realm/client separation, scopes,
+audience and user-attribute mappers, ChatGPT callback, APISIX commands,
+trusted-human Device Flow, policy lifecycle and troubleshooting.
+
+Public metadata HTTP 200, unauthenticated MCP HTTP 401 with discovery challenge,
+and authenticated server discovery HTTP 200 were observed. ChatGPT listed tools,
+but successful execution of system status was not established. DCR failed the
+Keycloak Trusted Hosts policy; the configured path uses a preregistered client.
+Do not disable the registration policy to reproduce that path.
+
+Onboarding policy v4 exposed an MCP constrained-bundle cache defect; the operator
+reported forward restoration as v5 with v3 contents. [MCP PR #27](https://github.com/GioNob/ouf-mcp-server/pull/27)
+contains the cache fix. Public-detail enforcement is still a separate blocker.
+This document update performs no route, IAM or policy deployment.
+The guide link targets the PR branch pending merge, not a released deployment.
