@@ -74,6 +74,13 @@ READ_KEYS = {'gateway.ingestionReadOwnerKeyEnv': 'OWNER_KEY', 'gateway.udpReadOw
              'gateway.gatewayOperationalOwnerKeyEnv': 'GATEWAY_SUMMARY_RECEIPT_KEY',
              'gateway.ingestionOperationalOwnerKeyEnv': 'INGESTION_SUMMARY_RECEIPT_KEY'}
 
+THS_PAGES_IDS = (
+    'trusted-human-onboarding-review', 'trusted-human-semantic-review', 'trusted-human-managed-file-picker',
+    'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
+    'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
+    'trusted-human-authorization-get', 'trusted-human-authorization-post',
+)
+
 RELEASE_ROUTE_IDS = sorted([
     *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
@@ -85,7 +92,9 @@ RELEASE_ROUTE_IDS = sorted([
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
     'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS, *READ_OPERATIONS_IDS,
+    *THS_PAGES_IDS,
 ])
+THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization')
 
 RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication',
                 'semanticSearch', 'semanticSearchBatch')
@@ -184,6 +193,8 @@ def ci_profile(installation, port):
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
         'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
         'iam.workloadClients.udp': installation.get('udpServiceIdentity', 'test-udp'),
+        **{f'gateway.rateLimits.{group}.{field}': value for group in THS_RATE_CLASSES
+           for field, value in [('count', 12), ('timeWindowSeconds', 60)]},
         **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
            for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',

@@ -122,6 +122,7 @@ def test_adopted_route_ids_and_unique_selectors(resources):
 def test_release_resources_match_6ae4886_with_original_ids(bundle):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
+    retained_ids = BASELINE_3D69CB4_IDS.difference(PICKER_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS)
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
                 for item in bundle['resources'] if item['id'] in BASELINE_3D69CB4_IDS
                 and item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]

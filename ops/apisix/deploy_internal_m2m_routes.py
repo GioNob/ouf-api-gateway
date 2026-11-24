@@ -15,7 +15,11 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'mcp-permissions-read', 'mcp-permissions-propose', 'mcp-permissions-status',
                 'mcp-authorization-policy-bundle-read',
                 'mcp-semantic-get', 'semantic-proposal-validate', 'semantic-proposal-review',
-                'public-mcp-endpoint', 'public-mcp-oauth-protected-resource'}
+                'public-mcp-endpoint', 'public-mcp-oauth-protected-resource',
+                'trusted-human-onboarding-review', 'trusted-human-semantic-review', 'trusted-human-managed-file-picker',
+                'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
+                'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
+                'trusted-human-authorization-get', 'trusted-human-authorization-post'}
 
 
 def reject_bundle_owned(ids):

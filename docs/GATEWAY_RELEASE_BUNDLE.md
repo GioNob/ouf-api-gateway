@@ -40,6 +40,19 @@ I PET `GW-51J-MANIFEST`, `GW-51J-SCHEMA`, `GW-51J-FORWARD`, `GW-51J-SCOPE`,
 `GW-51J-PARITY` verifica il digest delle precedenti 24 risorse in
 [`test_r2b_release.py`](../tests/test_r2b_release.py).
 
+## Pagine THS, approvazioni e autorizzazione (D-087, 60f)
+
+Onboarding gestisce sessione e CSRF per le pagine e i callback. Le API di approvazione
+e le operazioni amministrative GET e POST conservano il bearer per la verifica dell’owner.
+Prima del rilascio, il profilo dell’esecutore deve fornire `count` e `timeWindowSeconds`
+per `gateway.rateLimits.thsApprovals` e `gateway.rateLimits.thsAuthorization`.
+I quattro valori sono interi e provengono da `limit-count.count` e `limit-count.time_window`
+delle rispettive rotte installate. PUT e DELETE amministrativi restano da valutare con l’owner.
+
+I PET da `GW-60f-01` a `GW-60f-08` verificano il sottoinsieme di base, i corpi APISIX,
+i conflitti, il ritorno, i deployer legacy e gli header inoltrati. La prova sull’inventario
+richiede i due export sanificati del task. [Test della famiglia](../tests/test_release_family_ths_pages.py)
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |

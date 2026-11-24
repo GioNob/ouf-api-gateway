@@ -56,3 +56,7 @@ entries:
   gateway.rateLimits.publicMcp.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.publicMcpMetadata.count: *r2bCount
   gateway.rateLimits.publicMcpMetadata.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsApprovals.count: *r2bCount
+  gateway.rateLimits.thsApprovals.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsAuthorization.count: *r2bCount
+  gateway.rateLimits.thsAuthorization.timeWindowSeconds: *r2bTimeWindowSeconds
