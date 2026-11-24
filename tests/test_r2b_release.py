@@ -6,8 +6,8 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
-from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
+from tests.release_bundle_fixture import BASELINE_3D69CB4_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
 from tools.apply_installation_projection import apply_projection
@@ -71,11 +71,23 @@ def test_release_additions_preserve_predecessor_resources_and_placeholders(bundl
                                   and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
+def test_v3_preserves_baseline_resources_and_placeholders(bundle):
+    """GW-60J-01. Pin the 3d69cb4 projection independently of subsequent route families."""
+    baseline = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS]
+    assert {row['id'] for row in baseline} == BASELINE_3D69CB4_IDS
+    assert sha256(canonical_json(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources']))
+    names = set(placeholder_names(baseline))
+    placeholders = [p for p in bundle['placeholders'] if p['name'] in names]
+    assert sha256(canonical_json(placeholders)) == '7970011c8370f3286cabcbf07b87de750391be60c8760c708b7de9e9946b214c'
+
+
 def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
-    """GW-51D3-RETIRED-METADATA."""
+    """GW-51D3-RETIRED-METADATA / GW-60J-02. Replacements retain the v2 wire format."""
     legacy_run = '^/api/trusted-human/v1/ingestion/runs/' + '-'.join(
         '[0-9A-Fa-f]{%d}' % size for size in (8, 4, 4, 4, 12))
-    assert bundle['retired'] == [
+    replacements = [entry for entry in bundle['retired'] if entry['supersededBy'] is not None]
+    assert replacements == [
         {'kind': 'routes', 'id': 'r4a-ingestion-human-run-read',
          'supersededBy': 'trusted-human-ingestion-run-read',
          'vars': [['uri', '~~', legacy_run + '$']]},
@@ -84,7 +96,31 @@ def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
          'vars': [['uri', '~~', legacy_run + '/resume$']]},
     ]
     assert {entry['id'] for entry in bundle['retired']}.isdisjoint(resources)
-    assert {entry['supersededBy'] for entry in bundle['retired']} <= resources.keys()
+    assert {entry['supersededBy'] for entry in replacements} <= resources.keys()
+
+
+def test_obsolete_routes_pin_the_sanitized_export(bundle):
+    """GW-60J-03. Each historical ID has its own provenance and exact public match."""
+    obsolete = [entry for entry in bundle['retired'] if entry['supersededBy'] is None]
+    revisions = {
+        'ouf-5708b3900d0f-001': '5708b3900d0f43d89801926d3f9554e110f4481f2a1cb08897cd2ec613dfa570',
+        'ouf-6f5155e48422-001': '6f5155e484228d958fd36b2c21b3538608cddc4d8ad2bb16fcacab860f86b01b',
+    }
+    assert [e['id'] for e in obsolete] == list(revisions)
+    assert [e['id'] for e in bundle['retired']] == sorted({e['id'] for e in bundle['retired']})
+    for entry in obsolete:
+        expected = {
+            'kind': 'routes', 'id': entry['id'], 'supersededBy': None,
+            'reason': 'Rotta disattivata, duplicata e senza consumatori. Il MCP non chiama questa URI.',
+            'match': {
+                'uri': '/internal/capabilities/v1/execute/urban.object.related_search', 'methods': ['POST'],
+                'uris': None, 'host': None, 'hosts': None, 'vars': None, 'priority': None,
+                'remote_addrs': None, 'filter_func': None, 'status': 0,
+                'labels': {'ouf_index': '001', 'ouf_managed': 'true', 'ouf_revision': revisions[entry['id']]},
+            },
+        }
+        assert canonical_json(entry) == canonical_json(expected)
+    assert bundle['retiredSha256'] == sha256(canonical_json(bundle['retired']))
 
 
 def test_adopted_route_ids_and_unique_selectors(resources):

@@ -389,6 +389,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             # Keep route-load errors visible in the failure log during readiness.
             config['nginx_config']['http'] = {'enable_access_log': False}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
+        retired = json.loads((bundle_path / 'bundle.json').read_bytes())['retired']
+        assert {e['id'] for e in retired}.isdisjoint(r.get('id') for r in doc['routes'])
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         container_id = subprocess.check_output([
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
