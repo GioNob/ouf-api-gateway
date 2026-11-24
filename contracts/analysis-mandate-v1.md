@@ -34,7 +34,41 @@ The private Gateway service exposes the WSGI factory `tools.analysis_service:app
 | `mandateTtlSeconds`, `proofTtlSeconds` | Required integers 1–86400 and 1–30. The grant expiry bounds issuance. The worker credential, mandate, IAM decision and MCP reservation bound each proof. Activity cannot extend a deadline. |
 | `maxResultBytes` | Required integer 1–1048576. The operation's manifest hard limit can lower this value. |
 
-The service hosting layer must protect capacity for revocation and reconciliation while owner calls are blocked. A dispatch uses an independent SQLite connection and commits admission before starting the owner request. During a release, fence the previous authority processes before switching manifest, policy, activation or database. Rollback keeps the additive tables and stops autonomous dispatch. The predecessor remains readable without a schema downgrade.
+During a release, fence the previous authority processes before switching manifest, policy, activation or database. Rollback keeps the additive tables and stops autonomous dispatch. The predecessor remains readable without a schema downgrade.
+
+### Control reserve and admission (C.2 and C.3)
+
+The optional `capacity` object in `ouf.analysis.installation.v1` uses these integer defaults for omitted fields, including when the entire object is absent. Startup rejects unknown fields, values outside the bounds and hosting declarations too small for the profile.
+
+| Field in `capacity` | Default | Bounds | Meaning |
+|---|---:|---:|---|
+| `dataSlots` | 4 | 1–128 | Concurrent dispatches per process. Mandate issuance shares this pool to preserve the control reserve. |
+| `ControlReservedSlots` | 2 | 2–64 | Concurrent control requests per process, shared by status, interactive or administrative revoke, and renewal-check. |
+| `relaySlots` | 1 | 1–64 | Concurrent renewal read and decide relays per process. |
+| `processes` | 1 | 1–64 | Maximum authority processes in this instance. The instance bound for each class is its per-process limit multiplied by this count. |
+| `threadsPerProcess` | 8 | 1–512 | WSGI request execution slots available to this service in **each** process. |
+| `instanceConnections` | 8 | 1–32768 | Simultaneous inbound requests the hosting layer can deliver across this instance. |
+| `retryAfterSeconds` | 1 | 1–60 | Seconds advertised for a local class admission refusal. |
+| `latencyWindowSeconds` | 60 | 1–3600 | Monotonic lookback for the latency measurements. |
+| `latencyWindowSamples` | 512 | 1–4096 | Maximum most recent observations retained per process, class and latency series. |
+
+Let `S = dataSlots + ControlReservedSlots + relaySlots`. Each process requires at least `S + 1` WSGI slots and its share of `S + 1` inbound connections. Startup checks `threadsPerProcess >= S + 1` and `instanceConnections >= processes × (S + 1)`. The extra execution slot and connection allow an arriving request to receive backpressure or scrape metrics while all three classes are occupied. Load one WSGI application per authority process. The installation supplies the declared concurrency and bounds upstream queues, body buffering and socket timeouts. A queue ahead of WSGI is outside the service's admission measurements.
+
+Every valid route competes only for its class. Admission uses a nonblocking semaphore before reading the body, opening SQLite or contacting IAM. A full class returns `429 ANALYSIS_BACKOFF` with `Retry-After`. The caller owns the C.3 pause budget. Each mandate request reaching the authority uses one SQLite connection, with the existing one-second busy timeout and short transactions. Dispatch commits before the owner call. The renewal relay uses zero SQLite connections. Provision up to `processes × (dataSlots + ControlReservedSlots)` simultaneous SQLite connections for mandate traffic.
+
+### Gateway capacity metrics
+
+Scrape `GET /metrics` on the private authority listener using the Gateway monitoring channel. It serves Prometheus text with fixed labels `service="analysis_mandate"` and `traffic_class="data|control|relay"`. The latency series also have a `quantile` label. The listener exposes metrics with either value of `dispatchEnabled`.
+
+| Metric | Observation |
+|---|---|
+| `gateway_inflight_requests`, `gateway_analysis_slot_limit`, `gateway_analysis_instance_slot_limit` | Current admitted requests, per-process slots and declared instance ceiling. |
+| `gateway_analysis_pressure_refusals_total` | Class admission refusals since process start. |
+| `gateway_analysis_sqlite_connections`, `gateway_analysis_sqlite_connections_opened_total` | Current open mandate connections and cumulative successful opens. |
+| `gateway_analysis_admission_wait_seconds` | Time to reach the local admission decision, including refusals. |
+| `gateway_request_duration_seconds` | Service time from admission through handler completion, including body read, owner time and SQLite cleanup. |
+
+Both latency series expose nearest-rank p50, p95 and p99 over the configured lookback and sample cap. Their `_window_samples` gauges give the population. An empty window reports zero samples and `NaN` quantiles. Each process is a separate scrape target. Sum occupancies and counter rates across targets, read the declared instance ceiling once, and inspect each process's p99. GW-55G-01 exercises two concurrent controls under owner saturation, GW-55G-02 exercises the nested control call, and GW-55G-03 covers closed dispatch, connections, windowed timings and installation validation.
 
 ## MCP reservation check
 
@@ -99,7 +133,7 @@ The successful check contains exactly `requestHash, decisionRef, grantRef, valid
 
 The Gateway validates the complete MCP read response before relaying its bytes and status, including the code on a typed error. Identical decision replay goes to MCP with the same command key and fresh THS evidence. MCP rechecks read rights before returning the original receipt and owns the single durable consumption. Neither Gateway hop retries a mutation. Following an ambiguous outcome MCP reconciles the original command.
 
-The decide relay is re-entrant. It keeps one request of the Gateway service open while MCP calls `renewal-check` on the same service. The hosting layer must therefore serve at least two concurrent requests per authority, besides the capacity reserved for revocation and reconciliation. Otherwise the nested check waits behind the relay and the decision fails after the hop timeout, leaving MCP to reconcile it.
+The decide relay holds one relay slot while MCP calls `renewal-check` on the same service. The nested check takes one of the reserved control slots. With the default reserve, a second control operation can run alongside the check even when every data slot is occupied.
 
 The optional installation profile field `renewalChannel` contains exactly `thsClient` and `mcp`. The former identifies the THS OIDC client and must differ from the MCP workload. The latter uses the existing `url, caFile, clientCertFile, clientKeyFile` endpoint shape with an HTTPS origin. With this field absent the new review relay returns 503. The predecessor configuration and SQLite schema remain compatible. The versioned RouteBindings set the request body ceiling (default and maximum 131072 bytes) and hop timeout (default and maximum 30 seconds). Installations may lower either to a positive integer. Onboarding's timeout is at most 25 seconds and must fit within the public route timeout. The relay applies `timeoutSeconds` and `proofTtlSeconds` and caps renewal responses at the smaller of `maxResultBytes` and 131072 bytes.
 
