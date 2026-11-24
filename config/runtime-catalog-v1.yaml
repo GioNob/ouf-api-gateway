@@ -48,3 +48,15 @@ entries:
   gateway.rateLimits.semanticSearchBatch.count: *r2bCount
   gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearchBatch.key: *r2bKey
+  gateway.authority.store: &gatewaySqlite {type: path, unit: SQLite file, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.iamAdapter.store: *gatewaySqlite
+  gateway.authority.configFile: &gatewayPrivateFile {type: path, unit: file reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.iamAdapter.configFile: *gatewayPrivateFile
+  gateway.authority.manifestFile: *gatewayPrivateFile
+  gateway.iamAdapter.profileFile: *gatewayPrivateFile
+  gateway.authority.serverCertFile: *gatewayPrivateFile
+  gateway.authority.serverKeyFile: &gatewayKeyRef {type: path, unit: private key reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: secret-reference, reload: restart}
+  gateway.authority.clientCaFile: *gatewayPrivateFile
+  gateway.iamAdapter.serverCertFile: *gatewayPrivateFile
+  gateway.iamAdapter.serverKeyFile: *gatewayKeyRef
+  gateway.iamAdapter.clientCaFile: *gatewayPrivateFile
