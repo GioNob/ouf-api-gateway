@@ -1,5 +1,47 @@
 # Rilascio Gateway D-081
 
+## Discovery semantica e revisione onboarding (D-087, 51j)
+
+Il bundle v2 adotta gli ID APISIX `mcp-semantic-discovery-request`,
+`mcp-semantic-discovery-status`, `mcp-semantic-discovery-candidates`,
+`mcp-semantic-discovery-adopt` e `mcp-managed-file-review-prepare`.
+Il dispatch richiede il workload MCP autenticato e una delega HUMAN. Le prime
+tre rotte firmano con il riferimento `gateway.semanticDiscoveryOwnerKeyEnv`.
+`adopt` usa `gateway.semanticProposalOwnerKeyEnv` e `review-prepare` usa
+`gateway.sourceRevisionOwnerKeyEnv`. Il profilo privato deve associare ciascun
+riferimento alla chiave già verificata dal rispettivo owner.
+
+`contracts/mcp-discovery-review-capabilities.json` contiene le cinque righe del
+manifest MCP `868daf3` (1.15.3-next-step-v1), in ordine sorgente. Integra lo
+snapshot generale preservandone la provenienza. In `internal/kernel/kernel.go`
+il MCP esegue `delete(input, "analysisId")` prima di `json.Marshal(input)`.
+La proiezione del Gateway esclude quel contesto locale. Su `candidates`
+`requestId` è obbligatorio e `includeState` è un booleano facoltativo.
+La mediazione firma e inoltra i byte acquisiti prima della validazione.
+
+Per le prime tre discovery il massimo dell'envelope è 264.192 byte, secondo
+la derivazione 50f. Il kernel limita la chiamata Semantic a 262.144 byte.
+Su `review-prepare` il manifest consente `WITHDRAW` e `RESTART_DRAFT` in
+alternativa a `executionProposal`. I riferimenti semantici della proposta
+rientrano nel budget MCP di 2 MiB per gli argomenti e nel limite Gateway di
+3 MiB per il corpo.
+
+La delega delle quattro rotte Semantic conserva lo scope installato
+`ouf.semantic.discovery`. Il manifest dichiara scope specifici per
+`status`, `candidates` e `adopt`. La chiusura della divergenza richiede una
+verifica IAM delle deleghe emesse nell'installazione. La ricevuta di `adopt`
+identifica la capability `ouf.semantic.discovery.adopt`.
+
+I PET `GW-51J-MANIFEST`, `GW-51J-SCHEMA`, `GW-51J-FORWARD`, `GW-51J-SCOPE`,
+`GW-51J-REVIEW`, `GW-51J-IDEMPOTENCY` e `GW-51J-LEGACY` sono in
+[`test_discovery_review_release.py`](../tests/test_discovery_review_release.py).
+`GW-51J-WIDE` verifica una proposta con 1.024 riferimenti in
+[`test_onboarding_review.py`](../tests/test_onboarding_review.py).
+`GW-51J-PARITY` verifica il digest delle precedenti 24 risorse in
+[`test_r2b_release.py`](../tests/test_r2b_release.py).
+
+## Rotte del rilascio
+
 | ID rotta | Metodo e percorso | Capability | Backend logico |
 | --- | --- | --- | --- |
 | `semantic-human-terms` | `GET /api/trusted-human/v1/semantic-published-terms` | `ouf.semantic.review@1.0.0` | `ouf-semantic-registry:8080`, stesso percorso |
@@ -22,9 +64,26 @@ la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-pack
 
 Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
 secondo giro D-085 riportate più avanti.
-Il contratto `ouf.gateway-release-bundle.v1` usa i segnaposto D-058 per host,
+Il contratto `ouf.gateway-release-bundle.v2` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
-d’installazione. Il manifest riporta commit, workflow, ID del run e digest.
+d’installazione. Il manifest `ouf.gateway-release-manifest.v2` riporta commit,
+workflow, ID del run e digest.
+
+L’elenco `retired` dichiara due rotte create a mano che duplicano percorso,
+metodo e `vars` delle rotte Ingestion governate. Ogni voce riporta i `vars` letterali
+della rotta legacy: le classi di caratteri sono scritte in un altro ordine, con la stessa
+semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle e manifest riportano
+`retiredSha256`, lo SHA-256 del JSON canonico di `retired`.
+[Elenco versionato e motivazioni](../ouf-config/release/retired-routes.json)
+
+| Rotta da rimuovere | Rotta sostitutiva |
+| --- | --- |
+| `r4a-ingestion-human-run-read` | `trusted-human-ingestion-run-read` |
+| `r4a-ingestion-human-run-resume` | `trusted-human-ingestion-run-resume` |
+
+L’esecutore di task-51h2 mostra le rimozioni nel plan sottoposto all’operatore
+HUMAN e verifica la corrispondenza di selettori e `vars` prima di rimuovere
+ciascuna rotta. Ritorno e compensazione ricreano le rotte rimosse.
 
 Il job `config-contract` genera il bundle dal commit testato sia su `push` sia
 su `pull_request` e risolve i segnaposto con un profilo di test. Il gate esegue
@@ -46,6 +105,8 @@ python -m pytest -q tests/test_gateway_release_bundle.py tests/test_semantic_hum
 | ID rotta | Metodo e percorso | Capability o scope | Percorso owner |
 | --- | --- | --- | --- |
 | `mcp-managed-file-preview` | `POST /internal/capabilities/v1/execute/managed.file/preview` | `ouf.managed-source.preview` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/preview` |
+| `mcp-managed-file-handoff` | `POST /internal/capabilities/v1/execute/managed.file/handoff` | `ouf.managed-source.file.upload` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/handoff` |
+| `mcp-managed-file-handoff-issue` | `POST /internal/capabilities/v1/execute/managed.file/handoff-issue` | `ouf.managed-source.file.handoff-issue` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/handoff-issue` |
 | `mcp-managed-file-review-read` | `POST /internal/capabilities/v1/execute/managed.file/review-read` | `ouf.managed-source.onboarding.read` | Onboarding `/api/internal/v1/onboarding/managed-file-mcp/review-read` |
 | `semantic-proposal-read` | `POST /internal/capabilities/v1/execute/semantic/read` | `ouf.semantic.proposal.read` | Semantic `/api/semantic/v1/proposal-commands/read` |
 | `trusted-human-ingestion-run-recovery` | `GET`, `POST /trusted-human/ingestion-run-recovery/*` | Sessione THS | Onboarding, stesso percorso |
@@ -60,6 +121,22 @@ risolve l'upstream da `services.bindings.ouf-ingestion-runtime` e
 `services.ports.ouf-ingestion-runtime`. Le rotte hanno `retries: 0`: la decisione
 versionata e il budget di recupero restano responsabilità di Ingestion.
 
+### Selettore dei file (D-087, D-089)
+
+Entrambe le rotte richiedono il workload MCP e una delega HUMAN con lo scope
+`ouf.managed-source.file.upload`. Il Gateway firma il percorso owner e l’hash
+dell’envelope. Per l’emissione verifica anche la corrispondenza del
+`commandKey` con la chiave di idempotenza. Le due rotte hanno un limite di
+65.536 byte, tre timeout upstream di 3 secondi e zero retry.
+
+Per aggiornare le sole due dichiarazioni dal checkout MCP qualificato eseguire
+`python -m tools.sync_picker_contracts <checkout-mcp>`.
+L’opzione `--check` confronta le due righe del manifest con
+`contracts/mcp-picker-capabilities.json`. Gli argomenti di lettura derivano da
+`handoffInputSchema` della capability upload e quelli di emissione da
+`inputSchema` della capability interna. I backup legacy a quattro rotte
+ripristinano profile, preview e create. Il bundle governa il ripristino della lettura.
+
 ### Link THS emessi da Onboarding (D-085 B.2 e B.4)
 
 | ID della rotta | URI Gateway | Percorso owner (`ouf-onboarding`) | Argomenti |
@@ -73,19 +150,10 @@ in JSON canonico UTF-8 e firma il percorso owner e l'hash dei byte inoltrati
 nella ricevuta managed-file. Entrambi i link applicano un limite di richiesta
 di 65.536 byte, timeout upstream di 3 secondi e `retries: 0`.
 
-Le dichiarazioni in `ouf-config/routes/northbound/` hanno entrambe
-`capabilityId: null`. Il manifest MCP fissato a
-`da9827061cccd62e2e22f86bcb20334e3da0a4bf` è privo delle due capability.
-Dopo aver sincronizzato il manifest del ramo `sprint-03/task-50-next-step`,
-impostare il `capabilityId` di ogni dichiarazione con il relativo ID
-effettivo. Il Gateway deriva lo schema e l'URI di dispatch dal manifest,
-rimuovendo il prefisso `capability://` da `gatewayBindingRef` per ottenere il
-segmento finale dell'URI. Ogni rotta resta assente dal bundle finché la sua
-dichiarazione è incompleta. Il test
-`test_ths_link_capability_is_present_in_pinned_manifest` usa uno
-`xfail(strict=True)` indipendente per ciascun link. L'URI effettivo con il
-client MCP, la ricevuta con il verificatore Onboarding reale e il rollout
-D-086 richiedono la prova integrata.
+Le due dichiarazioni usano gli ID del manifest MCP. Il Gateway deriva lo schema
+e l'URI di dispatch da quel manifest. Il task 51d sincronizza lo snapshot dal
+commit MCP `f81e9611e73fef4ee7673e8e1f224a1c95e6e261`. Cambia
+`nextPolicies` e la sezione `capabilities` conserva gli stessi schemi.
 
 ## Dispatch MCP e tipi di valore D-084
 
@@ -157,3 +225,44 @@ eseguire `python -m tools.sync_value_type_schemas <checkout-mcp> --check`.
 Lo stesso comando senza `--check` aggiorna le copie. Il confronto verifica
 anche l’identità di entrambi i contratti. La CI esegue le prove offline con
 `python -m pytest -q tests/test_value_type_schemas.py`.
+
+## Limiti R2B d'installazione
+
+Ogni prefisso in tabella richiede tre valori nel profilo privato. Il campo
+`.count` è il numero di richieste per finestra, `.timeWindowSeconds` è la
+durata in secondi ed entrambi sono interi positivi. Il campo `.key` è il nome
+di una variabile APISIX, stringa senza prefisso `$`. Le due letture delle
+pubblicazioni condividono il profilo. Scrittura lake, handoff, lettura
+puntuale e lettura a lotti hanno costi e frequenze distinti.
+
+| Prefisso esatto | Rotta |
+|---|---|
+| `gateway.rateLimits.r2bLakeWrite` | Lake |
+| `gateway.rateLimits.r2bHandoffWrite` | Handoff |
+| `gateway.rateLimits.r2bSemanticGet` | Risoluzione GET dei runtime precedenti |
+| `gateway.rateLimits.r2bSemanticBatch` | Risoluzione POST a lotti |
+| `gateway.rateLimits.r2bPublication` | Feed e risoluzione della pubblicazione |
+
+Il bundle contiene soltanto segnaposto tipizzati. Per lo sviluppo locale il
+frammento `config/development/r2b-rate-limits.yaml` fornisce
+il blocco `gateway.rateLimits` da unire alla proiezione. Test e produzione
+richiedono un profilo esplicito. Per la qualifica è proposta la variabile
+`remote_addr`. Caddy aggrega i chiamanti sullo stesso indirizzo. APISIX applica
+la quota per rotta e restituisce `X-RateLimit-Limit`, `X-RateLimit-Remaining`
+e `X-RateLimit-Reset`. `X-RateLimit-Reset` è espresso in secondi frazionari,
+per esempio `59.97`. Il `429` di APISIX 3.18 non porta `Retry-After`: i runtime
+ricavano l'attesa da `X-RateLimit-Reset`. Il budget di produzione dipende dalla
+qualifica R-043.
+[Contratto delle rotte e ordine dei plugin](R2B_OWNER_ROUTES.md)
+
+**Registro D-065 · gateway.r2b-rate-limits.v1.** Il Gateway possiede i 15
+campi di configurazione pubblicamente censiti in `config/runtime-catalog-v1.yaml`.
+Il profilo d'installazione privato ne conserva i valori. La quota non contiene
+segreti. La cattura privata associa i valori alla revisione, al digest del
+bundle e alle sei risorse del prefisso APISIX routes in etcd. Per il ripristino
+si ripristinano prima IAM, riferimenti OIDC e binding dei servizi, poi il profilo
+e il bundle della revisione, con confronto del plan e readback delle rotte.
+La prova di ripristino deve verificare chiamata autorizzata, diniego e 429 con
+i tre header. I contatori locali in memoria ripartono sulla nuova istanza.
+La CI esercita la risoluzione del bundle e il transito HTTP. La ricevuta su un
+secondo host compete alla qualifica dell'installazione.

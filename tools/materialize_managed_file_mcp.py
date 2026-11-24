@@ -6,7 +6,7 @@ from pathlib import Path
 
 from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import function
-from tools.managed_discovery_functions import owner_function
+from tools.mcp_dispatch_contract import PICKER_CAPABILITY, PICKER_ISSUE
 from tools.materialize_permission_proposals import materialize as permission_runtime
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -14,7 +14,8 @@ MODES={
     'profile':('ouf.managed-source.file.profile','COMMAND'),
     'preview':('ouf.managed-source.preview','READ'),
     'create':('ouf.managed-source.onboarding.create','COMMAND'),
-    'handoff':('ouf.managed-source.file.upload','COMMAND'),
+    'handoff':(PICKER_CAPABILITY,'COMMAND'),
+    'handoff-issue':(PICKER_ISSUE,'COMMAND'),
 }
 
 def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use_route_labels=False):
@@ -23,54 +24,48 @@ def materialize(runtime,oidc_secret_ref,delegation_key_env,owner_key_env, *, use
     schemas=json.loads((ROOT/'schemas/mcp-gateway-managed-file-dispatch-v1.json').read_text())['oneOf']
     for mode,(cap,operation) in MODES.items():
         route_id='mcp-managed-file-'+mode
-        source_id='mcp-managed-file-upload' if mode=='handoff' else route_id
-        candidates=[r for r in runtime['routes'] if r.get('id')==source_id]
+        request_limit = 3145728 if mode == 'create' else 65536
+        timeout = 10 if mode in ('create', 'preview') else 3
+        candidates=[r for r in runtime['routes'] if r.get('id')==route_id]
         if len(candidates)!=1:raise ValueError('exact managed-file binding required: '+mode)
         binding=candidates[0];p=binding['x-ouf-policy'];c=binding['x-ouf-capability']
         path='/api/internal/v1/onboarding/managed-file-mcp/'+mode
-        if (binding.get('uri')!=('/internal/capabilities/v1/execute/managed.file/upload' if mode=='handoff' else '/internal/capabilities/v1/execute/managed.file/'+mode)
+        if (binding.get('uri')!='/internal/capabilities/v1/execute/managed.file/'+mode
+            or binding['labels'].get('exposure') != 'internal' or binding.get('vars')
             or binding['service_id']!='ouf-onboarding' or binding['x-ouf-backend-binding']['service']!='ouf-onboarding'
             or binding['x-ouf-backend-binding']['port']!=8080
-            or binding['plugins']['proxy-rewrite']['uri']!=('/api/internal/v1/onboarding/managed-file-mcp/upload' if mode=='handoff' else path) or binding['methods']!=['POST']
+            or binding['plugins']['proxy-rewrite']['uri']!=path or binding['methods']!=['POST']
             or c['capabilityId']!=cap or c['owner']!='onboarding' or c['operationType']!=operation
-            or c.get('humanRequired') or not c.get('toolEligible') or p['identity']!='M2M'
-            or p['requiredScope']!=cap or p['allowedActorTypes']!=['HUMAN']
-            or runtime['x-ouf-installation']['mcpServiceIdentity'] not in p['allowedServiceIdentities']
-            or p['maxRequestBytes']!=(10485760 if mode=='handoff' else 3145728 if mode=='create' else 65536)
-            or p['timeoutSeconds']!=(30 if mode=='handoff' else 10 if mode in ('create','preview') else 3)):
+            or c.get('humanRequired') or c.get('toolEligible') != (mode != 'handoff-issue') or p['identity']!='M2M'
+            or p['requiredScope'] != (PICKER_CAPABILITY if mode == 'handoff-issue' else cap) or p['allowedActorTypes']!=['HUMAN']
+            or p['allowedServiceIdentities'] != [runtime['x-ouf-installation']['mcpServiceIdentity']]
+            or p['maxRequestBytes']!=request_limit
+            or p['timeoutSeconds']!=timeout):
             raise ValueError('managed-file binding mismatch: '+mode)
         route=copy.deepcopy(template)
         route['id']=route_id
         route['uri']='/internal/capabilities/v1/execute/managed.file/'+mode
+        if mode == 'handoff':
+            # Preserve the explicit APISIX routing priority and enabled state on adoption.
+            route.update(priority=0, status=1)
         route['labels']['ouf-mediation']='managed-file-delegation-v1'
         route['labels']['ouf-managed']='true'
         route['labels']['ouf-exposure']='internal'
-        if mode=='handoff':
-            # This is a status operation of the existing upload capability.
-            # The CSV stream route remains separate and unchanged.
-            schema=copy.deepcopy(next(s for s in schemas if s['properties']['CapabilityID']['const']=='ouf.managed-source.file.profile'))
-            schema['properties']['GatewayBindingRef']['const']='capability://'+cap
-            schema['properties']['CapabilityID']['const']=cap
-            schema['properties']['Arguments']={'type':'object','additionalProperties':False,
-                'required':['handoffId'],'properties':{'handoffId':{'type':'string','format':'uuid'}}}
+        if mode in ('handoff', 'handoff-issue'):
+            route['plugins']['request-validation'] = binding['plugins']['request-validation']
         else:
             schema, = (s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
-        request_limit = 3145728 if mode == 'create' else 65536
-        route['plugins']['request-validation'] = dispatch_validation(schema, request_limit)
+            route['plugins']['request-validation'] = dispatch_validation(schema, request_limit)
         route['plugins']['request-id']={'header_name':'X-Correlation-ID','include_in_response':True,'algorithm':'uuid'}
-        # The November 8 apply left this route's installed function intact.
-        if mode == 'handoff':
-            post = owner_function('execute_managed_file_retained', runtime['x-ouf-installation'], delegation_key_env, owner_key_env)
-        else:
-            post = function('execute_managed_file', runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
-                            use_route_labels=use_route_labels and mode in ('create', 'preview'))
+        # Retain the installed reader and receipt checks during adoption.
+        source = 'execute_managed_file_retained' if mode == 'handoff' else 'execute_managed_file'
+        post = function(source, runtime['x-ouf-installation'], delegation_key_env, owner_key_env,
+                        use_route_labels=use_route_labels and mode != 'profile', issue_handoff=mode == 'handoff-issue')
         route['plugins']['serverless-post-function']['functions']=[post]
         route['plugins']['proxy-rewrite']['uri']=path
         route['upstream']['nodes']={'ouf-onboarding:8080':1}
-        if mode != 'handoff':
-            timeout=10 if mode in ('create','preview') else 3
-            route['plugins']['client-control']={'max_body_size':request_limit}
-            route['upstream']['timeout']={'connect':3,'send':timeout,'read':timeout}
+        route['plugins']['client-control']={'max_body_size':request_limit}
+        route['upstream']['timeout']={'connect':3,'send':timeout,'read':timeout}
         result['routes'].append(route)
     return result
 

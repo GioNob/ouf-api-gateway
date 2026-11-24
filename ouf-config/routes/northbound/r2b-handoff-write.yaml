@@ -1,7 +1,7 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
 metadata:
-  id: r2b-handoff-write
+  id: r4a-udp-runtime-handoff-write
   version: 1.0.0
   status: ACTIVE
 spec:
@@ -21,6 +21,6 @@ spec:
     maxRequestBytes: 10485760
     timeoutSeconds: 10
     allowedServiceIdentities:
-    - ouf-ingestion-runtime
+    - installation://iam.workloadClients.ingestion
     allowedActorTypes:
     - SERVICE_IDENTITY

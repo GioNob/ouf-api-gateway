@@ -4,15 +4,28 @@ import json
 import re
 
 
-RELEASE_ROUTE_IDS = [
-    'mcp-managed-file-create', 'mcp-managed-file-preview', 'mcp-managed-file-review-read',
-    'mcp-source-revision-prepare', 'semantic-human-terms', 'semantic-proposal-create',
+R2B_ROUTE_IDS = (
+    'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
+    'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
+)
+
+DISCOVERY_REVIEW_IDS = [
+    'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-adopt', 'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request', 'mcp-semantic-discovery-status',
+]
+
+RELEASE_ROUTE_IDS = sorted([
+    'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
+    'mcp-managed-file-preview', 'mcp-managed-file-review-read',
+    'mcp-source-revision-prepare',
+    *R2B_ROUTE_IDS, 'semantic-human-terms', 'semantic-proposal-create',
     'semantic-proposal-read', 'ths-resolution-package-confirm', 'ths-resolution-package-read',
     'trusted-human-ingestion-run-abort', 'trusted-human-ingestion-run-read',
     'trusted-human-ingestion-run-recovery', 'trusted-human-ingestion-run-resume',
-    'trusted-human-resolution-review',
-]
+    'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS,
+])
 
+RATE_CLASSES = ('r2bLakeWrite', 'r2bHandoffWrite', 'r2bSemanticGet', 'r2bSemanticBatch', 'r2bPublication')
 
 def canonical_json(value):
     return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
@@ -35,11 +48,11 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert manifest_payload == canonical_json(manifest)
     assert payload == canonical_json(bundle)
     assert set(manifest) == {'schema', 'sourceRepository', 'sourceCommit', 'workflowPath', 'runId',
-                             'bundleSha256', 'resourcesSha256', 'placeholders'}
+                             'bundleSha256', 'resourcesSha256', 'retiredSha256', 'placeholders'}
     assert set(bundle) == {'schema', 'sourceRepository', 'sourceCommit', 'resources',
-                           'placeholders', 'resourcesSha256'}
-    assert manifest['schema'] == 'ouf.gateway-release-manifest.v1'
-    assert bundle['schema'] == 'ouf.gateway-release-bundle.v1'
+                           'placeholders', 'resourcesSha256', 'retired', 'retiredSha256'}
+    assert manifest['schema'] == 'ouf.gateway-release-manifest.v2'
+    assert bundle['schema'] == 'ouf.gateway-release-bundle.v2'
     assert bundle['sourceRepository'] == manifest['sourceRepository'] == 'GioNob/ouf-api-gateway'
     assert re.fullmatch(r'[0-9a-f]{40}', commit)
     assert bundle['sourceCommit'] == manifest['sourceCommit'] == commit
@@ -48,6 +61,8 @@ def load_release_routes(directory, commit, workflow_path, run_id, profile):
     assert manifest['runId'] == run_id
     assert re.fullmatch(r'[0-9]+', run_id)
     assert manifest['bundleSha256'] == sha256(payload)
+    assert isinstance(bundle['retired'], list)
+    assert bundle['retiredSha256'] == manifest['retiredSha256'] == sha256(canonical_json(bundle['retired']))
     resources = bundle['resources']
     assert isinstance(resources, list)
     assert bundle['resourcesSha256'] == manifest['resourcesSha256'] == sha256(canonical_json(resources))
@@ -96,8 +111,12 @@ def ci_profile(installation, port):
         'gateway.requiredAudience': installation['gatewayAudience'],
         'gateway.issuerUrl': installation['issuerUrl'],
         'iam.workloadClients.mcpServer': installation['mcpServiceIdentity'],
+        'iam.workloadClients.ingestion': installation.get('ingestionServiceIdentity', 'test-ingestion'),
+        'iam.workloadClients.udp': installation.get('udpServiceIdentity', 'test-udp'),
+        **{f'gateway.rateLimits.{group}.{field}': value for group in RATE_CLASSES
+           for field, value in [('count', 12), ('timeWindowSeconds', 60), ('key', 'remote_addr')]},
         'gateway.delegationKeyEnv': 'DELEGATION_KEY', 'gateway.sourceRevisionOwnerKeyEnv': 'OWNER_KEY',
-        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY',
+        'gateway.semanticProposalOwnerKeyEnv': 'OWNER_KEY', 'gateway.semanticDiscoveryOwnerKeyEnv': 'DISCOVERY_KEY',
         'caddy.oidcDiscoveryUrl': f'http://127.0.0.1:{port}/discovery',
         'gateway.oidcClientSecretRef': '$ENV://OIDC_SECRET',
         'services.bindings.ouf-semantic-registry': '127.0.0.1', 'services.ports.ouf-semantic-registry': port,

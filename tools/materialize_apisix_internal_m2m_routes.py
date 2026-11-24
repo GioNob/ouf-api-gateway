@@ -3,7 +3,13 @@
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.materialize_r4a_identity_preflight import strip_headers
+from tools.r2b_limits import ROUTE_CLASSES, limit_count
 
 class MaterializationError(RuntimeError):
     pass
@@ -69,7 +75,7 @@ def workload_guard(allowed_services, allowed_actors):
         "end"
     )
 
-def materialize_route(route, installation, oidc_secret_ref):
+def materialize_route(route, installation, oidc_secret_ref, *, release_template=False):
     labels=route.get("labels") or {}
     policy=route.get("x-ouf-policy")
     backend=route.get("x-ouf-backend-binding")
@@ -88,7 +94,8 @@ def materialize_route(route, installation, oidc_secret_ref):
     if any(v.startswith("installation://") for v in allowed_services):
         raise MaterializationError("installation service identities must be projected before materialization")
     allowed_actors=policy.get("allowedActorTypes")
-    if allowed_actors!=["SERVICE"]:
+    r2b = route.get("id") in ROUTE_CLASSES
+    if allowed_actors != ["SERVICE"] and not (r2b and allowed_actors == ["SERVICE_IDENTITY"]):
         raise MaterializationError("internal workload route must allow only SERVICE actor")
     scope=require_text(policy,"requiredScope")
     if not oidc_secret_ref.startswith(SECRET_REF_PREFIXES):
@@ -112,12 +119,18 @@ def materialize_route(route, installation, oidc_secret_ref):
     if wildcard and (not uri.endswith("/*") or uri.count("*")!=1 or backend_path!=uri):
         raise MaterializationError("wildcard route must preserve exact bounded namespace")
 
+    if r2b:
+        strip = strip_headers()
+        guard = (Path(__file__).parent / "lua/r2b_workload.lua").read_text(encoding="utf-8")
+    else:
+        strip = strip_untrusted_headers()
+        guard = workload_guard(allowed_services, allowed_actors)
     plugins={
         "request-id":(route.get("plugins") or {}).get("request-id",{}),
         "limit-count":(route.get("plugins") or {}).get("limit-count",{}),
         "serverless-pre-function":{
             "phase":"rewrite",
-            "functions":[strip_untrusted_headers()],
+            "functions":[strip],
         },
         "openid-connect":{
             "client_id":audience,
@@ -132,13 +145,13 @@ def materialize_route(route, installation, oidc_secret_ref):
         },
         "serverless-post-function":{
             "phase":"access",
-            "functions":[workload_guard(allowed_services,allowed_actors)],
+            "functions":[guard],
         },
     }
     if not wildcard:
         plugins["proxy-rewrite"]={"uri":backend_path}
 
-    return {
+    result = {
         "id":require_text(route,"id"),
         "uri":uri,
         "methods":methods,
@@ -156,6 +169,36 @@ def materialize_route(route, installation, oidc_secret_ref):
             "nodes":{f"{service}:{port}":1},
         },
     }
+    if r2b:
+        # The binding names a service identity; Keycloak and the owners use
+        # SERVICE on the wire. Keep the verified bearer for owner-side checks.
+        workload_labels = {}
+        for role in ("ingestion", "udp"):
+            client = require_text(installation, role + "ServiceIdentity")
+            if client in allowed_services:
+                workload_labels["ouf-" + role + "-workload"] = client
+        if set(workload_labels.values()) != set(allowed_services) or len(workload_labels) != len(allowed_services):
+            raise MaterializationError("ambiguous or unknown R2B workload identity")
+        result["labels"].update(workload_labels)
+        plugins["openid-connect"]["claim_validator"]["issuer"] = {"valid_issuers": [issuer]}
+        plugins["client-control"] = {"max_body_size": policy["maxRequestBytes"]}
+        if route["id"] == "r2b-semantic-reference-batch":
+            plugins["response-rewrite"] = {
+                "vars": [["status", "==", 413]],
+                "headers": {"set": {"Content-Type": "application/json"}},
+                "body": '{"code":"SEM_REFERENCE_BATCH_TOO_LARGE"}',
+            }
+        timeout = policy["timeoutSeconds"]
+        result["upstream"].update(retries=0, timeout=dict(connect=timeout, send=timeout, read=timeout))
+        limit = plugins["limit-count"]
+        if release_template:
+            if limit != limit_count(route["id"]):
+                raise MaterializationError("release requires installation-bound R2B limits")
+        else:
+            resolved = all(type(limit.get(k)) is int and limit[k] > 0 for k in ("count", "time_window"))
+            if not resolved or not isinstance(limit.get("key"), str) or not limit["key"].strip():
+                raise MaterializationError("project gateway.rateLimits before materializing R2B routes")
+    return result
 
 def materialize(runtime, route_ids, oidc_secret_ref):
     installation=runtime.get("x-ouf-installation")

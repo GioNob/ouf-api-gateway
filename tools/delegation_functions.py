@@ -23,9 +23,9 @@ end"""
 
 
 def function(kind, installation, key_env, owner_key_env=None, operational_binding=None, *,
-             use_route_labels=False, ths_link=None):
+             use_route_labels=False, ths_link=None, issue_handoff=False, discovery_mode=None):
     if use_route_labels and kind not in ('execute_semantic_proposals', 'execute_source_revision', 'execute_managed_file',
-                                         'execute_managed_file_retained'):
+                                         'execute_managed_file_retained', 'execute_semantic_discovery', 'execute_discovery_adopt'):
         raise ValueError('unsupported installation-bound function')
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}', key_env):
         raise ValueError('invalid delegation key environment name')
@@ -33,10 +33,14 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
               'AUDIENCE': installation['gatewayAudience'], 'MCP_WORKLOAD': installation['mcpServiceIdentity']}
     if any(not isinstance(v, str) or not v.strip() or v.startswith('installation://') for v in values.values()):
         raise ValueError('resolved delegation settings required')
-    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind in ('execute_permissions', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_semantic_discovery', 'execute_discovery_adopt'):
         if not isinstance(owner_key_env,str) or not re.fullmatch(r'[A-Z][A-Z0-9_]{0,127}',owner_key_env):
             raise ValueError('owner receipt key environment required')
         values['OWNER_KEY_ENV'] = owner_key_env
+    if kind == 'execute_discovery_adopt':
+        cap = 'ouf.semantic.discovery.adopt'
+        values.update(CAPABILITY=cap, REQUIRED_SCOPE='ouf.semantic.discovery',
+                      OPERATION='COMMAND', OWNER_PATH='/api/semantic/v1/proposal-commands/adopt')
     if kind == 'execute_semantic_proposals':
         from tools.materialize_semantic_proposals import CAPABILITIES
         if not isinstance(operational_binding, dict) or set(operational_binding) != {'capability','owner','scope'}:
@@ -92,10 +96,45 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
         constants = '\n'.join(lines)
     else:
         constants = '\n'.join(f'local {k} = {json.dumps(v)}' for k, v in values.items())
-    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision'):
+    if kind not in ('issue_delegation', 'execute_status', 'execute_permissions', 'execute_operational', 'execute_semantic_proposals', 'execute_object_search', 'execute_managed_file', 'execute_managed_file_retained', 'execute_managed_upload', 'execute_semantic_read', 'execute_source_revision', 'execute_semantic_discovery', 'execute_discovery_adopt'):
         raise ValueError('invalid function')
-    source = (ROOT / (kind + '.lua')).read_text()
+    template = 'execute_semantic_proposals' if kind == 'execute_discovery_adopt' else kind
+    source = (ROOT / (template + '.lua')).read_text()
+    if kind == 'execute_semantic_discovery':
+        from tools.mcp_dispatch_contract import DISCOVERY_SCOPE, capability_contracts, dispatch_input_schema
+        original = ''
+        if discovery_mode == 'candidates':
+            original = ("body = ctx.ouf_original_body\n"
+                        "if type(body) ~= 'string' or #body > 65536 then return fail(413) end")
+        source = source.replace('-- MATERIALIZE DISCOVERY ORIGINAL BODY', original)
+        modes = []
+        for mode in ('request', 'status', 'candidates'):
+            capability = DISCOVERY_SCOPE if mode == 'request' else DISCOVERY_SCOPE + '.' + mode
+            schema = dispatch_input_schema(capability, capability_contracts()[capability]['inputSchema'])
+            keys = ','.join(f'[{json.dumps(k)}]=true' for k in sorted(schema['properties']))
+            modes.append(f'{mode}={{{keys}}}')
+        source = source.replace('-- MATERIALIZE DISCOVERY KEYS', 'local keys = {' + ','.join(modes) + '}')
+
     if kind == 'execute_managed_file':
+        file_binding = 'local binding = ths_link'
+        receipt_capability = 'e.CapabilityID'
+        if issue_handoff:
+            from tools.mcp_dispatch_contract import picker_contract
+            contract = picker_contract('mcp-managed-file-handoff-issue')
+            path = '/api/internal/v1/onboarding/managed-file-mcp/handoff-issue'
+            uri = '/internal/capabilities/v1/execute/managed.file/handoff-issue'
+            settings = {'capability': contract['capabilityId'], 'binding': contract['gatewayBindingRef'],
+                        'operation': contract['operationClass'], 'scope': contract['requiredAuthorizationCapability'],
+                        'path': path}
+            file_binding = '\n'.join((
+                f'if ngx.var.uri ~= "{uri}" and ngx.var.uri ~= "{path}" then return fail(403) end',
+                "if type(e.Arguments) ~= 'table' or e.Arguments.commandKey ~= e.IdempotencyKey then return fail(409) end",
+                'local binding = {' + ', '.join(f'{k}={json.dumps(v)}' for k, v in settings.items()) + '}',
+            ))
+            # Onboarding verifies the delegated upload authority, exact issue path and envelope hash.
+            receipt_capability = 'binding.scope'
+        source = source.replace('-- MATERIALIZE FILE BINDING', file_binding)
+        source = source.replace('OWNER_RECEIPT_CAPABILITY', receipt_capability)
         if ths_link is None:
             binding = 'nil'
         else:
@@ -105,12 +144,15 @@ def function(kind, installation, key_env, owner_key_env=None, operational_bindin
                       for name, field_type in sorted(ths_link['fields'].items())]
             binding = '{' + ', '.join(settings + ['fields={' + ', '.join(fields) + '}']) + '}'
         source = source.replace('-- MATERIALIZE THS LINK', 'local ths_link = ' + binding)
-    if kind == 'execute_semantic_proposals':
+    if template == 'execute_semantic_proposals':
+        adopt = kind == 'execute_discovery_adopt'
+        human_only = 'true' if adopt else "CAPABILITY == 'ouf.semantic.proposal.read'"
+        source = source.replace('HUMAN_ONLY', human_only)
+        source = source.replace('RECEIPT_CAPABILITY', 'CAPABILITY' if adopt else 'REQUIRED_SCOPE')
         from tools.materialize_semantic_proposals import PROPOSAL_REQUEST_BYTES, VALUE_MAP_REQUEST_BYTES
-        ceiling = PROPOSAL_REQUEST_BYTES
+        ceiling = VALUE_MAP_REQUEST_BYTES if cap == 'ouf.semantic.propose' else PROPOSAL_REQUEST_BYTES
         reader = 'ngx.req.read_body()\nlocal body = ngx.req.get_body_data()'
-        if cap == 'ouf.semantic.propose':
-            ceiling = VALUE_MAP_REQUEST_BYTES
+        if adopt or cap == 'ouf.semantic.propose':
             reader = "local body = ctx.ouf_original_body\nif type(body) ~= 'string' then return fail(503) end"
         source = source.replace('-- MATERIALIZE SEMANTIC REQUEST BODY', reader)
         source = source.replace('BODY_CEILING', str(ceiling)).replace('LEGACY_CEILING', str(PROPOSAL_REQUEST_BYTES))

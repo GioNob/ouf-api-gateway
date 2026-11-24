@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ops.apisix.deploy_internal_m2m_routes import Admin, apply, restore, validate_routes
 
-IDS={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create','mcp-managed-file-handoff'}
+IDS={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
 PROBE_ID='00000000-0000-4000-8000-000000000001'
 
 def anonymous_probe(route):
@@ -19,13 +19,10 @@ def anonymous_probe(route):
     mode=route['id'].removeprefix('mcp-managed-file-')
     cap={'profile':'ouf.managed-source.file.profile',
          'preview':'ouf.managed-source.preview',
-         'create':'ouf.managed-source.onboarding.create',
-         'handoff':'ouf.managed-source.file.upload'}[mode]
+         'create':'ouf.managed-source.onboarding.create'}[mode]
     args={'assetId':PROBE_ID}
     if mode=='preview':
         args['profileId']=PROBE_ID
-    elif mode=='handoff':
-        args={'handoffId':PROBE_ID}
     elif mode=='create':
         args.update(profileId=PROBE_ID,sourceId='probe-source',name='Probe',
                     owner='Probe',targetClassIri='https://example.org/Probe',
@@ -75,9 +72,12 @@ def main():
     previous=None
     if args.restore:
         previous=json.loads(args.restore.read_text())
-        legacy=IDS-{'mcp-managed-file-handoff'}
-        if not isinstance(previous,dict) or set(previous) not in (IDS,legacy):
+        if not isinstance(previous,dict) or set(previous) not in (IDS, IDS | {'mcp-managed-file-handoff'}):
             raise ValueError('snapshot must contain the exact managed-file route set')
+        # Old four-route backups still restore the three legacy routes.
+        if 'mcp-managed-file-handoff' in previous:
+            del previous['mcp-managed-file-handoff']
+            print('mcp-managed-file-handoff is owned by the governed Gateway release; restoring legacy routes only')
     else:
         routes=select(json.loads(args.materialization.read_text()))
     admin=Admin(args,'managed-file-mcp-')

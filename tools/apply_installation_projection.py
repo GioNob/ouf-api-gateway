@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 import argparse, copy, hashlib, json
 from pathlib import Path
+import sys
+
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.r2b_limits import ROUTE_CLASSES, limit_count
 
 INSTALLATION_MCP_REF = "installation://iam.workloadClients.mcpServer"
 INSTALLATION_INGESTION_REF = "installation://iam.workloadClients.ingestion"
@@ -42,6 +47,14 @@ def apply_projection(compiled, projection):
         raise ProjectionError("invalid projection field services.bindings")
 
     for route in out.get("routes", []):
+        if route["id"] in ROUTE_CLASSES and "rateLimits" in projection["gateway"]:
+            rates = projection["gateway"]["rateLimits"]
+            if not isinstance(rates, dict):
+                raise ProjectionError("invalid projection field gateway.rateLimits")
+            try:
+                route["plugins"]["limit-count"] = limit_count(route["id"], rates)
+            except ValueError as exc:
+                raise ProjectionError(str(exc)) from exc
         policy = route.get("x-ouf-policy") or {}
         allowed = policy.get("allowedServiceIdentities")
         if isinstance(allowed, list):

@@ -16,14 +16,14 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as source_revision
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, MANIFEST, NEXT_RESULT_HEADROOM_BYTES,
-    bound_capability, capability_contracts, envelope_refs,
+    PICKER_ROUTES, bound_capability, dispatch_input_schema, capability_contracts, envelope_refs, picker_contract,
 )
 
 HANDOFF_URI = EXECUTE_PATH + '/managed.file/handoff'
 REVIEW_READ_URI = EXECUTE_PATH + '/managed.file/review-read'
 PREVIEW_URI = EXECUTE_PATH + '/managed.file/preview'
 SEMANTIC_READ_URI = EXECUTE_PATH + '/semantic/read'
-MANIFEST_SHA256 = '03cadcb7747e60b0a4ede3d63dedfec620037216ce623c8cc52548aba8e3a1fa'
+MANIFEST_SHA256 = '2d0a096c7bdfde0bbd31d57ed97f559858bf42a5058e1651982f9a92faab7326'
 THS_LINK_DISPATCH_CASES = {
     'mcp-ingestion-run-recovery-link': (
         '/api/internal/v1/onboarding/ths-links/ingestion-run-recovery',
@@ -64,6 +64,8 @@ def dispatch_body(schema, arguments):
         field_schema = fields[field]
         body[field] = field_schema['const'] if 'const' in field_schema else field_schema['enum'][0]
     body['Arguments'] = arguments
+    if body['CapabilityID'] == 'ouf.managed-source.file.handoff-issue' and isinstance(arguments, dict):
+        body['IdempotencyKey'] = arguments.get('commandKey', body['IdempotencyKey'])
     return body
 
 
@@ -100,17 +102,16 @@ def test_dispatch_profiles_match_pinned_manifest():
         assert not validator.is_valid(dispatch_body(schema, ['private-source-value'])), uri
         capability = bound_capability(schema)
         fields = schema['properties']
-        if uri == HANDOFF_URI:
-            assert capability == 'ouf.managed-source.file.upload'
-            assert fields['Arguments'] == {
-                'type': 'object', 'additionalProperties': False, 'required': ['handoffId'],
-                'properties': {'handoffId': {'type': 'string', 'format': 'uuid'}},
-            }
+        if route['id'] in PICKER_ROUTES:
+            cap, field, _ = PICKER_ROUTES[route['id']]
+            assert capability == cap
+            contract = picker_contract(route['id'])
+        elif capability in internal_producers:
             continue
-        if capability in internal_producers:
-            continue
-        contract = contracts[capability]
-        projected = envelope_refs(contract['inputSchema'])
+        else:
+            contract = contracts[capability]
+            field = 'inputSchema'
+        projected = envelope_refs(dispatch_input_schema(capability, contract[field]))
         expected = inline_dispatch_schema({'properties': {'Arguments': projected}})
         assert fields['Arguments'] == expected['properties']['Arguments'], (uri, capability)
         budget = max(contract.get('operationalLimits', {}).get('maxResultBytes', 0),
@@ -118,10 +119,10 @@ def test_dispatch_profiles_match_pinned_manifest():
         assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
         (declared if compiled else materialized).add(capability)
 
-    # These bindings have no APISIX execute profile in this checkout.
+    # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
     assert declared - materialized == {
         'urban.object.related_search', 'ouf.ingestion.status', 'ouf.ingestion.history',
-        'ouf.operations.explain',
+        'ouf.operations.explain', 'ouf.semantic.discovery.adopt',
     }
 
 
@@ -154,6 +155,20 @@ def wave2_dispatch_cases(routes=()):
     asset = '11111111-1111-4111-8111-111111111111'
     other = '22222222-2222-4222-8222-222222222222'
     cases = {
+        EXECUTE_PATH + '/semantic/discovery/candidates': (
+            '/api/internal/v1/semantic/discovery/candidates',
+            [{'requestId': asset, 'includeState': True}],
+            [{'requestId': asset, 'includeState': 'true'}, {'includeState': True},
+             {'requestId': asset, 'analysisId': checksum}],
+        ),
+        HANDOFF_URI: (
+            '/api/internal/v1/onboarding/managed-file-mcp/handoff',
+            [{'handoffId': asset}], [{}, {'handoffId': 'private-source-value'}, {'commandKey': asset}],
+        ),
+        HANDOFF_URI + '-issue': (
+            '/api/internal/v1/onboarding/managed-file-mcp/handoff-issue',
+            [{'commandKey': asset}], [{}, {'commandKey': 'private-source-value'}, {'handoffId': asset}],
+        ),
         PREVIEW_URI: (
             '/api/internal/v1/onboarding/managed-file-mcp/preview',
             [{'assetId': asset, 'profileId': other}, {'assetId': asset, 'jobId': other}],
@@ -196,8 +211,9 @@ def test_wave2_dispatch_cases_match_the_pinned_manifest():
         assert validation['rejected_msg'] == INVALID_TOOL_ARGUMENTS
         schema = validation['body_schema']
         gateway = Draft7Validator(schema, format_checker=FormatChecker())
-        tool = Draft7Validator(capability_contracts()[bound_capability(schema)]['inputSchema'],
-                               format_checker=FormatChecker())
+        source = (picker_contract(route['id'])[PICKER_ROUTES[route['id']][1]] if route['id'] in PICKER_ROUTES
+                  else capability_contracts()[bound_capability(schema)]['inputSchema'])
+        tool = Draft7Validator(dispatch_input_schema(bound_capability(schema), source), format_checker=FormatChecker())
         for allowed, arguments_list in [(True, accepted), (False, rejected)]:
             for arguments in arguments_list:
                 assert gateway.is_valid(dispatch_body(schema, arguments)) == tool.is_valid(arguments) == allowed

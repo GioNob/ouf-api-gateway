@@ -1,0 +1,147 @@
+[
+  {
+    "capabilityId": "ouf.managed-source.file.handoff-issue",
+    "purpose": "Issue a durable file picker handoff for the delegated human",
+    "useWhen": [
+      "source.file.upload opens the first-party picker"
+    ],
+    "doNotUseWhen": [
+      "reading a previously issued handoff"
+    ],
+    "preferredAlternatives": [
+      "source.file.upload.status"
+    ],
+    "operationalLimits": {
+      "maxArgumentsBytes": 4096,
+      "maxResultBytes": 4096
+    },
+    "resultSemantics": "Owner-issued handoffId, pickerUrl, issuedAt, waitUntil, state and observationVersion",
+    "securityNotes": [
+      "Gateway mediates the HUMAN upload grant with managed-file-delegation-v1"
+    ],
+    "mcpClass": "MCP_INTERNAL",
+    "owner": "onboarding",
+    "operationClass": "COMMAND",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.managed-source.file.upload",
+    "gatewayBindingRef": "capability://ouf.managed-source.file.handoff-issue",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 1,
+      "hardMaxResultBytes": 4096,
+      "hardMaxElapsedMs": 30000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 0,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": false,
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commandKey"
+      ],
+      "properties": {
+        "commandKey": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "allowedActors": [
+      "HUMAN"
+    ]
+  },
+  {
+    "toolName": "source.file.upload",
+    "handoffInputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "handoffId"
+      ],
+      "properties": {
+        "handoffId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "nextPolicy": "upload",
+    "capabilityId": "ouf.managed-source.file.upload",
+    "purpose": "Stage an authenticated user's CSV through the governed Gateway",
+    "useWhen": [
+      "the authenticated human wants to choose a local CSV through the first-party picker, or a supported host supplies a governed file parameter"
+    ],
+    "doNotUseWhen": [
+      "the requested upload mode is not configured"
+    ],
+    "preferredAlternatives": [
+      "request the user to choose a CSV from the first-party OUF picker"
+    ],
+    "operationalLimits": {
+      "maxArgumentsBytes": 4096,
+      "maxResultBytes": 4096
+    },
+    "resultSemantics": "An idempotent staged asset identity; profiling and DRAFT creation are separate actions",
+    "securityNotes": [
+      "The host URL stays in private request memory and never enters the Gateway envelope",
+      "Gateway checks delegated HUMAN scope; Onboarding verifies streamed bytes and owner receipt"
+    ],
+    "mcpClass": "MCP_PROPOSAL_ONLY",
+    "owner": "onboarding",
+    "operationClass": "COMMAND",
+    "publicationState": "ACTIVE",
+    "requiredAuthorizationCapability": "ouf.managed-source.file.upload",
+    "gatewayBindingRef": "capability://ouf.managed-source.file.upload",
+    "baseCostEnvelope": {
+      "hardMaxToolCalls": 1,
+      "hardMaxGraphCalls": 0,
+      "hardMaxDistinctObjects": 1,
+      "hardMaxResultBytes": 4096,
+      "hardMaxElapsedMs": 30000
+    },
+    "conditionalOutcomeCost": {
+      "mismatchCalls": 0,
+      "equivalentRetryCalls": 1
+    },
+    "toolEligible": true,
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file_id",
+            "download_url"
+          ],
+          "properties": {
+            "file_id": {
+              "type": "string",
+              "pattern": "^file_[A-Za-z0-9_-]{1,128}$"
+            },
+            "download_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "mime_type": {
+              "type": "string",
+              "const": "text/csv"
+            },
+            "file_name": {
+              "type": "string",
+              "maxLength": 255
+            }
+          }
+        }
+      }
+    }
+  }
+]

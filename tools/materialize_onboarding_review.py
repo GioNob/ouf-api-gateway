@@ -133,6 +133,7 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_rou
         uri = '/internal/capabilities/v1/execute/managed.file/'+mode
         path = '/api/internal/v1/onboarding/managed-file-mcp/'+mode
         if (binding.get('uri') != uri or binding.get('methods') != ['POST']
+            or binding['labels']['exposure'] != 'internal'
             or binding.get('service_id') != 'ouf-onboarding'
             or binding['x-ouf-backend-binding'] != {'service': 'ouf-onboarding', 'port': 8080, 'path': path}
             or binding['plugins']['proxy-rewrite']['uri'] != path
@@ -146,11 +147,17 @@ def materialize(existing, runtime, delegation_key_env, owner_key_env, *, use_rou
         route = copy.deepcopy(templates[0])
         route.update(id=route_id, uri=uri, methods=['POST'])
         route['labels']['ouf-mediation'] = 'onboarding-review-v1'
-        route['plugins']['request-validation'] = dispatch_validation(review_schema(mode), request_limit)
+        if mode == 'review-prepare':
+            route.update(priority=0, status=1)
+            route['labels']['ouf-exposure'] = binding['labels']['exposure']
+            route['plugins']['request-validation'] = binding['plugins']['request-validation']
+            route['plugins']['request-id'] = binding['plugins']['request-id']
+        else:
+            route['plugins']['request-validation'] = dispatch_validation(review_schema(mode), request_limit)
         # The November 8 apply left this route's installed function intact.
         source = 'execute_managed_file_retained' if mode == 'review-read' else 'execute_managed_file'
         post = function(source, installation, delegation_key_env, owner_key_env,
-                        use_route_labels=use_route_labels and mode == 'review-read')
+                        use_route_labels=use_route_labels)
         route['plugins']['serverless-post-function'] = {'phase': 'access', 'functions': [post]}
         route['plugins']['proxy-rewrite'] = {'uri': path}
         if mode == 'review-prepare':

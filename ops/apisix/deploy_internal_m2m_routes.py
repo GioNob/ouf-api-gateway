@@ -8,6 +8,16 @@ import re
 import subprocess
 import tempfile
 
+# Both the legacy bulk installer and its rollback accept caller-supplied IDs.
+BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-request',
+                'mcp-semantic-discovery-status', 'mcp-semantic-discovery-candidates', 'mcp-semantic-discovery-adopt'}
+
+
+def reject_bundle_owned(ids):
+    if BUNDLE_OWNED.intersection(ids):
+        raise ValueError("discovery and review routes are owned by the governed Gateway release")
+
+
 def route_value(doc):
     value=doc.get("value",doc)
     if isinstance(value,dict) and isinstance(value.get("value"),dict):
@@ -29,6 +39,7 @@ def validate_routes(routes):
         route_id=route.get("id")
         if not isinstance(route_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]+",route_id):
             raise ValueError("invalid route id")
+        reject_bundle_owned([route_id])
         if route_id in ids:
             raise ValueError("duplicate route id")
         ids.add(route_id)
@@ -93,6 +104,7 @@ def snapshot(route_ids,admin):
     return previous
 
 def restore(previous,admin):
+    reject_bundle_owned(previous)
     failures=[]
     for route_id in sorted(previous):
         old=previous[route_id]

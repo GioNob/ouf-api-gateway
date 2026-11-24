@@ -41,11 +41,6 @@
           "type": "string",
           "format": "uuid",
           "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-        },
-        "analysisId": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$",
-          "description": "Optional MCP analysis context, consumed locally."
         }
       }
     },

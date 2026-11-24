@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,10 +29,81 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
-from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, bound_capability, capability_contracts
+from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
+
+
+R2B_GET = '/api/semantic/v1/references:resolve'
+R2B_CASES = {
+    '/api/internal/v1/lake/objects': ('POST', 'datalake.write'),
+    '/api/internal/v1/handoffs': ('POST', 'udp.candidate.write'),
+    R2B_GET: ('GET', 'ouf.semantic.read'),
+    R2B_GET + '-batch': ('POST', 'ouf.semantic.read'),
+}
+
+
+def check_r2b_mixed_window(request, token, installation):
+    """GW-51D-LIVE. Observe ordering and quotas on the installed APISIX routes."""
+    ingestion = installation['ingestionServiceIdentity']
+    udp = installation['udpServiceIdentity']
+    reference = {'semanticId': 'urn:ci:term', 'revisionId': '11111111-1111-4111-8111-111111111111',
+                 'publicationSetId': '22222222-2222-4222-8222-222222222222'}
+    for path, (method, scope) in R2B_CASES.items():
+        target = path + '?' + urllib.parse.urlencode(reference) if method == 'GET' else path
+        body = None if method == 'GET' else {}
+        if path.endswith('-batch'):
+            body = {'references': [reference]}
+
+        def call(service=ingestion, actor='SERVICE', granted=scope, payload=body):
+            bearer = token(actor, azp=service, scope=granted)
+            return request(method, target, payload, bearer, with_headers=True)
+
+        assert request(method, target, body)[0] == 401
+        wrong_aud = token('SERVICE', azp=ingestion, scope=scope, aud='other-resource')
+        assert request(method, target, body, wrong_aud)[0] in (401, 403)
+        assert call(granted='other.scope')[0] == 403
+        # A signed token with the correct scope reaches limit-count before the
+        # access-phase workload guard. A rejected service consumes one credit.
+        first, _, initial_quota = call()
+        assert first == 200
+        assert call(service='unlisted-client')[0] == 403
+        second, _, quota = call()
+        assert second == 200
+        assert int(quota['X-RateLimit-Remaining']) == int(initial_quota['X-RateLimit-Remaining']) - 2
+        assert call(actor='HUMAN')[0] == 403
+        if path.startswith(R2B_GET):
+            assert call(udp)[0] == 200
+        else:
+            assert call(udp)[0] == 403
+        if path.endswith('-batch'):
+            exact = json.dumps(body).encode().ljust(262144)
+            assert call(payload=exact)[0] == 200
+            status, raw, _ = call(payload=exact + b' ')
+            assert status == 413 and json.loads(raw)['code'] == 'SEM_REFERENCE_BATCH_TOO_LARGE'
+        status, raw, quota = call()
+        assert status == 200, (path, status)
+        owner = json.loads(raw)
+        assert owner['path'] == target and owner['bearerPresent']
+        assert owner['headers'] == {
+            'x-ouf-gateway-verified': 'true', 'x-ouf-service-principal': ingestion,
+            'x-ouf-actor-type': 'SERVICE', 'x-ouf-principal-id': 'service',
+            'x-ouf-tenant-id': 'tenant-a', 'x-ouf-authentication-context-ref': '1',
+            'x-ouf-token-issuer': installation['issuerUrl'], 'x-ouf-token-audience': installation['gatewayAudience'],
+            'x-ouf-granted-scopes': scope,
+        }
+        assert int(quota['X-RateLimit-Limit']) == 12
+        for _ in range(int(quota['X-RateLimit-Remaining'])):
+            assert call()[0] == 200
+        # GET and batch each have their own bucket, shared by both workloads
+        # behind the same proxy. A fresh signed JWT does not reset that bucket.
+        status, _, quota = call(udp if path.startswith(R2B_GET) else ingestion)
+        assert status == 429
+        assert int(quota['X-RateLimit-Limit']) == 12
+        assert int(quota['X-RateLimit-Remaining']) == 0
+        # APISIX 3.18 reports the reset in fractional seconds, for example 59.97.
+        assert 0 <= float(quota['X-RateLimit-Reset']) <= 60
 
 
 def wait_for_protected_routes(post, probes, timeout=60):
@@ -114,6 +186,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             if self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
+            elif self.path.split('?')[0] in R2B_CASES: self.r2b()
             elif self.path.startswith(terms_path):
                 terms_calls.append(self.path)
                 self.reply({'target': self.path})
@@ -124,7 +197,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
-            if self.path.startswith(terms_path):
+            if self.path in R2B_CASES:
+                self.r2b()
+            elif self.path.startswith(terms_path):
                 terms_calls.append(self.path)
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in human_runs:
@@ -156,6 +231,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path=='/api/udp/v1/objects/search':
                 self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
             else:self.reply({'message': 'unexpected synthetic owner path'}, status=404)
+        def r2b(self):
+            self.reply({'path': self.path, 'bearerPresent': bool(self.headers.get('Authorization')),
+                        'headers': {k.lower(): v for k, v in self.headers.items() if k.lower().startswith('x-ouf-')}})
         def reply(self,value,status=200):
             data=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def human_run(self):
@@ -168,15 +246,22 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def request(method,path,body=None,bearer=None,proof=None):
+    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
+        if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
+            headers['Idempotency-Key'] = body['IdempotencyKey']
+        if path.split('?')[0] in R2B_CASES:
+            headers.update({'X-OUF-Gateway-Verified': 'true', 'X-OUF-Tenant-ID': 'forged-tenant',
+                            'X-OUF-Service-Principal': installation['ingestionServiceIdentity']})
         if bearer:headers['Authorization']='Bearer '+bearer
         if proof:headers['X-OUF-Delegation']=proof
         data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode()
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=data,headers=headers,method=method)
         try:res=urllib.request.urlopen(req,timeout=5)
         except urllib.error.HTTPError as e:res=e
-        with res:return res.status,res.read()
+        with res:
+            result = res.status, res.read()
+            return (*result, res.headers) if with_headers else result
 
     def post(path,body,bearer=None,proof=None):
         return request('POST', path, body, bearer, proof)
@@ -270,7 +355,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             doc['routes'].extend(release)
         else:
             doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
-                                 or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES)
+                                 or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
+                                 or route['id'] in R2B_ROUTE_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
@@ -292,7 +378,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -304,16 +390,21 @@ def test_real_apisix_oidc_delegation_and_execute():
         container_id = subprocess.check_output([
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
-            '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
+            '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
             'apache/apisix:3.18.0-debian',
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
-                scope = capability_contracts()[bound_capability(schema)]['requiredAuthorizationCapability']
+                route_id = changed_routes[uri]['id']
+                contract = (picker_contract(route_id) if route_id in PICKER_ROUTES
+                            else capability_contracts()[bound_capability(schema)])
+                scope = ('ouf.semantic.discovery' if route_id == 'mcp-semantic-discovery-candidates'
+                         else contract['requiredAuthorizationCapability'])
                 status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
                 assert status == 200
                 delegation = json.loads(result)['proof']
@@ -325,6 +416,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert status == 200, (uri, status, result)
                     forwarded = arguments if is_ths_link else body
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
+                    if route_id == 'mcp-semantic-discovery-candidates':
+                        assert dispatch_bodies[owner] == json.dumps(body).encode()
                     if is_ths_link:
                         canonical = json.dumps(arguments, sort_keys=True, separators=(',', ':'),
                                                ensure_ascii=False).encode('utf-8')

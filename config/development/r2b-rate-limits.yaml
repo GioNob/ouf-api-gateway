@@ -1,0 +1,7 @@
+gateway:
+  rateLimits:
+    r2bLakeWrite: {count: 100, timeWindowSeconds: 60, key: remote_addr}
+    r2bHandoffWrite: {count: 100, timeWindowSeconds: 60, key: remote_addr}
+    r2bSemanticGet: {count: 100, timeWindowSeconds: 60, key: remote_addr}
+    r2bSemanticBatch: {count: 100, timeWindowSeconds: 60, key: remote_addr}
+    r2bPublication: {count: 100, timeWindowSeconds: 60, key: remote_addr}

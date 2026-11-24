@@ -1,7 +1,7 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
 metadata:
-  id: r2b-publication-feed
+  id: r4a-onboarding-runtime-publications-list
   version: 1.0.0
   status: ACTIVE
 spec:
@@ -21,7 +21,7 @@ spec:
     maxRequestBytes: 65536
     timeoutSeconds: 10
     allowedServiceIdentities:
-    - ouf-ingestion-runtime
-    - ouf-udp-object-resolution
+    - installation://iam.workloadClients.ingestion
+    - installation://iam.workloadClients.udp
     allowedActorTypes:
     - SERVICE_IDENTITY

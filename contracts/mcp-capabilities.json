@@ -135,6 +135,7 @@
       "rules": [
         {"when": {"unchanged": "true", "@ifObservationVersion": "?"}, "action": "CALL_TOOL", "reason": "CURRENT_REVIEW_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}},
         {"when": {"reasonCode": "CURRENT_REVIEW_REQUIRED", "allowedActions": "READ_AGAIN"}, "action": "CALL_TOOL", "reason": "CURRENT_REVIEW_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}},
+        {"when": {"@candidateAction": "-", "allowedActions": "WITHDRAW_CANDIDATE", "reasonCode": "ONB_PUBLICATION_ENVELOPE_TOO_LARGE", "workflowState|state": "IN_REVIEW|APPROVED"}, "action": "CALL_TOOL", "reason": "ONB_PUBLICATION_ENVELOPE_TOO_LARGE", "tool": "source.onboarding.review.prepare", "args": {"sourceId": "sourceId", "onboardingVersionId": "onboardingVersionId", "expectedVersion": "lockVersion", "candidateAction": "=WITHDRAW", "commandKey": "#uuid"}, "message": "Ritira la proposta troppo grande per preparare una versione più piccola."},
         {"when": {"allowedActions": "READ_AGAIN", "workflowState|state": "APPROVED"}, "action": "POLL", "reason": "VERIFYING_DEPENDENCY", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "terminal": ["ACTIVE", "REVOKED", "SUPERSEDED"]},
         {"when": {"allowedActions": "HUMAN_ACTIVATE", "workflowState|state": "APPROVED"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
         {"when": {"allowedActions": "-", "activationProgress.readiness_phase": "NOT_STARTED", "activationProgress.requiresAuthenticatedHumanResume": "true", "workflowState|state": "APPROVED"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
@@ -146,6 +147,7 @@
         {"when": {"workflowState|state": "DRAFT", "allowedActions": "PREPARE_REVIEW|-"}, "action": "CALL_TOOL", "reason": "PREPARE_SOURCE_REVIEW", "tool": "source.onboarding.review.prepare", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "expectedVersion": "lockVersion", "commandKey": "#uuid", "executionProposal": "executionProposal"}},
         {"when": {"workflowState|state": "CHANGES_REQUESTED", "allowedActions": "CREATE_REVISION|REDRAFT_SAME_FILE|-"}, "action": "CALL_TOOL", "reason": "REVISION_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
         {"when": {"workflowState|state": "REJECTED", "allowedActions": "REDRAFT_SAME_FILE|CREATE_REVISION"}, "action": "CALL_TOOL", "reason": "REVISION_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
+        {"when": {"workflowState|state": "REJECTED", "candidateDisposition": "WITHDRAWN"}, "action": "BLOCKED", "reason": "CANDIDATE_WITHDRAWN", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId", "view": "=LATEST"}, "message": "La proposta è stata ritirata. Verifica sulla versione corrente se puoi preparare una nuova revisione."},
         {"when": {"workflowState|state": "REJECTED"}, "action": "DONE", "reason": "SOURCE_REJECTED", "outcome": "REJECTED_BY_HUMAN"},
         {"when": {"workflowState|state": "ACTIVE"}, "action": "CALL_TOOL", "reason": "SOURCE_ACTIVE", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}},
         {"when": {"workflowState|state": "REVOKED|SUPERSEDED"}, "action": "BLOCKED", "reason": "SOURCE_INACTIVE", "tool": "source.onboarding.read", "message": "Verifica la versione corrente della fonte."},
@@ -241,9 +243,7 @@
     "authorization.permissions.read": {
       "read": "authorization.permissions.read",
       "rules": [
-        {"when": {"grants": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
-        {"when": {"roles": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
-        {"when": {"capabilities": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."}
+        {"when": {}, "action": "DONE", "reason": "PERMISSIONS_READ", "outcome": "SUCCEEDED", "message": "La lettura dei permessi è completata."}
       ]
     },
     "semantic.search": {
@@ -4643,7 +4643,6 @@
           "semanticRefs": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 32,
             "uniqueItems": true,
             "items": {
               "type": "string",
@@ -4653,7 +4652,7 @@
           },
           "sourceObjectKeyFields": {
             "type": "array",
-            "maxItems": 32,
+            "maxItems": 1024,
             "uniqueItems": true,
             "items": {
               "type": "string",
@@ -4894,7 +4893,8 @@
       "capabilityId": "ouf.managed-source.onboarding.review.prepare",
       "purpose": "Prepare a validated source version for trusted human review with durable command reconciliation",
       "useWhen": [
-        "the user has prepared this owned onboarding version and needs its current review state"
+        "the user has prepared this owned onboarding version and needs its current review state",
+        "the owner directs the agent to withdraw an unpublished candidate or the user requests a fresh draft from an eligible rejected initial candidate"
       ],
       "doNotUseWhen": [
         "approval, activation, configuration editing or access to another owner is requested"
@@ -4939,6 +4939,7 @@
           "expectedVersion",
           "commandKey"
         ],
+        "not": { "required": ["candidateAction", "executionProposal"] },
         "properties": {
           "sourceId": {
             "type": "string",
@@ -4955,7 +4956,11 @@
           },
           "commandKey": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+          },
+          "candidateAction": {
+            "enum": ["WITHDRAW", "RESTART_DRAFT"],
+            "description": "Use the current lock version and a fresh commandKey. WITHDRAW retires an unpublished DRAFT, IN_REVIEW or APPROVED candidate. RESTART_DRAFT creates a draft from the latest eligible REJECTED initial candidate before first publication. Onboarding checks ownership, state and lineage."
           },
           "executionProposal": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4973,7 +4978,6 @@
               "semanticBindings": {
                 "type": "array",
                 "minItems": 1,
-                "maxItems": 32,
                 "items": {
                   "type": "object",
                   "additionalProperties": false,

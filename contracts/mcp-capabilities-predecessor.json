@@ -1,8 +1,294 @@
 {
-  "version": "1.13.0-source-revision-and-discovery-adoption",
+  "version": "1.15.2-next-step-v1",
+  "nextErrors": [
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@profileId": "?", "@jobId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "profileId": "@profileId"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "@assetId": "?", "@jobId": "?", "@profileId": "-", "@view": "-"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"assetId": "@assetId", "jobId": "@jobId"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview"}, "action": "CALL_TOOL", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "source.file.preview", "args": {"view": "=ASSETS"}},
+    {"when": {"code": "INVALID_TOOL_ARGUMENTS"}, "action": "BLOCKED", "reason": "INVALID_TOOL_ARGUMENTS", "tool": "$read", "message": "Controlla le forme ammesse e recupera i riferimenti mancanti."},
+    {"when": {"code": "NO_APPLICABLE_GRANT"}, "action": "BLOCKED", "reason": "NO_APPLICABLE_GRANT", "tool": "authorization.permissions.propose", "message": "Chiedi una proposta di permesso per la risorsa e il periodo necessari."},
+    {"when": {"code": "SEMANTIC_RECEIPT_READ_REQUIRED"}, "action": "CALL_TOOL", "reason": "SEMANTIC_RECEIPT_READ_REQUIRED", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey"}},
+    {"when": {"code": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.revision.prepare"}, "action": "CALL_TOOL", "reason": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.revision.read", "args": {"sourceId": "@sourceId", "parentVersionId": "@parentVersionId", "commandKey": "@commandKey"}},
+    {"when": {"code": "SOURCE_REVIEW_READ_REQUIRED"}, "action": "CALL_TOOL", "reason": "SOURCE_REVIEW_READ_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "@sourceId", "onboardingVersionId": "@onboardingVersionId"}},
+    {"when": {"retryable": "true", "safeToRepeat": "true"}, "action": "POLL", "reason": "$code", "tool": "$self", "terminal": ["SUCCEEDED", "FAILED"]},
+    {"when": {}, "action": "BLOCKED", "reason": "$code", "tool": "$read", "message": "Consulta lo stato e verifica il motivo del rifiuto."}
+  ],
+  "nextPolicies": {
+    "upload": {
+      "read": "source.file.preview",
+      "vocabulary": {"workflowState": ["PENDING", "STAGED", "PROFILED", "QUARANTINED", "REJECTED", "ERROR"], "workflowState|status": ["PENDING", "STAGED", "PROFILED", "QUARANTINED", "REJECTED", "ERROR", "AWAITING_FILE_SELECTION"]},
+      "rules": [
+        {"when": {"workflowState|status": "AWAITING_FILE_SELECTION|PENDING"}, "action": "POLL", "reason": "FILE_SELECTION_PENDING", "tool": "source.file.upload.status", "args": {"handoffId": "handoffId|@handoffId"}, "terminal": ["STAGED", "REJECTED"]},
+        {"when": {"workflowState|status": "STAGED|PROFILED"}, "action": "CALL_TOOL", "reason": "ASSET_AVAILABLE", "tool": "source.file.profile", "args": {"commandKey": "#uuid", "assetId": "assetId|@assetId"}},
+        {"when": {"workflowState|status": "QUARANTINED|REJECTED"}, "action": "BLOCKED", "reason": "FILE_REVIEW_REQUIRED", "tool": "source.file.preview", "message": "Verifica lo stato del file prima di proseguire."}
+      ]
+    },
+    "profile": {
+      "read": "source.file.preview",
+      "vocabulary": {"workflowState": ["QUEUED", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "FAILED", "CANCELLED", "PROFILE_AVAILABLE", "ERROR"], "workflowState|status": ["QUEUED", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "FAILED", "CANCELLED", "PROFILE_AVAILABLE", "ERROR", "READY", "PENDING"]},
+      "rules": [
+        {"when": {"#incompleteColumn": "true"}, "action": "CALL_TOOL", "reason": "DISTINCT_VALUES_PAGE", "tool": "source.file.preview", "args": {"view": "=COLUMNS", "assetId": "assetId|@assetId", "profileId": "profileId|resultRef|@profileId", "distinctValuesCursor": "#distinctCursor"}},
+        {"when": {"workflowState|status": "QUEUED|PENDING|READY|RUNNING|RETRY_WAIT|SUCCEEDED"}, "action": "POLL", "reason": "PROFILE_JOB", "tool": "source.file.preview", "args": {"assetId": "assetId|@assetId", "jobId": "jobId|@jobId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"profileId": "?", "workflowState|status": "PROFILE_AVAILABLE|SUCCEEDED|-"}, "action": "CALL_TOOL", "reason": "PROFILE_AVAILABLE", "tool": "source.file.preview", "args": {"profileId": "profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"workflowState|status": "FAILED|CANCELLED"}, "action": "BLOCKED", "reason": "PROFILE_STOPPED", "tool": "source.file.preview", "message": "Controlla il job di profilazione."}
+      ]
+    },
+    "preview": {
+      "read": "source.file.preview",
+      "vocabulary": {"workflowState": ["ASSETS", "PROFILE_AVAILABLE", "PROFILE_COLUMNS", "QUEUED", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "FAILED", "CANCELLED", "ERROR"], "workflowState|status": ["ASSETS", "PROFILE_AVAILABLE", "PROFILE_COLUMNS", "QUEUED", "RUNNING", "RETRY_WAIT", "SUCCEEDED", "FAILED", "CANCELLED", "ERROR", "READY", "PENDING", "EXHAUSTED", "QUARANTINED"]},
+      "rules": [
+        {"when": {"#incompleteColumn": "true"}, "action": "CALL_TOOL", "reason": "DISTINCT_VALUES_PAGE", "tool": "source.file.preview", "args": {"view": "=COLUMNS", "assetId": "assetId|@assetId", "profileId": "profileId|resultRef|@profileId", "distinctValuesCursor": "#distinctCursor"}},
+        {"when": {"@distinctValuesCursor": "?", "layer": "-", "#afterCursorColumn": "?"}, "action": "CALL_TOOL", "reason": "COLUMN_PAGE", "tool": "source.file.preview", "args": {"view": "=COLUMNS", "offset": "#afterCursorColumn", "profileId": "profileId|@profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"@view": "ASSETS", "items": "?"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Seleziona il file e il suo profilo dalla pagina ricevuta."},
+        {"when": {"workflowState": "ASSETS"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Scegli il profilo del file da analizzare."},
+        {"when": {"workflowState": "PROFILE_COLUMNS", "format": "CSV", "hasMore": "false"}, "action": "CALL_TOOL", "reason": "PLAN_COLUMN_DISCOVERY", "tool": "source.analysis.plan", "args": {"commandKey": "#uuid", "work": "#discovery", "expectedRevision": "#zero", "profileId": "profileId|@profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"workflowState|status": "READY|QUEUED|PENDING|RUNNING|RETRY_WAIT"}, "action": "POLL", "reason": "PROFILE_PENDING", "tool": "source.file.preview", "args": {"assetId": "assetId|@assetId", "jobId": "jobId|@jobId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"workflowState|status": "SUCCEEDED"}, "action": "CALL_TOOL", "reason": "PROFILE_AVAILABLE", "tool": "source.file.preview", "args": {"profileId": "profileId|resultRef", "assetId": "assetId|@assetId"}},
+        {"when": {"workflowState|status": "FAILED|CANCELLED|EXHAUSTED|QUARANTINED"}, "action": "BLOCKED", "reason": "PROFILE_STOPPED", "tool": "source.file.preview", "message": "Controlla il job di profilazione."},
+        {"when": {"hasMore": "true", "nextOffset": "?"}, "action": "CALL_TOOL", "reason": "COLUMN_PAGE", "tool": "source.file.preview", "args": {"view": "=COLUMNS", "offset": "nextOffset", "profileId": "profileId|@profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"workflowState": "PROFILE_AVAILABLE|-", "format": "CSV", "columns": "?"}, "action": "CALL_TOOL", "reason": "PLAN_COLUMN_DISCOVERY", "tool": "source.analysis.plan", "args": {"commandKey": "#uuid", "work": "#discovery", "expectedRevision": "#zero", "profileId": "profileId", "assetId": "assetId|@assetId"}},
+        {"when": {"assets": "?"}, "action": "BLOCKED", "reason": "ASSET_SELECTION_REQUIRED", "tool": "source.file.preview", "message": "Scegli il profilo del file da analizzare."}
+      ]
+    },
+    "analysis": {
+      "read": "source.analysis.read",
+      "rules": [
+        {"when": {"#readyTask": "?"}, "action": "CALL_TOOL", "reason": "PLANNED_STEP", "tool": "source.analysis.step", "args": {"commandKey": "#uuid", "analysisId": "analysisId", "taskId": "#readyTask"}},
+        {"when": {"tasks": "?"}, "action": "BLOCKED", "reason": "ANALYSIS_REVIEW_REQUIRED", "tool": "source.analysis.read", "message": "Verifica i risultati delle attività pianificate."}
+      ]
+    },
+    "step": {
+      "read": "source.analysis.read",
+      "rules": [
+        {"when": {"state": "COMPLETED|SUCCEEDED", "result.requestId": "?"}, "action": "CALL_TOOL", "reason": "DISCOVERY_OBSERVATION", "tool": "semantic.discovery.status", "args": {"requestId": "result.requestId", "analysisId": "@analysisId"}},
+        {"when": {"state": "COMPLETED|SUCCEEDED"}, "action": "CALL_TOOL", "reason": "ANALYSIS_OBSERVATION", "tool": "source.analysis.read", "args": {"analysisId": "@analysisId"}},
+        {"when": {"state": "WAITING|HELD|FAILED|UNKNOWN|RUNNING"}, "action": "BLOCKED", "reason": "ANALYSIS_HELD", "tool": "source.analysis.read", "message": "Verifica il budget e lo stato del piano."}
+      ]
+    },
+    "discovery": {
+      "read": "semantic.discovery.status",
+      "vocabulary": {"state": ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"], "recoveryState": ["ACTIVE", "RETRY_WAIT", "PAUSED_EXHAUSTED", "BLOCKED", "CANCELLED"]},
+      "rules": [
+        {"when": {"allowedActions": "NONE"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Verifica lo stato corrente e il budget della discovery."},
+        {"when": {"allowedActions": "-", "recoveryState": "PAUSED_EXHAUSTED|BLOCKED|CANCELLED"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Verifica la causa della sospensione."},
+        {"when": {"allowedActions": "POLL_DISCOVERY"}, "action": "POLL", "reason": "DISCOVERY_PENDING", "tool": "semantic.discovery.status", "args": {"requestId": "requestId|@requestId", "analysisId": "@analysisId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"allowedActions": "-", "state|status": "PENDING|RUNNING|RETRY_WAIT"}, "action": "POLL", "reason": "DISCOVERY_PENDING", "tool": "semantic.discovery.status", "args": {"requestId": "requestId|@requestId", "analysisId": "@analysisId"}, "terminal": ["SUCCEEDED", "FAILED", "CANCELLED"]},
+        {"when": {"allowedActions": "LIST_CANDIDATES", "state": "SUCCEEDED"}, "action": "CALL_TOOL", "reason": "DISCOVERY_COMPLETE", "tool": "semantic.discovery.candidates", "args": {"requestId": "requestId|@requestId", "includeState": "#true", "analysisId": "@analysisId"}},
+        {"when": {"state|status": "SUCCEEDED", "allowedActions": "-"}, "action": "CALL_TOOL", "reason": "DISCOVERY_COMPLETE", "tool": "semantic.discovery.candidates", "args": {"requestId": "requestId|@requestId", "analysisId": "@analysisId"}},
+        {"when": {"state|status": "FAILED|CANCELLED|EXHAUSTED"}, "action": "BLOCKED", "reason": "DISCOVERY_STOPPED", "tool": "semantic.discovery.status", "message": "Controlla la discovery prima di proseguire."}
+      ]
+    },
+    "candidates": {
+      "read": "semantic.discovery.status",
+      "vocabulary": {"state": ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]},
+      "rules": [
+        {"when": {"candidates|legacyList": "?"}, "action": "CALL_TOOL", "reason": "CANDIDATE_SELECTION_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}}
+      ]
+    },
+    "proposal": {
+      "read": "semantic.proposal.read",
+      "vocabulary": {"state": ["DRAFT", "VALIDATED", "VALIDATION_FAILED", "UNDER_REVIEW", "APPROVED", "REJECTED", "EXPIRED", "ACTIVE", "DEPRECATED", "RETIRED", "UNKNOWN"]},
+      "rules": [
+        {"when": {"state": "UNKNOWN"}, "action": "BLOCKED", "reason": "OWNER_STATE_UNKNOWN", "tool": "semantic.proposal.read", "message": "Consulta lo stato corrente della proposta."},
+        {"when": {"state": "DRAFT", "allowedActions": "PREPARE_REVIEW"}, "action": "CALL_TOOL", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid"}},
+        {"when": {"state": "VALIDATED", "allowedActions": "REQUEST_APPROVAL"}, "action": "CALL_TOOL", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid", "validationRunId": "currentValidationRunId|validationRunId"}},
+        {"when": {"state": "?", "allowedActions": "?"}, "action": "CALL_TOOL", "reason": "READ_SEMANTIC_PROPOSAL", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey"}},
+        {"when": {"revisionId": "?", "state|status": "DRAFT|-", "allowedActions": "-"}, "action": "CALL_TOOL", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|row_version|expectedRowVersion|validated_row_version|@expectedRowVersion", "commandKey": "#uuid"}},
+        {"when": {"status": "UNDER_REVIEW|ACTIVE", "allowedActions": "-", "state": "-"}, "action": "CALL_TOOL", "reason": "READ_SEMANTIC_PROPOSAL", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey"}}
+      ]
+    },
+    "validation": {
+      "read": "semantic.proposal.read",
+      "vocabulary": {"state": ["DRAFT", "VALIDATED", "VALIDATION_FAILED", "UNDER_REVIEW", "APPROVED", "REJECTED", "EXPIRED", "ACTIVE", "DEPRECATED", "RETIRED", "UNKNOWN"]},
+      "rules": [
+        {"when": {"state": "UNKNOWN"}, "action": "BLOCKED", "reason": "OWNER_STATE_UNKNOWN", "tool": "semantic.proposal.read", "message": "Consulta lo stato corrente della proposta."},
+        {"when": {"state": "DRAFT", "allowedActions": "PREPARE_REVIEW"}, "action": "CALL_TOOL", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid"}},
+        {"when": {"state": "VALIDATED", "allowedActions": "REQUEST_APPROVAL"}, "action": "CALL_TOOL", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid", "validationRunId": "currentValidationRunId|validationRunId"}},
+        {"when": {"allowedActions": "WAIT_HUMAN_DECISION", "state": "UNDER_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"allowedActions": "-", "lifecycleStatus|revisionStatus|status": "UNDER_REVIEW|PENDING|CREATED", "state": "-"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"state": "?", "allowedActions": "?"}, "action": "CALL_TOOL", "reason": "READ_SEMANTIC_PROPOSAL", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey"}},
+        {"when": {"status": "PASS", "allowedActions": "-", "state": "-"}, "action": "CALL_TOOL", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|row_version|expectedRowVersion|validated_row_version|@expectedRowVersion", "commandKey": "#uuid", "validationRunId": "currentValidationRunId|validationRunId|validation_run_id"}},
+        {"when": {"status": "FAIL", "allowedActions": "-", "state": "-"}, "action": "BLOCKED", "reason": "SEMANTIC_VALIDATION_FAILED", "tool": "semantic.propose", "message": "Correggi la proposta secondo i rilievi della validazione."}
+      ]
+    },
+    "semanticDecision": {
+      "read": "semantic.proposal.read",
+      "vocabulary": {"state": ["DRAFT", "VALIDATED", "VALIDATION_FAILED", "UNDER_REVIEW", "APPROVED", "REJECTED", "EXPIRED", "ACTIVE", "DEPRECATED", "RETIRED", "UNKNOWN"]},
+      "rules": [
+        {"when": {"changed": "false", "@expectedVersion": "?"}, "action": "CALL_TOOL", "reason": "READ_SEMANTIC_PROPOSAL", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey", "analysisId": "@analysisId"}},
+        {"when": {"historicalSnapshot": "true", "version": "-"}, "action": "BLOCKED", "reason": "LIVE_OBSERVATION_REQUIRED", "tool": "semantic.proposal.read", "message": "Occorre una lettura aggiornata della decisione."},
+        {"when": {"state": "UNKNOWN"}, "action": "BLOCKED", "reason": "OWNER_STATE_UNKNOWN", "tool": "semantic.proposal.read", "message": "Consulta lo stato corrente della proposta."},
+        {"when": {"state": "VALIDATION_FAILED|REJECTED|EXPIRED", "allowedActions": "REVISE_PROPOSAL"}, "action": "BLOCKED", "reason": "REVISE_PROPOSAL", "tool": "semantic.propose", "message": "Verifica il motivo della revisione e prepara le modifiche."},
+        {"when": {"state": "ACTIVE"}, "action": "CALL_TOOL", "reason": "SOURCE_MAPPING_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
+        {"when": {"state": "DEPRECATED|RETIRED"}, "action": "BLOCKED", "reason": "SEMANTIC_REVISION_INACTIVE", "tool": "semantic.search", "message": "Verifica il riferimento semantico pubblicato."},
+        {"when": {"state": "APPROVED"}, "action": "POLL", "reason": "SEMANTIC_PUBLICATION_PENDING", "tool": "semantic.proposal.read", "args": {"commandKey": "@commandKey", "analysisId": "@analysisId"}, "terminal": ["ACTIVE", "RETIRED", "DEPRECATED"]},
+        {"when": {"state": "DRAFT", "allowedActions": "PREPARE_REVIEW|-"}, "action": "CALL_TOOL", "reason": "PREPARE_SEMANTIC_REVIEW", "tool": "semantic.review.prepare", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid"}},
+        {"when": {"state": "VALIDATED", "allowedActions": "REQUEST_APPROVAL|-"}, "action": "CALL_TOOL", "reason": "REQUEST_APPROVAL", "tool": "semantic.approval.request", "args": {"revisionId": "revisionId|@revisionId", "expectedRowVersion": "rowVersion|expectedRowVersion", "commandKey": "#uuid", "validationRunId": "currentValidationRunId|validationRunId"}},
+        {"when": {"allowedActions": "WAIT_HUMAN_DECISION", "state": "UNDER_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"allowedActions": "-", "lifecycleStatus|revisionStatus|status": "UNDER_REVIEW|PENDING|CREATED", "state": "-"}, "action": "WAIT_FOR_HUMAN", "reason": "SEMANTIC_REVIEW", "tool": "semantic.proposal.read", "args": {"commandKey": "commandKey|@commandKey", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"lifecycleStatus|revisionStatus": "PUBLISHED|ACTIVE", "state": "-"}, "action": "CALL_TOOL", "reason": "SOURCE_MAPPING_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
+        {"when": {"lifecycleStatus|revisionStatus": "REJECTED", "state": "-"}, "action": "DONE", "reason": "SEMANTIC_REJECTED", "outcome": "REJECTED_BY_HUMAN"}
+      ]
+    },
+    "onboarding": {
+      "read": "source.onboarding.read",
+      "vocabulary": {"activationProgress.readiness_phase": ["NOT_STARTED", "CHECKING_COMPATIBILITY", "CHECKING_IDENTITY", "ACTIVATING", "ACTIVE", "PAUSED", "BLOCKED", "EXHAUSTED"], "workflowState|state": ["DRAFT", "IN_REVIEW", "APPROVED", "ACTIVE", "SUPERSEDED", "REJECTED", "REVOKED", "CHANGES_REQUESTED", "COMMAND_ABSENT", "ERROR"]},
+      "rules": [
+        {"when": {"unchanged": "true", "@ifObservationVersion": "?"}, "action": "CALL_TOOL", "reason": "CURRENT_REVIEW_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}},
+        {"when": {"reasonCode": "CURRENT_REVIEW_REQUIRED", "allowedActions": "READ_AGAIN"}, "action": "CALL_TOOL", "reason": "CURRENT_REVIEW_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}},
+        {"when": {"allowedActions": "READ_AGAIN", "workflowState|state": "APPROVED"}, "action": "POLL", "reason": "VERIFYING_DEPENDENCY", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "terminal": ["ACTIVE", "REVOKED", "SUPERSEDED"]},
+        {"when": {"allowedActions": "HUMAN_ACTIVATE", "workflowState|state": "APPROVED"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
+        {"when": {"allowedActions": "-", "activationProgress.readiness_phase": "NOT_STARTED", "activationProgress.requiresAuthenticatedHumanResume": "true", "workflowState|state": "APPROVED"}, "action": "BLOCKED", "reason": "HUMAN_ACTIVATION_REQUIRED", "tool": "source.onboarding.read", "actor": "HUMAN_THS", "message": "Apri la pagina di revisione della fonte e conferma l’attivazione."},
+        {"when": {"allowedActions": "HUMAN_GRANT_BUDGET"}, "action": "BLOCKED", "reason": "READINESS_BUDGET_EXHAUSTED", "tool": "source.onboarding.read", "message": "Serve una decisione umana su un nuovo budget."},
+        {"when": {"allowedActions": "RENEW_REVIEW"}, "action": "CALL_TOOL", "reason": "CHALLENGE_EXPIRED", "tool": "source.onboarding.review.prepare", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "expectedVersion": "lockVersion", "commandKey": "#uuid"}},
+        {"when": {"workflowState": "COMMAND_ABSENT"}, "action": "BLOCKED", "reason": "REVISION_COMMAND_ABSENT", "tool": "source.onboarding.revision.read", "message": "Verifica la ricevuta del comando di revisione."},
+        {"when": {"allowedActions": "NONE", "workflowState|state": "IN_REVIEW"}, "action": "BLOCKED", "reason": "REVIEW_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica la disponibilità della revisione."},
+        {"when": {"allowedActions": "NONE", "workflowState|state": "CHANGES_REQUESTED"}, "action": "BLOCKED", "reason": "REVISION_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica la versione sulla quale è ammessa una modifica."},
+        {"when": {"workflowState|state": "DRAFT", "allowedActions": "PREPARE_REVIEW|-"}, "action": "CALL_TOOL", "reason": "PREPARE_SOURCE_REVIEW", "tool": "source.onboarding.review.prepare", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "expectedVersion": "lockVersion", "commandKey": "#uuid", "executionProposal": "executionProposal"}},
+        {"when": {"workflowState|state": "CHANGES_REQUESTED", "allowedActions": "CREATE_REVISION|REDRAFT_SAME_FILE|-"}, "action": "CALL_TOOL", "reason": "REVISION_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
+        {"when": {"workflowState|state": "REJECTED", "allowedActions": "REDRAFT_SAME_FILE|CREATE_REVISION"}, "action": "CALL_TOOL", "reason": "REVISION_REQUIRED", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}},
+        {"when": {"workflowState|state": "REJECTED"}, "action": "DONE", "reason": "SOURCE_REJECTED", "outcome": "REJECTED_BY_HUMAN"},
+        {"when": {"workflowState|state": "ACTIVE"}, "action": "CALL_TOOL", "reason": "SOURCE_ACTIVE", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}},
+        {"when": {"workflowState|state": "REVOKED|SUPERSEDED"}, "action": "BLOCKED", "reason": "SOURCE_INACTIVE", "tool": "source.onboarding.read", "message": "Verifica la versione corrente della fonte."},
+        {"when": {"allowedActions": "HUMAN_RECHECK", "workflowState|state": "APPROVED"}, "action": "WAIT_FOR_HUMAN", "reason": "DEPENDENCY_RECHECK", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "decision": "RECHECK"},
+        {"when": {"allowedActions": "WAIT_HUMAN_REVIEW", "workflowState|state": "IN_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SOURCE_REVIEW", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"allowedActions": "-", "challengeStatus": "CREATED|PENDING", "challengeExpired": "false|-", "workflowState|state": "IN_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "SOURCE_REVIEW", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "decision": "APPROVE_OR_REJECT"},
+        {"when": {"challengeStatus": "EXPIRED", "workflowState|state": "IN_REVIEW", "allowedActions": "-"}, "action": "CALL_TOOL", "reason": "CHALLENGE_EXPIRED", "tool": "source.onboarding.review.prepare", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "expectedVersion": "lockVersion", "commandKey": "#uuid"}},
+        {"when": {"allowedActions": "-", "activationProgress.humanRecheckAllowed": "true", "workflowState|state": "APPROVED"}, "action": "WAIT_FOR_HUMAN", "reason": "DEPENDENCY_RECHECK", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "decision": "RECHECK"},
+        {"when": {"activationProgress.readiness_phase": "CHECKING_COMPATIBILITY|CHECKING_IDENTITY|ACTIVATING", "allowedActions": "-", "workflowState|state": "APPROVED"}, "action": "POLL", "reason": "VERIFYING_DEPENDENCY", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|@sourceId", "onboardingVersionId": "onboardingVersionId|@onboardingVersionId", "analysisId": "@analysisId"}, "terminal": ["ACTIVE", "REVOKED", "SUPERSEDED"]},
+        {"when": {"workflowState|state": "APPROVED"}, "action": "BLOCKED", "reason": "ACTIVATION_REVIEW_REQUIRED", "tool": "source.onboarding.read", "message": "Verifica il requisito di attivazione e il budget della fonte."},
+        {"when": {"workflowState|state": "IN_REVIEW"}, "action": "BLOCKED", "reason": "REVIEW_UNAVAILABLE", "tool": "source.onboarding.read", "message": "Verifica lo stato della revisione."},
+        {"when": {"workflowState": "ERROR"}, "action": "BLOCKED", "reason": "OWNER_REQUEST_FAILED", "tool": "source.onboarding.read", "message": "Verifica il motivo del rifiuto."}
+      ]
+    },
+    "ingestion": {
+      "read": "ouf.ingestion.status",
+      "vocabulary": {"recoveryAction": ["NONE", "AUTOMATIC_RETRY", "AUTOMATIC_RECONCILIATION", "HUMAN_RESUME_OR_ABORT", "HUMAN_ABORT_REQUIRED", "HUMAN_QUARANTINE_REVIEW", "HUMAN_SCHEDULE_REVIEW", "WAITING_FOR_PUBLICATION_VERIFICATION", "NEW_PUBLICATION_REQUIRED", "TERMINAL"], "runState|run_state": ["AWAITING_START", "READY", "PREFLIGHT", "RUNNING", "DRAINING", "RETRY_WAIT", "COMPLETED", "SUCCEEDED", "COMPLETED_WITH_WARNINGS", "FAILED", "PAUSED", "ABORTED", "DISABLED", "BLOCKED"]},
+      "rules": [
+        {"when": {"recoveryAction": "-|TERMINAL|NONE", "runState|run_state": "COMPLETED", "udpHandoffConfirmed": "true"}, "action": "CALL_TOOL", "reason": "INGESTION_COMPLETED", "tool": "urban.object.search", "args": {"type": "typeCode"}},
+        {"when": {"recoveryAction": "-", "runState": "-", "run_state": "COMPLETED", "udpHandoffConfirmed": "-"}, "action": "CALL_TOOL", "reason": "INGESTION_COMPLETED", "tool": "urban.object.search", "args": {"type": "typeCode"}},
+        {"when": {"recoveryAction": "WAITING_FOR_PUBLICATION_VERIFICATION"}, "action": "POLL", "reason": "PUBLICATION_VERIFICATION_PENDING", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"recoveryAction": "NEW_PUBLICATION_REQUIRED"}, "action": "BLOCKED", "reason": "NEW_PUBLICATION_REQUIRED", "tool": "source.onboarding.read", "args": {"sourceId": "sourceId|source_ref|@sourceId", "view": "=LATEST"}, "actor": "AGENT", "message": "Leggi la versione corrente della fonte per preparare una nuova pubblicazione."},
+        {"when": {"recoveryAction": "HUMAN_SCHEDULE_REVIEW"}, "action": "BLOCKED", "reason": "HUMAN_SCHEDULE_REVIEW", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "actor": "HUMAN_THS", "message": "Il responsabile della pianificazione deve verificare la schedulazione nella console operativa."},
+        {"when": {"recoveryAction": "HUMAN_QUARANTINE_REVIEW"}, "action": "BLOCKED", "reason": "HUMAN_QUARANTINE_REVIEW", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "actor": "HUMAN_THS", "message": "Il responsabile della fonte deve esaminare la quarantena nella console operativa."},
+        {"when": {"recoveryAction": "HUMAN_ABORT_REQUIRED"}, "action": "BLOCKED", "reason": "HUMAN_ABORT_REQUIRED", "tool": "ouf.ingestion.status", "actor": "HUMAN_THS", "message": "La ripresa è bloccata. Serve una decisione di annullamento nella pagina del run.", "decision": "RESUME_OR_ABORT", "args": {"sourceId": "sourceId|source_ref|@sourceId"}},
+        {"when": {"recoveryAction": "HUMAN_RESUME_OR_ABORT"}, "action": "WAIT_FOR_HUMAN", "reason": "RUN_DECISION_REQUIRED", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "decision": "RESUME_OR_ABORT"},
+        {"when": {"recoveryAction": "-", "error_code": "ING_LAKE_RECONCILE_REQUIRED", "runState|run_state": "PAUSED"}, "action": "WAIT_FOR_HUMAN", "reason": "RUN_DECISION_REQUIRED", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "decision": "RESUME_OR_ABORT"},
+        {"when": {"recoveryAction": "AUTOMATIC_RETRY|AUTOMATIC_RECONCILIATION"}, "action": "POLL", "reason": "RUN_RECOVERING", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"recoveryAction": "-|NONE", "runState|run_state": "AWAITING_START|READY|PREFLIGHT|RUNNING|DRAINING|RETRY_WAIT"}, "action": "POLL", "reason": "INGESTION_PENDING", "tool": "ouf.ingestion.status", "args": {"sourceId": "sourceId|source_ref|@sourceId"}, "terminal": ["COMPLETED", "FAILED", "PAUSED", "ABORTED"]},
+        {"when": {"runState|run_state": "ABORTED"}, "action": "DONE", "reason": "RUN_ABORTED", "outcome": "ABORTED"},
+        {"when": {"runState|run_state": "FAILED|PAUSED|BLOCKED|DISABLED|COMPLETED|COMPLETED_WITH_WARNINGS|SUCCEEDED"}, "action": "BLOCKED", "reason": "RUN_REVIEW_REQUIRED", "tool": "ouf.ingestion.status", "message": "Verifica con il responsabile della fonte il motivo del fermo."}
+      ]
+    },
+    "udp": {
+      "read": "urban.object.search",
+      "vocabulary": {"outcome": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL", "MATERIALIZATION_PENDING"]},
+      "rules": [
+        {"when": {"outcome": "MATERIALIZATION_PENDING"}, "action": "POLL", "reason": "MATERIALIZATION_PENDING", "tool": "urban.object.search", "args": {"type": "@type", "pageSize": "@pageSize", "cursor": "@cursor"}, "terminal": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL"]},
+        {"when": {"outcome": "PARTIAL", "nextCursor": "?"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.object.search", "args": {"type": "@type", "pageSize": "@pageSize", "cursor": "nextCursor"}},
+        {"when": {"outcome": "INCOMPLETE|NO_OBJECTS|PARTIAL"}, "action": "BLOCKED", "reason": "UDP_OBSERVATION_INCOMPLETE", "tool": "urban.object.search", "message": "Verifica la visibilità e la materializzazione degli oggetti."},
+        {"when": {"outcome": "COMPLETE"}, "action": "DONE", "reason": "OBJECTS_READ", "outcome": "SUCCEEDED"},
+        {"when": {"nextCursor": "?", "outcome": "-"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.object.search", "args": {"type": "@type", "cursor": "nextCursor", "pageSize": "@pageSize"}},
+        {"when": {"partial": "true", "outcome": "-"}, "action": "BLOCKED", "reason": "PARTIAL_WITHOUT_CURSOR", "tool": "urban.object.search", "message": "La lettura è parziale. Verifica la visibilità dei dati."},
+        {"when": {"items.0": "?", "partial": "false|-", "outcome": "-"}, "action": "DONE", "reason": "OBJECTS_READ", "outcome": "SUCCEEDED"},
+        {"when": {"items": "?", "outcome": "-"}, "action": "BLOCKED", "reason": "EMPTY_OBJECT_PAGE", "tool": "ouf.ingestion.status", "message": "La lettura non contiene oggetti. Controlla il completamento del caricamento."}
+      ]
+    },
+    "permission": {
+      "read": "authorization.proposal.read",
+      "rules": [
+        {"when": {"state|status": "PENDING|PENDING_REVIEW"}, "action": "WAIT_FOR_HUMAN", "reason": "GRANT_REVIEW", "tool": "authorization.proposal.read", "args": {"proposalId": "proposalId|@proposalId"}, "decision": "GRANT_PERMISSION"},
+        {"when": {"state|status": "APPROVED|PUBLISHED|REJECTED|EXPIRED"}, "action": "BLOCKED", "reason": "CHECK_GRANTS", "tool": "authorization.permissions.read", "message": "Verifica i permessi effettivi prima di riprendere."}
+      ]
+    },
+    "urban.object.related_search": {
+      "read": "urban.object.related_search",
+      "rules": [
+        {"when": {"hits": "?"}, "action": "BLOCKED", "reason": "RELATED_OBJECTS_READ", "tool": "urban.object.related_search", "message": "Verifica gli oggetti collegati all’oggetto di partenza."}
+      ]
+    },
+    "ouf.system.status": {
+      "read": "ouf.system.status",
+      "rules": [
+        {"when": {"status": "DEGRADED|RECOVERING"}, "action": "CALL_TOOL", "reason": "READ_INCIDENTS", "tool": "ouf.operations.incidents", "args": {}},
+        {"when": {"status": "HEALTHY"}, "action": "DONE", "reason": "STATUS_READ", "outcome": "SUCCEEDED", "message": "La lettura dello stato operativo è completata."}
+      ]
+    },
+    "ouf.ingestion.history": {
+      "read": "ouf.ingestion.status",
+      "rules": [
+        {"when": {"items": "?", "@sourceId": "?"}, "action": "CALL_TOOL", "reason": "CURRENT_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "ouf.operations.incidents": {
+      "read": "ouf.operations.incidents",
+      "rules": [
+        {"when": {"nextCursor": "?"}, "action": "CALL_TOOL", "reason": "INCIDENT_PAGE", "tool": "ouf.operations.incidents", "args": {"cursor": "nextCursor"}},
+        {"when": {"partial": "true|false"}, "action": "BLOCKED", "reason": "INCIDENTS_OBSERVED", "tool": "ouf.operations.explain", "message": "Scegli la segnalazione da approfondire."}
+      ]
+    },
+    "ouf.operations.explain": {
+      "read": "ouf.operations.explain",
+      "rules": [
+        {"when": {"lifecycle_state|lifecycleState|classification": "?"}, "action": "BLOCKED", "reason": "INCIDENT_OBSERVED", "tool": "ouf.operations.incidents", "message": "Consulta le segnalazioni per gli aggiornamenti."}
+      ]
+    },
+    "ouf.operations.summary": {
+      "read": "ouf.operations.summary",
+      "rules": [
+        {"when": {"partial": "true|false"}, "action": "CALL_TOOL", "reason": "READ_INCIDENTS", "tool": "ouf.operations.incidents", "args": {}}
+      ]
+    },
+    "authorization.permissions.read": {
+      "read": "authorization.permissions.read",
+      "rules": [
+        {"when": {"grants": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
+        {"when": {"roles": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."},
+        {"when": {"capabilities": "?"}, "action": "BLOCKED", "reason": "PERMISSIONS_READ", "tool": "authorization.permissions.read", "message": "Verifica il permesso necessario alla capability richiesta."}
+      ]
+    },
+    "semantic.search": {
+      "read": "semantic.get",
+      "rules": [
+        {"when": {"items.0.semanticId": "?", "items.1": "-"}, "action": "CALL_TOOL", "reason": "SEMANTIC_MATCH", "tool": "semantic.get", "args": {"semanticId": "items.0.semanticId", "revisionId": "items.0.revisionId", "publicationSetId": "items.0.publicationSetId"}},
+        {"when": {"items": "?"}, "action": "BLOCKED", "reason": "SEMANTIC_SELECTION_REQUIRED", "tool": "semantic.get", "message": "Seleziona il riferimento semantico da esaminare."},
+        {"when": {"legacyList": "true"}, "action": "BLOCKED", "reason": "SEMANTIC_SELECTION_REQUIRED", "tool": "semantic.get", "message": "Seleziona il riferimento semantico da esaminare."}
+      ]
+    },
+    "semantic.get": {
+      "read": "semantic.get",
+      "rules": [
+        {"when": {"semanticId": "?"}, "action": "CALL_TOOL", "reason": "SEMANTIC_REFERENCE_READ", "tool": "source.analysis.read", "args": {"analysisId": "analysisId|@analysisId"}}
+      ]
+    },
+    "ouf.ingestion.acquisition.read": {
+      "read": "ouf.ingestion.acquisition.read",
+      "rules": [
+        {"when": {"nextLineageId": "?"}, "action": "CALL_TOOL", "reason": "LINEAGE_PAGE", "tool": "ouf.ingestion.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "afterLineageId": "nextLineageId"}},
+        {"when": {"items": "?"}, "action": "CALL_TOOL", "reason": "CHECK_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "urban.acquisition.read": {
+      "read": "urban.acquisition.read",
+      "vocabulary": {"outcome": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL", "MATERIALIZATION_PENDING"]},
+      "rules": [
+        {"when": {"outcome": "MATERIALIZATION_PENDING"}, "action": "POLL", "reason": "MATERIALIZATION_PENDING", "tool": "urban.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "limit": "@limit", "afterHandoffId": "@afterHandoffId"}, "terminal": ["COMPLETE", "INCOMPLETE", "NO_OBJECTS", "PARTIAL"]},
+        {"when": {"outcome": "PARTIAL", "nextHandoffId": "?"}, "action": "CALL_TOOL", "reason": "UDP_NEXT_PAGE", "tool": "urban.acquisition.read", "args": {"sourceId": "@sourceId", "runId": "@runId", "limit": "@limit", "afterHandoffId": "nextHandoffId"}},
+        {"when": {"outcome": "INCOMPLETE|NO_OBJECTS|PARTIAL"}, "action": "BLOCKED", "reason": "UDP_OBSERVATION_INCOMPLETE", "tool": "urban.acquisition.read", "message": "Verifica la visibilità e la materializzazione degli oggetti."},
+        {"when": {"outcome": "COMPLETE"}, "action": "BLOCKED", "reason": "ACQUISITION_OBSERVED", "tool": "urban.object.search", "message": "Per leggere gli oggetti occorre il tipo della pubblicazione."},
+        {"when": {"outcome": "-", "items": "?"}, "action": "CALL_TOOL", "reason": "CHECK_SOURCE_STATUS", "tool": "ouf.ingestion.status", "args": {"sourceId": "@sourceId"}}
+      ]
+    },
+    "ouf.wait": {
+      "read": "source.onboarding.read",
+      "rules": [
+        {"when": {"changed": "true|false"}, "action": "BLOCKED", "reason": "WORKFLOW_CONTEXT_REQUIRED", "tool": "source.onboarding.read", "message": "Serve il contesto della fonte per scegliere il passo successivo."}
+      ]
+    }
+  },
   "capabilities": [
     {
       "toolName": "urban.object.related_search",
+      "nextPolicy": "urban.object.related_search",
       "capabilityId": "urban.object.related_search",
       "purpose": "Find objects connected to a known anchor through governed relationship rules",
       "useWhen": [
@@ -102,6 +388,7 @@
     },
     {
       "toolName": "ouf.system.status",
+      "nextPolicy": "ouf.system.status",
       "capabilityId": "ouf.system.status",
       "purpose": "Read bounded current OUF MCP operational health from authoritative persisted recovery, debt, evidence and security state",
       "useWhen": [
@@ -149,6 +436,7 @@
     },
     {
       "toolName": "ouf.ingestion.status",
+      "nextPolicy": "ingestion",
       "capabilityId": "ouf.ingestion.status",
       "purpose": "Read the current authorized ingestion/source operational state without raw logs",
       "useWhen": [
@@ -207,6 +495,7 @@
     },
     {
       "toolName": "ouf.ingestion.history",
+      "nextPolicy": "ouf.ingestion.history",
       "capabilityId": "ouf.ingestion.history",
       "purpose": "Read bounded historical ingestion runs including failures, retries and recovery context",
       "useWhen": [
@@ -269,6 +558,7 @@
     },
     {
       "toolName": "ouf.operations.incidents",
+      "nextPolicy": "ouf.operations.incidents",
       "capabilityId": "ouf.operations.incidents",
       "purpose": "List authorized persisted operational incidents, including incidents that occurred while the chatbot was offline",
       "useWhen": [
@@ -529,6 +819,7 @@
     },
     {
       "toolName": "ouf.operations.explain",
+      "nextPolicy": "ouf.operations.explain",
       "capabilityId": "ouf.operations.explain",
       "purpose": "Explain one authorized operational incident using safe owner-provided classification and evidence references",
       "useWhen": [
@@ -584,6 +875,7 @@
     },
     {
       "toolName": "ouf.operations.summary",
+      "nextPolicy": "ouf.operations.summary",
       "capabilityId": "ouf.operations.summary",
       "purpose": "Summarize significant authorized operational events in a bounded time window for chatbot catch-up",
       "useWhen": [
@@ -696,6 +988,7 @@
     },
     {
       "toolName": "authorization.permissions.read",
+      "nextPolicy": "authorization.permissions.read",
       "capabilityId": "authorization.permissions.read",
       "purpose": "Inspect configured grants, the tenant role catalogue, or active HUMAN-compatible capability descriptors; view CAPABILITIES supports complete role proposals",
       "useWhen": [
@@ -1060,6 +1353,7 @@
     },
     {
       "toolName": "authorization.permissions.propose",
+      "nextPolicy": "permission",
       "capabilityId": "authorization.permissions.propose",
       "purpose": "Prepare a grant change or a complete replacement of the tenant OUF role catalogue for human THS review; read view ROLES first and preserve unrelated entries. Never publishes permissions.",
       "useWhen": [
@@ -2451,6 +2745,7 @@
     },
     {
       "toolName": "authorization.proposal.read",
+      "nextPolicy": "permission",
       "capabilityId": "authorization.proposal.read",
       "purpose": "Read the outcome of a permission proposal created by the authenticated caller",
       "useWhen": [
@@ -2504,6 +2799,7 @@
     },
     {
       "toolName": "semantic.discovery.adopt",
+      "nextPolicy": "proposal",
       "capabilityId": "ouf.semantic.discovery.adopt",
       "purpose": "Adopt the selected discovery candidate as one semantic DRAFT",
       "useWhen": [
@@ -2580,10 +2876,14 @@
     },
     {
       "toolName": "semantic.propose",
+      "nextPolicy": "proposal",
       "capabilityId": "ouf.semantic.propose",
       "purpose": "Create one native semantic DRAFT or bounded Turtle ontology DRAFT with a durable caller-scoped receipt",
       "useWhen": [
-        "preparing authorized native semantic proposals for human review"
+        "preparing authorized native semantic proposals for human review",
+        "Choose base types from the controlled vocabulary. If no published type fits structured data, propose a DATATYPE combining base types or pinned published DATATYPEs. Use it only after a human approves it in the THS and the Semantic Registry publishes it",
+        "Propose a VALUE_MAP for a column of codes from a controlled vocabulary. Build entries from the column's distinctValues list in the source.file.profile result. If profiling returns a job receipt, read the completed profile with source.file.preview. Preserve the codes and their case, and name the column in rationale.sourceColumn. If distinctValues is absent or the profile only reports a count, tell the user that the column is unsuitable for an agent-built VALUE_MAP",
+        "Use semantic.search and semantic.get to identify published concepts in one active published vocabulary and pin that vocabulary as semanticId@publicationSetId. Use only verified concepts from that vocabulary and never invent concepts. After human approval in the THS and publication, use transform: VALUE_MAP_V1 with the published pin in transformParams.valueMapRef"
       ],
       "doNotUseWhen": [
         "approving, publishing, activating, adopting external terms or bypassing owner decisions"
@@ -2594,6 +2894,8 @@
       "operationalLimits": {
         "maxArtifacts": 1,
         "maxRequestBytes": 65536,
+        "maxValueMapArgumentsBytes": 1048576,
+        "maxValueMapDefinitionBytes": 786432,
         "profile": "ouf.semantic-proposal-channel.v1"
       },
       "resultSemantics": "Owner receipt only; a review reference is not human approval or publication. Read current challenge in the THS before decision.",
@@ -2648,7 +2950,9 @@
               "RELATIONSHIP",
               "VOCABULARY",
               "CONCEPT",
-              "ONTOLOGY"
+              "ONTOLOGY",
+              "DATATYPE",
+              "VALUE_MAP"
             ]
           },
           "namespace": {
@@ -2703,83 +3007,90 @@
             },
             "maxProperties": 4
           },
+          "rationale": { "$ref": "#/$defs/valueMapRationale" },
           "definition": {
             "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "description": {
-                "type": "object",
+            "anyOf": [
+              { "$ref": "#/$defs/valueMapDefinition" },
+              {
                 "additionalProperties": false,
                 "properties": {
-                  "it": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4000
+                  "components": { "$ref": "#/$defs/datatypeComponents" },
+                  "description": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "it": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                      },
+                      "en": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                      },
+                      "de": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                      },
+                      "sl": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                      }
+                    },
+                    "maxProperties": 4
                   },
-                  "en": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4000
+                  "domainRefs": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
                   },
-                  "de": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 4000
+                  "rangeRefs": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
                   },
-                  "sl": {
+                  "datatype": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 4000
+                    "maxLength": 1024
+                  },
+                  "minCardinality": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  },
+                  "maxCardinality": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  },
+                  "vocabularyRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "inverseRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
                   }
-                },
-                "maxProperties": 4
-              },
-              "domainRefs": {
-                "type": "array",
-                "maxItems": 32,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
                 }
-              },
-              "rangeRefs": {
-                "type": "array",
-                "maxItems": 32,
-                "uniqueItems": true,
-                "items": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 1024
-                }
-              },
-              "datatype": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              "minCardinality": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1000000
-              },
-              "maxCardinality": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 1000000
-              },
-              "vocabularyRef": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              "inverseRef": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
               }
-            }
+            ]
           },
           "commandKey": {
             "type": "string",
@@ -2793,6 +3104,254 @@
           "mediaType": {
             "type": "string",
             "const": "text/turtle"
+          }
+        },
+        "$defs": {
+          "datatypeComponents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                "type": {
+                  "oneOf": [
+                    {
+                      "enum": [
+                        "string",
+                        "integer",
+                        "decimal",
+                        "boolean",
+                        "date",
+                        "datetime",
+                        "geometry",
+                        "concept"
+                      ]
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                      "maxLength": 1024
+                    }
+                  ]
+                },
+                "cardinality": {"enum": ["ONE", "MANY"]},
+                "required": {"type": "boolean"},
+                "labels": {"$ref": "#/properties/labels"},
+                "constraints": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "minInclusive": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "maxInclusive": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "maxLength": {"type": "integer", "minimum": 0},
+                    "vocabularyRef": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024,
+                      "format": "iri",
+                      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+$"
+                    }
+                  }
+                }
+              },
+              "required": ["name", "type", "cardinality", "required"],
+              "allOf": [
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["string"]}}},
+                  "then": {"properties": {"constraints": {"propertyNames": {"enum": ["maxLength"]}}}}
+                },
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["concept"]}}},
+                  "then": {"properties": {"constraints": {"propertyNames": {"enum": ["vocabularyRef"]}}}}
+                },
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["integer"]}}},
+                  "then": {
+                    "properties": {
+                      "constraints": {
+                        "propertyNames": {"enum": ["minInclusive", "maxInclusive"]},
+                        "properties": {
+                          "minInclusive": {"pattern": "^(0|-?[1-9][0-9]*)$"},
+                          "maxInclusive": {"pattern": "^(0|-?[1-9][0-9]*)$"}
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["decimal"]}}},
+                  "then": {
+                    "properties": {
+                      "constraints": {
+                        "propertyNames": {"enum": ["minInclusive", "maxInclusive"]},
+                        "properties": {
+                          "minInclusive": {"pattern": "^(0|-?[1-9][0-9]*|-?(0|[1-9][0-9]*)\\.[0-9]*[1-9])$"},
+                          "maxInclusive": {"pattern": "^(0|-?[1-9][0-9]*|-?(0|[1-9][0-9]*)\\.[0-9]*[1-9])$"}
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["date"]}}},
+                  "then": {
+                    "properties": {
+                      "constraints": {
+                        "propertyNames": {"enum": ["minInclusive", "maxInclusive"]},
+                        "properties": {
+                          "minInclusive": {
+                            "format": "date",
+                            "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)$"
+                          },
+                          "maxInclusive": {
+                            "format": "date",
+                            "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {"required": ["type"], "properties": {"type": {"enum": ["datetime"]}}},
+                  "then": {
+                    "properties": {
+                      "constraints": {
+                        "propertyNames": {"enum": ["minInclusive", "maxInclusive"]},
+                        "properties": {
+                          "minInclusive": {
+                            "format": "date-time",
+                            "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"
+                          },
+                          "maxInclusive": {
+                            "format": "date-time",
+                            "pattern": "^([0-9]{4}-((0[1-9]|1[0-2])-(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])-(29|30)|(0[13578]|1[02])-31)|([0-9]{2}(0[48]|[2468][048]|[13579][26])|(0[048]|[2468][048]|[13579][26])00)-02-29)T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,9})?Z$"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "type": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$"
+                          },
+                          {"enum": ["boolean", "geometry"]}
+                        ]
+                      }
+                    }
+                  },
+                  "then": {"properties": {"constraints": {"maxProperties": 0}}}
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "description": "Use unique component names. The Semantic Registry resolves published pins and checks cycles, depth (4) and total leaf components (256)."
+          },
+          "valueMapIri": {
+            "type": "string",
+            "format": "iri",
+            "not": {
+              "pattern": "[\\x00-\\x1F\\x7F]|[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
+            },
+            "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+$"
+          },
+          "valueMapRationale": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourceColumn": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+                  "sourceId": {"type": "string"}
+                },
+                "required": ["fieldName"]
+              }
+            },
+            "required": ["sourceColumn"]
+          },
+          "valueMapDefinition": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "targetVocabulary": {
+                "type": "string",
+                "not": {
+                  "pattern": "[\\x00-\\x1F\\x7F]|[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
+                },
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:([^\\s\\x00-\\x1F\\x7F<>\\\"{}`|\\\\^%]|%[A-Fa-f0-9]{2})+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "not": {
+                        "pattern": "[\\x00-\\x1F\\x7F-\\x9F]|^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]|[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]$"
+                      }
+                    },
+                    "concept": {"$ref": "#/$defs/valueMapIri", "maxLength": 512}
+                  },
+                  "required": ["code", "concept"]
+                },
+                "minItems": 1,
+                "maxItems": 2000,
+                "description": "Codes must be unique and are case sensitive. Concepts may repeat."
+              },
+              "labels": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "it": {"type": "string", "minLength": 1, "maxLength": 4000},
+                  "en": {"type": "string", "minLength": 1, "maxLength": 4000}
+                }
+              }
+            },
+            "required": ["targetVocabulary", "entries"]
+          }
+        },
+        "if": { "properties": { "artifactType": { "const": "DATATYPE" } } },
+        "then": {
+          "required": ["definition"],
+          "not": { "required": ["rationale"] },
+          "properties": {
+            "semanticId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$" },
+            "definition": {
+              "required": ["components"],
+              "propertyNames": { "enum": ["description", "components"] }
+            }
+          }
+        },
+        "else": {
+          "if": { "properties": { "artifactType": { "const": "VALUE_MAP" } } },
+          "then": {
+            "properties": {
+              "semanticId": { "$ref": "#/$defs/valueMapIri" },
+              "definition": { "required": ["entries"] }
+            }
+          },
+          "else": {
+            "not": { "required": ["rationale"] },
+            "properties": {
+              "definition": {
+                "not": { "anyOf": [{ "required": ["components"] }, { "required": ["entries"] }] }
+              }
+            }
           }
         },
         "oneOf": [
@@ -2835,6 +3394,7 @@
     },
     {
       "toolName": "semantic.review.prepare",
+      "nextPolicy": "validation",
       "capabilityId": "ouf.semantic.review.prepare",
       "purpose": "Validate the exact DRAFT row version and retain errors and warnings",
       "useWhen": [
@@ -2902,6 +3462,7 @@
     },
     {
       "toolName": "semantic.approval.request",
+      "nextPolicy": "semanticDecision",
       "capabilityId": "ouf.semantic.approval.request",
       "purpose": "Request a THS review challenge for the current green validated DRAFT",
       "useWhen": [
@@ -2974,6 +3535,7 @@
     },
     {
       "toolName": "semantic.proposal.read",
+      "nextPolicy": "semanticDecision",
       "capabilityId": "ouf.semantic.proposal.read",
       "purpose": "Read this caller’s durable semantic command receipt after interruption",
       "useWhen": [
@@ -3021,15 +3583,24 @@
           "commandKey"
         ],
         "properties": {
+          "analysisId": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Optional MCP analysis context, consumed locally."},
           "commandKey": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+          },
+          "expectedVersion": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "includeState": {
+            "type": "boolean"
           }
         }
       }
     },
     {
       "toolName": "urban.object.search",
+      "nextPolicy": "udp",
       "capabilityId": "urban.object.search",
       "purpose": "Search urban objects of one exact canonical type with bounded owner-authorized pagination",
       "useWhen": [
@@ -3098,6 +3669,7 @@
     },
     {
       "toolName": "source.file.upload",
+      "nextPolicy": "upload",
       "capabilityId": "ouf.managed-source.file.upload",
       "purpose": "Stage an authenticated user's CSV through the governed Gateway",
       "useWhen": [
@@ -3174,10 +3746,12 @@
     },
     {
       "toolName": "source.file.profile",
+      "nextPolicy": "profile",
       "capabilityId": "ouf.managed-source.file.profile",
       "purpose": "Queue profiling of a managed file owned by the authenticated human",
       "useWhen": [
-        "the user uploaded a CSV through the governed HUMAN attachment flow and knows its asset ID"
+        "the user uploaded a CSV through the governed HUMAN attachment flow and knows its asset ID",
+        "Build VALUE_MAP entries from the column's distinctValues list in the completed profile. Use source.file.preview to read the result when this tool returns a job receipt. If distinctValues is absent or the profile only reports a count, tell the user that the column is unsuitable for an agent-built VALUE_MAP"
       ],
       "doNotUseWhen": [
         "the user has no asset ID or wants to read a different user’s file"
@@ -3189,7 +3763,7 @@
         "maxArgumentsBytes": 1024,
         "maxResultBytes": 65536
       },
-      "resultSemantics": "An idempotent profile job receipt, not an approved source configuration",
+      "resultSemantics": "An idempotent profile job receipt or owner profile result, with distinctValues when available under the same authorization, access labels and redaction as source.file.preview",
       "securityNotes": [
         "HUMAN delegation and exact asset ownership are checked by Gateway and Onboarding",
         "No file bytes, base64, filesystem paths or user-chosen URLs in tool arguments"
@@ -3219,6 +3793,7 @@
           "assetId"
         ],
         "properties": {
+          "commandKey": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
           "assetId": {
             "type": "string",
             "format": "uuid"
@@ -3228,10 +3803,12 @@
     },
     {
       "toolName": "source.file.preview",
+      "nextPolicy": "preview",
       "capabilityId": "ouf.managed-source.preview",
       "purpose": "Read an owned profile/job or bounded immutable schema pages (up to 1024 columns)",
       "useWhen": [
-        "the user needs an owned asset profile/job or must recover uploaded CSV work in a new conversation"
+        "the user needs an owned asset profile/job or must recover uploaded CSV work in a new conversation",
+        "Read a completed source.file.profile job for its distinctValues where the owner makes them available. Follow a column with distinctValuesComplete=false using view=COLUMNS, assetId, profileId and its distinctValuesCursor. Use the completed list when proposing a VALUE_MAP and record the column in rationale.sourceColumn"
       ],
       "doNotUseWhen": [
         "access to another tenant or subject, raw file bytes or storage locations is requested"
@@ -3303,6 +3880,10 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 1023
+          },
+          "distinctValuesCursor": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "oneOf": [
@@ -3310,7 +3891,8 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "assetId"
+              "assetId",
+              "profileId"
             ],
             "properties": {
               "assetId": {
@@ -3320,34 +3902,26 @@
               "profileId": {
                 "type": "string",
                 "format": "uuid"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "assetId",
+              "jobId"
+            ],
+            "properties": {
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
               },
               "jobId": {
                 "type": "string",
                 "format": "uuid"
               }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "profileId"
-                ],
-                "not": {
-                  "required": [
-                    "jobId"
-                  ]
-                }
-              },
-              {
-                "required": [
-                  "jobId"
-                ],
-                "not": {
-                  "required": [
-                    "profileId"
-                  ]
-                }
-              }
-            ]
+            }
           },
           {
             "type": "object",
@@ -3401,16 +3975,46 @@
                 "maximum": 128
               }
             }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "view",
+              "assetId",
+              "profileId",
+              "distinctValuesCursor"
+            ],
+            "properties": {
+              "view": {
+                "const": "COLUMNS"
+              },
+              "assetId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "profileId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "distinctValuesCursor": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         ]
       }
     },
     {
       "toolName": "source.onboarding.create",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.create",
       "purpose": "Create an idempotent INTERNAL_MANAGED onboarding DRAFT from a reviewed file profile and pinned semantic references",
       "useWhen": [
-        "the user has reviewed the owned asset profile and selected pinned semantic references and field access decisions"
+        "the user has reviewed the owned asset profile and selected pinned semantic references and field access decisions",
+        "Choose a reader for each base type from the controlled vocabulary. Combine latitude and longitude with POINT_FROM_LAT_LON_V1. If no published structured type fits, use semantic.propose to combine base types or pinned published types into a DATATYPE. Use it only after human approval in the THS and publication",
+        "For a column of codes mapped to a controlled vocabulary, set transform: VALUE_MAP_V1 and put the published semanticId@publicationSetId in transformParams.valueMapRef"
       ],
       "doNotUseWhen": [
         "the user has no governed asset and profile IDs, or requests approval or activation"
@@ -3460,7 +4064,555 @@
           "sourceObjectKeyFields",
           "fields"
         ],
+        "$defs": {
+          "reader": {
+            "enum": [
+              "IDENTITY",
+              "TEXT_NFC_TRIM_V1",
+              "INTEGER_V1",
+              "INTEGER_GROUP_DOT_V1",
+              "DECIMAL_DOT_V1",
+              "DECIMAL_COMMA_V1",
+              "DECIMAL_GROUP_DOT_COMMA_V1",
+              "DECIMAL_GROUP_COMMA_DOT_V1",
+              "BOOLEAN_IT_V1",
+              "DATE_ISO_V1",
+              "DATE_DMY_V1",
+              "DATE_DMY_DASH_V1",
+              "DATETIME_ISO_OFFSET_V1",
+              "DATETIME_LOCAL_ROME_V1",
+              "GEOJSON_V1",
+              "WKT_V1",
+              "VALUE_MAP_V1"
+            ]
+          },
+          "transformParams": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "crs": {"type": "string", "pattern": "^EPSG:[0-9]+$", "maxLength": 512},
+              "valueMapRef": {"type": "string", "maxLength": 512, "minLength": 1},
+              "separator": {"type": "string", "minLength": 1, "maxLength": 8},
+              "itemReader": {"$ref": "#/$defs/reader"}
+            }
+          },
+          "fieldReaderParams": {
+            "allOf": [
+              {
+                "if": {"required": ["transform"], "properties": {"transform": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["transform"], "properties": {"transform": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "anyOf": [
+                    {
+                      "required": ["transformParams"],
+                      "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                    },
+                    {"required": ["valueMapRef"], "properties": {"valueMapRef": {"minLength": 1}}}
+                  ]
+                }
+              }
+            ]
+          },
+          "constructorInput": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "role": {"type": "string", "minLength": 1, "maxLength": 64},
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["role", "fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "constructor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1", "LIST_SPLIT_V1"]},
+              "inputs": {"type": "array", "items": {"$ref": "#/$defs/constructorInput"}},
+              "params": {"type": "object"}
+            },
+            "required": ["constructorId", "inputs", "params"],
+            "allOf": [{"$ref": "#/$defs/constructorRules"}]
+          },
+          "constructorRules": {
+            "allOf": [
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["POINT_FROM_LAT_LON_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {"properties": {"role": {"enum": ["lat", "lon"]}}},
+                      "allOf": [
+                        {
+                          "contains": {"properties": {"role": {"const": "lat"}}},
+                          "minContains": 1,
+                          "maxContains": 1
+                        },
+                        {
+                          "contains": {"properties": {"role": {"const": "lon"}}},
+                          "minContains": 1,
+                          "maxContains": 1
+                        }
+                      ]
+                    },
+                    "params": {"type": "object", "additionalProperties": false, "properties": {}}
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["TEXT_JOIN_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 2,
+                      "maxItems": 8,
+                      "items": {"properties": {"role": {"enum": ["part"]}}}
+                    },
+                    "params": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {"separator": {"type": "string", "minLength": 1, "maxLength": 8}},
+                      "required": ["separator"]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["LIST_SPLIT_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": {"properties": {"role": {"enum": ["value"]}}}
+                    },
+                    "params": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "separator": {"type": "string", "minLength": 1, "maxLength": 8},
+                        "itemReader": {"$ref": "#/$defs/reader"},
+                        "itemReaderParams": {"type": "object"}
+                      },
+                      "required": ["separator", "itemReader"],
+                      "allOf": [
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {
+                              "itemReader": {
+                                "enum": [
+                                  "IDENTITY",
+                                  "TEXT_NFC_TRIM_V1",
+                                  "INTEGER_V1",
+                                  "INTEGER_GROUP_DOT_V1",
+                                  "DECIMAL_DOT_V1",
+                                  "DECIMAL_COMMA_V1",
+                                  "DECIMAL_GROUP_DOT_COMMA_V1",
+                                  "DECIMAL_GROUP_COMMA_DOT_V1",
+                                  "BOOLEAN_IT_V1",
+                                  "DATE_ISO_V1",
+                                  "DATE_DMY_V1",
+                                  "DATE_DMY_DASH_V1",
+                                  "DATETIME_ISO_OFFSET_V1",
+                                  "DATETIME_LOCAL_ROME_V1",
+                                  "GEOJSON_V1"
+                                ]
+                              }
+                            }
+                          },
+                          "then": {
+                            "properties": {
+                              "itemReaderParams": {"type": "object", "additionalProperties": false, "properties": {}}
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {"itemReader": {"enum": ["WKT_V1"]}}
+                          },
+                          "then": {
+                            "required": ["itemReaderParams"],
+                            "properties": {
+                              "itemReaderParams": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "crs": {"type": "string", "pattern": "^EPSG:[0-9]+$", "maxLength": 512}
+                                },
+                                "required": ["crs"]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {"itemReader": {"enum": ["VALUE_MAP_V1"]}}
+                          },
+                          "then": {
+                            "required": ["itemReaderParams"],
+                            "properties": {
+                              "itemReaderParams": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"valueMapRef": {"type": "string", "maxLength": 512, "minLength": 1}},
+                                "required": ["valueMapRef"]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "fieldComponent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["component", "fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "fieldItem": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "constructorItem": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "constructor": {
+                "$ref": "#/$defs/constructor",
+                "properties": {"constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1"]}}
+              }
+            },
+            "required": ["constructor"]
+          },
+          "constructorComponent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+              "constructor": {"$ref": "#/$defs/constructor"}
+            },
+            "required": ["component", "constructor"]
+          },
+          "structured4": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [{"$ref": "#/$defs/fieldItem"}, {"$ref": "#/$defs/constructorItem"}]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "structured3": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "structured": {"$ref": "#/$defs/structured4"}
+                      },
+                      "required": ["component", "structured"]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {"$ref": "#/$defs/fieldItem"},
+                              {"$ref": "#/$defs/constructorItem"},
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"structured": {"$ref": "#/$defs/structured4"}},
+                                "required": ["structured"]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "structured2": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "structured": {"$ref": "#/$defs/structured3"}
+                      },
+                      "required": ["component", "structured"]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {"$ref": "#/$defs/fieldItem"},
+                              {"$ref": "#/$defs/constructorItem"},
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"structured": {"$ref": "#/$defs/structured3"}},
+                                "required": ["structured"]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "compositions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "CONSTRUCTOR"},
+                    "targetPropertyIri": {"type": "string", "format": "uri", "maxLength": 512},
+                    "dataAccessLabel": {"enum": ["OPEN", "ANONYMOUS", "PERSONAL", "SENSITIVE", "RESTRICTED"]},
+                    "constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1", "LIST_SPLIT_V1"]},
+                    "inputs": {"type": "array", "items": {"$ref": "#/$defs/constructorInput"}},
+                    "params": {"type": "object"}
+                  },
+                  "required": ["kind", "targetPropertyIri", "dataAccessLabel", "constructorId", "inputs", "params"],
+                  "allOf": [{"$ref": "#/$defs/constructorRules"}]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "STRUCTURED"},
+                    "targetPropertyIri": {"type": "string", "format": "uri", "maxLength": 512},
+                    "dataAccessLabel": {"enum": ["OPEN", "ANONYMOUS", "PERSONAL", "SENSITIVE", "RESTRICTED"]},
+                    "typeRef": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                      "maxLength": 512
+                    },
+                    "components": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {"$ref": "#/$defs/fieldComponent"},
+                          {"$ref": "#/$defs/constructorComponent"},
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                              "structured": {"$ref": "#/$defs/structured2"}
+                            },
+                            "required": ["component", "structured"]
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "oneOf": [
+                                    {"$ref": "#/$defs/fieldItem"},
+                                    {"$ref": "#/$defs/constructorItem"},
+                                    {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "properties": {"structured": {"$ref": "#/$defs/structured2"}},
+                                      "required": ["structured"]
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": ["component", "items"]
+                          }
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 32,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": ["kind", "targetPropertyIri", "dataAccessLabel", "typeRef", "components"]
+                }
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1024,
+            "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+          }
+        },
         "properties": {
+          "compositions": { "$ref": "#/$defs/compositions" },
           "assetId": {
             "type": "string",
             "format": "uuid"
@@ -3525,6 +4677,7 @@
                 "extractionDecision",
                 "dataAccessLabel"
               ],
+              "allOf": [{ "$ref": "#/$defs/fieldReaderParams" }],
               "properties": {
                 "fieldName": {
                   "type": "string",
@@ -3551,10 +4704,8 @@
                   "format": "uri",
                   "maxLength": 512
                 },
-                "transform": {
-                  "type": "string",
-                  "maxLength": 512
-                },
+                "transform": { "$ref": "#/$defs/reader" },
+                "transformParams": { "$ref": "#/$defs/transformParams" },
                 "vocabularyId": {
                   "type": "string",
                   "minLength": 1,
@@ -3578,10 +4729,12 @@
     },
     {
       "toolName": "semantic.search",
+      "nextPolicy": "semantic.search",
       "capabilityId": "ouf.semantic.search",
       "purpose": "Search current published semantic artifacts for assisted source mapping",
       "useWhen": [
-        "source mapping needs official semantic metadata and immutable references"
+        "source mapping needs official semantic metadata and immutable references",
+        "Find a published vocabulary and its published concepts for a proposed VALUE_MAP. Verify exact references with semantic.get"
       ],
       "doNotUseWhen": [
         "publication, approval or arbitrary external query execution is requested"
@@ -3643,7 +4796,8 @@
               "RELATIONSHIP",
               "VOCABULARY",
               "CONCEPT",
-              "ONTOLOGY"
+              "ONTOLOGY",
+              "DATATYPE"
             ]
           },
           "namespace": {
@@ -3666,10 +4820,12 @@
     },
     {
       "toolName": "semantic.get",
+      "nextPolicy": "semantic.get",
       "capabilityId": "ouf.semantic.consultation.read",
       "purpose": "Read one exact published semantic reference including its definition and constraints",
       "useWhen": [
-        "source mapping needs official semantic metadata and immutable references"
+        "source mapping needs official semantic metadata and immutable references",
+        "Check the exact published vocabulary and its concepts before using them in a VALUE_MAP proposal"
       ],
       "doNotUseWhen": [
         "publication, approval or arbitrary external query execution is requested"
@@ -3715,6 +4871,7 @@
           "publicationSetId"
         ],
         "properties": {
+          "analysisId": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Optional MCP analysis context, consumed locally."},
           "semanticId": {
             "type": "string",
             "minLength": 1,
@@ -3733,6 +4890,7 @@
     },
     {
       "toolName": "source.onboarding.review.prepare",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.review.prepare",
       "purpose": "Prepare a validated source version for trusted human review with durable command reconciliation",
       "useWhen": [
@@ -4148,6 +5306,7 @@
     },
     {
       "toolName": "source.onboarding.read",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.managed-source.onboarding.read",
       "purpose": "Read an owned exact source version or recover its latest version and trusted review progress",
       "useWhen": [
@@ -4191,6 +5350,7 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "analysisId": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Optional MCP analysis context, consumed locally."},
           "sourceId": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
@@ -4201,6 +5361,10 @@
           },
           "view": {
             "const": "LATEST"
+          },
+          "ifObservationVersion": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
           }
         },
         "oneOf": [
@@ -4212,6 +5376,7 @@
               "onboardingVersionId"
             ],
             "properties": {
+              "analysisId": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Optional MCP analysis context, consumed locally."},
               "sourceId": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
@@ -4219,6 +5384,10 @@
               "onboardingVersionId": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "ifObservationVersion": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
               }
             }
           },
@@ -4230,12 +5399,17 @@
               "view"
             ],
             "properties": {
+              "analysisId": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Optional MCP analysis context, consumed locally."},
               "sourceId": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
               },
               "view": {
                 "const": "LATEST"
+              },
+              "ifObservationVersion": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
               }
             }
           }
@@ -4244,12 +5418,16 @@
     },
     {
       "toolName": "source.onboarding.revision.prepare",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.onboarding.revision.prepare",
       "purpose": "Prepare a revision of an ACTIVE source for native human review",
       "useWhen": [
         "the user wants to revise property policies on the current file using changes",
+        "the user wants to revise compositions on the active file",
         "the user wants to replace the CSV of the same active source using assetRef. Supply the already uploaded managed asset and its immutable profile. Read the active parent first for its configurationHash and lockVersion",
-        "Each new CSV column requires an explicit user decision in newColumns. Use EXCLUDE to leave it out of the projection or MAP with its mapping. If the owner reports NEW_COLUMN_DECISION_REQUIRED, present every named column to the user and ask how to handle each one"
+        "Each new CSV column requires an explicit user decision in newColumns. Use EXCLUDE to leave it out of the projection or MAP with its mapping. If the owner reports NEW_COLUMN_DECISION_REQUIRED, present every named column to the user and ask how to handle each one",
+        "Choose readers from the controlled vocabulary. Combine latitude and longitude with POINT_FROM_LAT_LON_V1. If no published structured type fits, propose a DATATYPE combining base types or pinned published types. Use it only after human approval in the THS and publication",
+        "For a column of codes mapped to a controlled vocabulary, set transform: VALUE_MAP_V1 and put the published semanticId@publicationSetId in transformParams.valueMapRef"
       ],
       "doNotUseWhen": [
         "the file belongs to a new source. Use source.onboarding.create",
@@ -4298,9 +5476,560 @@
           "publicationEffect"
         ],
         "if": { "required": ["assetRef"] },
+        "$defs": {
+          "reader": {
+            "enum": [
+              "IDENTITY",
+              "TEXT_NFC_TRIM_V1",
+              "INTEGER_V1",
+              "INTEGER_GROUP_DOT_V1",
+              "DECIMAL_DOT_V1",
+              "DECIMAL_COMMA_V1",
+              "DECIMAL_GROUP_DOT_COMMA_V1",
+              "DECIMAL_GROUP_COMMA_DOT_V1",
+              "BOOLEAN_IT_V1",
+              "DATE_ISO_V1",
+              "DATE_DMY_V1",
+              "DATE_DMY_DASH_V1",
+              "DATETIME_ISO_OFFSET_V1",
+              "DATETIME_LOCAL_ROME_V1",
+              "GEOJSON_V1",
+              "WKT_V1",
+              "VALUE_MAP_V1"
+            ]
+          },
+          "transformParams": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "crs": {"type": "string", "pattern": "^EPSG:[0-9]+$", "maxLength": 512},
+              "valueMapRef": {"type": "string", "maxLength": 512, "minLength": 1},
+              "separator": {"type": "string", "minLength": 1, "maxLength": 8},
+              "itemReader": {"$ref": "#/$defs/reader"}
+            }
+          },
+          "fieldReaderParams": {
+            "allOf": [
+              {
+                "if": {"required": ["transform"], "properties": {"transform": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["transform"], "properties": {"transform": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "anyOf": [
+                    {
+                      "required": ["transformParams"],
+                      "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                    },
+                    {"required": ["valueMapRef"], "properties": {"valueMapRef": {"minLength": 1}}}
+                  ]
+                }
+              }
+            ]
+          },
+          "constructorInput": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "role": {"type": "string", "minLength": 1, "maxLength": 64},
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["role", "fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "constructor": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1", "LIST_SPLIT_V1"]},
+              "inputs": {"type": "array", "items": {"$ref": "#/$defs/constructorInput"}},
+              "params": {"type": "object"}
+            },
+            "required": ["constructorId", "inputs", "params"],
+            "allOf": [{"$ref": "#/$defs/constructorRules"}]
+          },
+          "constructorRules": {
+            "allOf": [
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["POINT_FROM_LAT_LON_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": {"properties": {"role": {"enum": ["lat", "lon"]}}},
+                      "allOf": [
+                        {
+                          "contains": {"properties": {"role": {"const": "lat"}}},
+                          "minContains": 1,
+                          "maxContains": 1
+                        },
+                        {
+                          "contains": {"properties": {"role": {"const": "lon"}}},
+                          "minContains": 1,
+                          "maxContains": 1
+                        }
+                      ]
+                    },
+                    "params": {"type": "object", "additionalProperties": false, "properties": {}}
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["TEXT_JOIN_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 2,
+                      "maxItems": 8,
+                      "items": {"properties": {"role": {"enum": ["part"]}}}
+                    },
+                    "params": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {"separator": {"type": "string", "minLength": 1, "maxLength": 8}},
+                      "required": ["separator"]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": ["constructorId"],
+                  "properties": {"constructorId": {"enum": ["LIST_SPLIT_V1"]}}
+                },
+                "then": {
+                  "properties": {
+                    "inputs": {
+                      "minItems": 1,
+                      "maxItems": 1,
+                      "items": {"properties": {"role": {"enum": ["value"]}}}
+                    },
+                    "params": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "separator": {"type": "string", "minLength": 1, "maxLength": 8},
+                        "itemReader": {"$ref": "#/$defs/reader"},
+                        "itemReaderParams": {"type": "object"}
+                      },
+                      "required": ["separator", "itemReader"],
+                      "allOf": [
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {
+                              "itemReader": {
+                                "enum": [
+                                  "IDENTITY",
+                                  "TEXT_NFC_TRIM_V1",
+                                  "INTEGER_V1",
+                                  "INTEGER_GROUP_DOT_V1",
+                                  "DECIMAL_DOT_V1",
+                                  "DECIMAL_COMMA_V1",
+                                  "DECIMAL_GROUP_DOT_COMMA_V1",
+                                  "DECIMAL_GROUP_COMMA_DOT_V1",
+                                  "BOOLEAN_IT_V1",
+                                  "DATE_ISO_V1",
+                                  "DATE_DMY_V1",
+                                  "DATE_DMY_DASH_V1",
+                                  "DATETIME_ISO_OFFSET_V1",
+                                  "DATETIME_LOCAL_ROME_V1",
+                                  "GEOJSON_V1"
+                                ]
+                              }
+                            }
+                          },
+                          "then": {
+                            "properties": {
+                              "itemReaderParams": {"type": "object", "additionalProperties": false, "properties": {}}
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {"itemReader": {"enum": ["WKT_V1"]}}
+                          },
+                          "then": {
+                            "required": ["itemReaderParams"],
+                            "properties": {
+                              "itemReaderParams": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                  "crs": {"type": "string", "pattern": "^EPSG:[0-9]+$", "maxLength": 512}
+                                },
+                                "required": ["crs"]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "if": {
+                            "required": ["itemReader"],
+                            "properties": {"itemReader": {"enum": ["VALUE_MAP_V1"]}}
+                          },
+                          "then": {
+                            "required": ["itemReaderParams"],
+                            "properties": {
+                              "itemReaderParams": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"valueMapRef": {"type": "string", "maxLength": 512, "minLength": 1}},
+                                "required": ["valueMapRef"]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "fieldComponent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["component", "fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "fieldItem": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fieldName": {"type": "string", "minLength": 1, "maxLength": 256},
+              "reader": {"$ref": "#/$defs/reader"},
+              "transformParams": {"$ref": "#/$defs/transformParams"}
+            },
+            "required": ["fieldName", "reader"],
+            "allOf": [
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["WKT_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["crs"]}}
+                }
+              },
+              {
+                "if": {"required": ["reader"], "properties": {"reader": {"enum": ["VALUE_MAP_V1"]}}},
+                "then": {
+                  "required": ["transformParams"],
+                  "properties": {"transformParams": {"required": ["valueMapRef"]}}
+                }
+              }
+            ]
+          },
+          "constructorItem": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "constructor": {
+                "$ref": "#/$defs/constructor",
+                "properties": {"constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1"]}}
+              }
+            },
+            "required": ["constructor"]
+          },
+          "constructorComponent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+              "constructor": {"$ref": "#/$defs/constructor"}
+            },
+            "required": ["component", "constructor"]
+          },
+          "structured4": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [{"$ref": "#/$defs/fieldItem"}, {"$ref": "#/$defs/constructorItem"}]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "structured3": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "structured": {"$ref": "#/$defs/structured4"}
+                      },
+                      "required": ["component", "structured"]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {"$ref": "#/$defs/fieldItem"},
+                              {"$ref": "#/$defs/constructorItem"},
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"structured": {"$ref": "#/$defs/structured4"}},
+                                "required": ["structured"]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "structured2": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "typeRef": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                "maxLength": 512
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {"$ref": "#/$defs/fieldComponent"},
+                    {"$ref": "#/$defs/constructorComponent"},
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "structured": {"$ref": "#/$defs/structured3"}
+                      },
+                      "required": ["component", "structured"]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "oneOf": [
+                              {"$ref": "#/$defs/fieldItem"},
+                              {"$ref": "#/$defs/constructorItem"},
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {"structured": {"$ref": "#/$defs/structured3"}},
+                                "required": ["structured"]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "required": ["component", "items"]
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": ["typeRef", "components"]
+          },
+          "compositions": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "CONSTRUCTOR"},
+                    "targetPropertyIri": {"type": "string", "format": "uri", "maxLength": 512},
+                    "dataAccessLabel": {"enum": ["OPEN", "ANONYMOUS", "PERSONAL", "SENSITIVE", "RESTRICTED"]},
+                    "constructorId": {"enum": ["POINT_FROM_LAT_LON_V1", "TEXT_JOIN_V1", "LIST_SPLIT_V1"]},
+                    "inputs": {"type": "array", "items": {"$ref": "#/$defs/constructorInput"}},
+                    "params": {"type": "object"}
+                  },
+                  "required": ["kind", "targetPropertyIri", "dataAccessLabel", "constructorId", "inputs", "params"],
+                  "allOf": [{"$ref": "#/$defs/constructorRules"}]
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {"const": "STRUCTURED"},
+                    "targetPropertyIri": {"type": "string", "format": "uri", "maxLength": 512},
+                    "dataAccessLabel": {"enum": ["OPEN", "ANONYMOUS", "PERSONAL", "SENSITIVE", "RESTRICTED"]},
+                    "typeRef": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s@]+@[A-Fa-f0-9]{8}(-[A-Fa-f0-9]{4}){3}-[A-Fa-f0-9]{12}$",
+                      "maxLength": 512
+                    },
+                    "components": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {"$ref": "#/$defs/fieldComponent"},
+                          {"$ref": "#/$defs/constructorComponent"},
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                              "structured": {"$ref": "#/$defs/structured2"}
+                            },
+                            "required": ["component", "structured"]
+                          },
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "component": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]{0,63}$"},
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "oneOf": [
+                                    {"$ref": "#/$defs/fieldItem"},
+                                    {"$ref": "#/$defs/constructorItem"},
+                                    {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "properties": {"structured": {"$ref": "#/$defs/structured2"}},
+                                      "required": ["structured"]
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "required": ["component", "items"]
+                          }
+                        ]
+                      },
+                      "minItems": 1,
+                      "maxItems": 32,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": ["kind", "targetPropertyIri", "dataAccessLabel", "typeRef", "components"]
+                }
+              ]
+            },
+            "minItems": 0,
+            "maxItems": 1024,
+            "description": "Use INCLUDE fields from this file. Build MANY with ordered items or LIST_SPLIT_V1. Onboarding checks component cardinality, output types and the limit of 256 leaves. New preparations require ACTIVE DATATYPE pins at every level. Published bundles may resolve ACTIVE, DEPRECATED or RETIRED pins. Concept membership requires a pinned CONCEPT of the vocabulary or a pinned value map targeting it."
+          }
+        },
         "then": { "not": { "required": ["changes"] } },
-        "else": { "required": ["changes"], "not": { "required": ["newColumns"] } },
+        "else": {
+          "anyOf": [{ "required": ["changes"] }, { "required": ["compositions"] }],
+          "not": { "required": ["newColumns"] }
+        },
         "properties": {
+          "compositions": { "$ref": "#/$defs/compositions" },
           "sourceId": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
@@ -4359,9 +6088,11 @@
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["propertyIri", "transform", "reconciliation"],
+                  "allOf": [{ "$ref": "#/$defs/fieldReaderParams" }],
                   "properties": {
                     "propertyIri": { "type": "string", "format": "iri", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$" },
-                    "transform": { "enum": ["IDENTITY", "DECIMAL_DOT_V1", "DECIMAL_COMMA_V1", "DATE_ISO_V1", "DATE_DMY_V1"] },
+                    "transform": { "$ref": "#/$defs/reader" },
+                    "transformParams": { "$ref": "#/$defs/transformParams" },
                     "reconciliation": {
                       "type": "object",
                       "additionalProperties": false,
@@ -4476,6 +6207,7 @@
     },
     {
       "toolName": "source.onboarding.revision.read",
+      "nextPolicy": "onboarding",
       "capabilityId": "ouf.onboarding.revision.read",
       "purpose": "Read property rules of a source version, or reconcile an exact revision command after a lost response",
       "useWhen": [
@@ -4576,6 +6308,7 @@
     },
     {
       "toolName": "ouf.ingestion.acquisition.read",
+      "nextPolicy": "ouf.ingestion.acquisition.read",
       "capabilityId": "ouf.ingestion.acquisition.read",
       "purpose": "Read minimized acquisition evidence for one exact existing source and run",
       "useWhen": [
@@ -4648,6 +6381,7 @@
     },
     {
       "toolName": "urban.acquisition.read",
+      "nextPolicy": "urban.acquisition.read",
       "capabilityId": "urban.acquisition.read",
       "purpose": "Read minimized acquisition evidence for one exact existing source and run",
       "useWhen": [
@@ -4720,6 +6454,7 @@
     },
     {
       "toolName": "semantic.discovery.request",
+      "nextPolicy": "discovery",
       "capabilityId": "ouf.semantic.discovery",
       "purpose": "Start a bounded national semantic discovery job for assisted source mapping",
       "useWhen": [
@@ -4804,6 +6539,7 @@
     },
     {
       "toolName": "semantic.discovery.status",
+      "nextPolicy": "discovery",
       "capabilityId": "ouf.semantic.discovery.status",
       "purpose": "Read the state of one caller-owned semantic discovery job",
       "useWhen": [
@@ -4855,12 +6591,18 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
           }
         }
       }
     },
     {
       "toolName": "semantic.discovery.candidates",
+      "nextPolicy": "candidates",
       "capabilityId": "ouf.semantic.discovery.candidates",
       "purpose": "Read unexpired candidates from one caller-owned national discovery job",
       "useWhen": [
@@ -4912,12 +6654,21 @@
             "type": "string",
             "format": "uuid",
             "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "analysisId": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Optional MCP analysis context, consumed locally."
+          },
+          "includeState": {
+            "type": "boolean"
           }
         }
       }
     },
     {
       "toolName": "source.analysis.plan",
+      "nextPolicy": "analysis",
       "capabilityId": "ouf.source.analysis.plan",
       "purpose": "Plan finite semantic evidence work using the authoritative owned profile; budget is the sum of unique planned calls",
       "useWhen": [
@@ -4974,6 +6725,7 @@
           "work"
         ],
         "properties": {
+          "commandKey": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
           "assetId": {
             "type": "string",
             "format": "uuid"
@@ -5036,6 +6788,7 @@
     },
     {
       "toolName": "source.analysis.read",
+      "nextPolicy": "analysis",
       "capabilityId": "ouf.source.analysis.read",
       "purpose": "Read durable per-column evidence progress, cumulative consumption and bounded task pages",
       "useWhen": [
@@ -5108,6 +6861,7 @@
     },
     {
       "toolName": "source.analysis.step",
+      "nextPolicy": "step",
       "capabilityId": "ouf.source.analysis.step",
       "purpose": "Execute or resume one planned semantic evidence task through existing governed admission",
       "useWhen": [
@@ -5162,6 +6916,7 @@
           "taskId"
         ],
         "properties": {
+          "commandKey": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
           "analysisId": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
@@ -5169,6 +6924,185 @@
           "taskId": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.wait",
+      "nextPolicy": "ouf.wait",
+      "capabilityId": "ouf.wait",
+      "purpose": "Wait for a change to an authorized owner observation",
+      "useWhen": [
+        "next supplies an opaque waitRef"
+      ],
+      "doNotUseWhen": [
+        "starting or extending a human decision"
+      ],
+      "preferredAlternatives": [
+        "read the bound owner capability"
+      ],
+      "operationalLimits": {
+        "minIntervalSeconds": 5,
+        "maxDurationSeconds": 45
+      },
+      "resultSemantics": "Changed flag, current observation and next action",
+      "securityNotes": [
+        "Every observation requires current delegated read authority"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "mcp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "BOUND_READ",
+      "gatewayBindingRef": "capability://ouf.wait",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 45000
+      },
+      "conditionalOutcomeCost": {
+        "maximumOwnerReads": 9
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "waitRef"
+        ],
+        "properties": {
+          "waitRef": {
+            "type": "string",
+            "minLength": 32, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "",
+      "capabilityId": "ouf.onboarding.ths-links.ingestion-run-recovery",
+      "purpose": "Obtain the Onboarding THS link for the observed ingestion run",
+      "useWhen": [
+        "a delegated HUMAN has a pending run recovery decision"
+      ],
+      "doNotUseWhen": [
+        "performing a resume or abort"
+      ],
+      "preferredAlternatives": [
+        "ouf.ingestion.status"
+      ],
+      "operationalLimits": {
+        "ownerMethod": "POST",
+        "gatewayDispatchPath": "/internal/capabilities/v1/execute/ouf.onboarding.ths-links.ingestion-run-recovery",
+        "ownerPath": "/api/internal/v1/onboarding/ths-links/ingestion-run-recovery"
+      },
+      "resultSemantics": "Owner-issued reviewUrl and expiresAt",
+      "securityNotes": [
+        "Onboarding verifies source custody and HUMAN delegation"
+      ],
+      "mcpClass": "MCP_INTERNAL",
+      "owner": "onboarding",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.onboarding.ths-links.ingestion-run-recovery",
+      "gatewayBindingRef": "capability://ouf.onboarding.ths-links.ingestion-run-recovery",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 8192,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": false,
+      "allowedActors": [
+        "HUMAN"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "runId",
+          "expectedVersion"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        }
+      }
+    },
+    {
+      "toolName": "",
+      "capabilityId": "ouf.onboarding.ths-links.semantic-review",
+      "purpose": "Obtain the Onboarding THS link for the current semantic review challenge",
+      "useWhen": [
+        "a delegated HUMAN has a pending semantic decision"
+      ],
+      "doNotUseWhen": [
+        "approving or rejecting a proposal"
+      ],
+      "preferredAlternatives": [
+        "semantic.proposal.read"
+      ],
+      "operationalLimits": {
+        "ownerMethod": "POST",
+        "gatewayDispatchPath": "/internal/capabilities/v1/execute/ouf.onboarding.ths-links.semantic-review",
+        "ownerPath": "/api/internal/v1/onboarding/ths-links/semantic-review"
+      },
+      "resultSemantics": "Owner-issued reviewUrl and expiresAt",
+      "securityNotes": [
+        "Onboarding binds the request to the delegated HUMAN tenant and subject"
+      ],
+      "mcpClass": "MCP_INTERNAL",
+      "owner": "onboarding",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ouf.onboarding.ths-links.semantic-review",
+      "gatewayBindingRef": "capability://ouf.onboarding.ths-links.semantic-review",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 8192,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": false,
+      "allowedActors": [
+        "HUMAN"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "challengeId"
+        ],
+        "properties": {
+          "challengeId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
           }
         }
       }

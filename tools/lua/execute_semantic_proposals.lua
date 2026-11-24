@@ -18,7 +18,7 @@ if type(p) ~= 'table' or p.v ~= 1 or p.purpose ~= 'mcp-execute' or p.iss ~= ISSU
     or type(p.iat) ~= 'number' or type(p.exp) ~= 'number' or p.iat > now or p.exp <= now
     or p.exp <= p.iat or p.exp-p.iat > 60 or p.tenant ~= claims.tenant_id
     or not scope_has(p.scope, REQUIRED_SCOPE) then return fail(403) end
-if CAPABILITY == 'ouf.semantic.proposal.read' and p.actor ~= 'HUMAN' then return fail(403) end
+if HUMAN_ONLY and p.actor ~= 'HUMAN' then return fail(403) end
 for _, key in ipairs({'principal','tenant','acr','client','scope'}) do
     if not text(p[key]) then return fail(403) end
 end
@@ -63,7 +63,7 @@ if type(owner_key) ~= 'string' or #owner_key ~= 64 or owner_key:find('[^0-9a-fA-
 local digest = require('resty.openssl.digest').new('sha256')
 local body_hash = require('resty.string').to_hex(digest:final(body))
 local receipt = {v=1,purpose='semantic-proposal-owner',method='POST',path=OWNER_PATH,bodyHash=body_hash,
-    capability=REQUIRED_SCOPE,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
+    capability=RECEIPT_CAPABILITY,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
     workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,actor=p.actor,acr=p.acr,roles=roles,
     scope=p.scope,idempotencyKey=e.IdempotencyKey}
 local encoded = encode64(cjson.encode(receipt))

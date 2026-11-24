@@ -12,8 +12,11 @@ from ops.apisix.deploy_semantic_human import validate
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
+from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
+from tools.r2b_limits import ROUTE_CLASSES
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
+from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
 from tools.materialize_semantic_proposals import add_to_existing as semantic_proposals
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
@@ -21,9 +24,10 @@ from tools.materialize_semantic_human_runtime import materialize
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v1'
-MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v1'
+BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v2'
+MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v2'
 SOURCE_REPOSITORY = 'GioNob/ouf-api-gateway'
+RETIRED_ROUTES_PATH = ROOT / 'ouf-config/release/retired-routes.json'
 RESOURCE_KINDS = ('upstreams', 'services', 'plugin_configs', 'plugin_metadata', 'global_rules', 'routes')
 RESOURCE_ID = re.compile(r'[A-Za-z0-9._-]{1,64}')
 PLACEHOLDER_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,127}')
@@ -58,7 +62,8 @@ def placeholder_names(value):
 
 
 def placeholder_type(name):
-    if name.startswith('services.ports.'):
+    if (name.startswith('services.ports.') or
+            name.startswith('gateway.rateLimits.') and name.endswith(('.count', '.timeWindowSeconds'))):
         return 'integer'
     # References and environment bindings for signing keys are sensitive too.
     if 'Secret' in name or 'Key' in name:
@@ -85,6 +90,17 @@ def release_resources():
     routes = validate(materialize(runtime, secret_ref))
     terms, = (r for r in routes if r['id'] == 'semantic-human-terms')
     resources = [route_resource(terms, 'ouf-semantic-registry')]
+    bindings = {route['id']: route for route in runtime['routes']}
+    for route_id in ROUTE_CLASSES:
+        binding = bindings[route_id]
+        route = internal_m2m(binding, runtime['x-ouf-installation'], secret_ref, release_template=True)
+        for role in ('ingestion', 'udp'):
+            label = f'ouf-{role}-workload'
+            if label in route['labels']:
+                route['labels'][label] = installation(f'iam.workloadClients.{role}')
+        route['plugins']['openid-connect']['claim_validator']['issuer'] = {
+            'valid_issuers': [installation('gateway.issuerUrl')]}
+        resources.append(route_resource(route, binding['x-ouf-backend-binding']['service']))
     for route in resolution(runtime, secret_ref):
         service = 'ouf-onboarding' if route['id'] == 'trusted-human-resolution-review' else UDP
         resources.append(route_resource(route, service))
@@ -99,10 +115,19 @@ def release_resources():
             resources.append(route_resource(route, 'ouf-ingestion-runtime'))
     revisions = revision_prepare(reviewed, runtime, delegation, onboarding, use_route_labels=True)
     mediated = semantic_proposals(revisions, runtime, delegation, 'BUNDLE_INPUT_SEMANTIC', use_route_labels=True)
+    discovery = discovery_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_DISCOVERY', 'BUNDLE_INPUT_SEMANTIC')
+    mediated['routes'].extend(discovery)
     dispatch_bindings = {
+        'mcp-semantic-discovery-request': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-status': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-candidates': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
+        'mcp-semantic-discovery-adopt': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
+        'mcp-managed-file-review-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'semantic-proposal-create': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'semantic-proposal-read': ('ouf-semantic-registry', 'gateway.semanticProposalOwnerKeyEnv'),
         'mcp-managed-file-create': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-handoff': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
+        'mcp-managed-file-handoff-issue': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-preview': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-managed-file-review-read': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
         'mcp-source-revision-prepare': ('ouf-onboarding', 'gateway.sourceRevisionOwnerKeyEnv'),
@@ -161,6 +186,48 @@ def ordered_resources(resources):
     return sorted(resources, key=lambda item: (RESOURCE_KINDS.index(item['kind']), item['id']))
 
 
+def load_retired_routes(path, resources):
+    try:
+        entries = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f'{path}: cannot read retired routes: {exc}') from exc
+    if not isinstance(entries, list):
+        raise ValueError(f'{path}: expected a list of retired routes')
+
+    resource_ids = {item['id'] for item in resources}
+    route_ids = {item['id'] for item in resources if item['kind'] == 'routes'}
+    retired = []
+    seen = set()
+    for index, entry in enumerate(entries):
+        location = f'{path}: retired[{index}]'
+        if not isinstance(entry, dict) or set(entry) != {'kind', 'id', 'supersededBy', 'vars', 'reason'}:
+            raise ValueError(f'{location}: expected kind, id, supersededBy, vars and reason')
+        if entry['kind'] != 'routes':
+            raise ValueError(f'{location}: kind must be routes')
+        resource_id = entry['id']
+        if not isinstance(resource_id, str) or not RESOURCE_ID.fullmatch(resource_id):
+            raise ValueError(f'{location}: invalid retired route ID')
+        if resource_id in seen:
+            raise ValueError(f'{location}: duplicate retired route ID: {resource_id}')
+        if retired and resource_id < retired[-1]['id']:
+            raise ValueError(f'{location}: retired routes must be sorted by ID')
+        if resource_id in resource_ids:
+            raise ValueError(f'{location}: retired route ID already in resources: {resource_id}')
+        replacement = entry['supersededBy']
+        if not isinstance(replacement, str) or replacement not in route_ids:
+            raise ValueError(f'{location}: supersededBy must identify a routes resource in the bundle')
+        if not isinstance(entry['reason'], str) or not entry['reason'].strip():
+            raise ValueError(f'{location}: reason must be a non-empty string')
+        route_vars = entry['vars']
+        # The executor deletes only a live route whose vars equal these literal APISIX conditions.
+        if (not isinstance(route_vars, list) or not route_vars
+                or not all(isinstance(c, list) and c and all(isinstance(x, str) for x in c) for c in route_vars)):
+            raise ValueError(f'{location}: vars must be a non-empty list of APISIX string conditions')
+        seen.add(resource_id)
+        retired.append({'kind': 'routes', 'id': resource_id, 'supersededBy': replacement, 'vars': route_vars})
+    return retired
+
+
 def generate(output, source_commit, workflow_path, run_id):
     if not re.fullmatch(r'[0-9a-f]{40}', source_commit):
         raise ValueError('expected full Git commit SHA')
@@ -174,12 +241,16 @@ def generate(output, source_commit, workflow_path, run_id):
         raise ValueError('unconverted installation input')
     names = sorted(set(placeholder_names(resources)))
     resources_sha256 = digest(encoded)
+    retired = load_retired_routes(RETIRED_ROUTES_PATH, resources)
+    retired_sha256 = digest(canonical(retired))
     source = {'sourceRepository': SOURCE_REPOSITORY, 'sourceCommit': source_commit}
     bundle = {'schema': BUNDLE_SCHEMA, **source, 'resources': resources, 'resourcesSha256': resources_sha256,
+              'retired': retired, 'retiredSha256': retired_sha256,
               'placeholders': [{'name': name, 'type': placeholder_type(name)} for name in names]}
     payload = canonical(bundle)
     manifest = {'schema': MANIFEST_SCHEMA, **source, 'workflowPath': workflow_path, 'runId': run_id,
-                'bundleSha256': digest(payload), 'resourcesSha256': resources_sha256, 'placeholders': names}
+                'bundleSha256': digest(payload), 'resourcesSha256': resources_sha256, 'retiredSha256': retired_sha256,
+                'placeholders': names}
     manifest_payload = canonical(manifest)
     sums = (f"{manifest['bundleSha256']}  bundle.json\n"
             f"{digest(manifest_payload)}  manifest.json\n").encode('ascii')

@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import sys
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -11,21 +12,25 @@ from tools.managed_discovery_functions import owner_function
 from tools.materialize_managed_file_mcp import materialize
 from ops.apisix.deploy_managed_file_mcp import anonymous_probe, select
 from ops.apisix.deploy_internal_m2m_routes import apply
+from ops.apisix import deploy_managed_file_mcp
 
 PROFILE='ouf.managed-source.file.profile'
 PREVIEW='ouf.managed-source.preview'
 CREATE='ouf.managed-source.onboarding.create'
 UPLOAD='ouf.managed-source.file.upload'
+ISSUE='ouf.managed-source.file.handoff-issue'
 ASSET='00000000-0000-4000-8000-000000000001'
 OTHER='00000000-0000-4000-8000-000000000002'
 
 def request(mode='profile'):
-    cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE,'handoff':UPLOAD}.get(mode,PROFILE)
+    cap={'profile':PROFILE,'preview':PREVIEW,'create':CREATE,'handoff':UPLOAD,'handoff-issue':ISSUE}.get(mode,PROFILE)
     args={'assetId':ASSET}
     if mode=='preview':args['profileId']=OTHER
     if mode=='handoff':args={'handoffId':ASSET}
+    if mode=='handoff-issue':args={'commandKey':ASSET}
     if mode=='create':args.update(profileId=OTHER,sourceId='cinema',name='Cinema',owner='Comune',targetClassIri='https://example.org/Cinema',semanticRefs=['core@1'],sourceObjectKeyFields=[],fields=[{'fieldName':'cinema','extractionDecision':'INCLUDE','dataAccessLabel':'OPEN','targetPropertyIri':'https://example.org/name'}])
     e=envelope()
+    if mode=='handoff-issue':e['IdempotencyKey']=ASSET
     e.update(CapabilityID=cap,GatewayBindingRef='capability://'+cap,Owner='onboarding',
              OperationClass='READ' if mode=='preview' else 'COMMAND',Arguments=args)
     return e
@@ -99,13 +104,13 @@ def test_missing_human_scope_and_arbitrary_mode_are_rejected():
 def test_closed_internal_routes_and_payloads():
     doc=materialize(runtime(),'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY')
     routes=[r for r in doc['routes'] if '/execute/managed.file/' in r.get('uri','')]
-    expected={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create','mcp-managed-file-handoff'}
-    assert {r['id'] for r in select(doc)}==expected
-    assert {r['id'] for r in routes}==expected
+    legacy={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
+    assert {r['id'] for r in select(doc)}==legacy
+    assert {r['id'] for r in routes}==legacy | {'mcp-managed-file-handoff','mcp-managed-file-handoff-issue'}
     for r in routes:
         assert r['upstream']['nodes']=={'ouf-onboarding:8080':1}
         assert r['upstream']['retries']==0
-        mode=r['id'].split('-')[-1]
+        mode=r['id'].removeprefix('mcp-managed-file-')
         validator=Draft202012Validator(r['plugins']['request-validation']['body_schema'],format_checker=FormatChecker())
         assert validator.is_valid(request(mode))
         invalid=request(mode);invalid['Arguments']['url']='https://attacker.invalid/file.csv'
@@ -153,11 +158,36 @@ def test_anonymous_install_probe_reaches_authentication_and_rolls_back_on_failur
 
     ok=Admin()
     apply(routes,ok,anonymous_probe=anonymous_probe)
-    assert len(ok.probes)==4 and all(valid for _,valid in ok.probes)
+    assert len(ok.probes)==3 and all(valid for _,valid in ok.probes)
     denied=Admin(failure=True)
     with pytest.raises(RuntimeError,match='anonymous protected route HTTP 500'):
         apply(routes,denied,anonymous_probe=anonymous_probe)
     assert denied.installed=={}
+
+
+@pytest.mark.parametrize('with_handoff', [True, False])
+def test_legacy_snapshot_restore_keeps_governed_handoff(tmp_path, monkeypatch, with_handoff):
+    """GW-51I-LEGACY. Both backup generations restore only the original three routes."""
+    previous = dict.fromkeys(deploy_managed_file_mcp.IDS)
+    if with_handoff:
+        previous['mcp-managed-file-handoff'] = {'uri': '/previous-handoff'}
+    snapshot = tmp_path / 'backup.json'
+    snapshot.write_text(json.dumps(previous))
+    calls = []
+
+    class Admin:
+        def route(self, method, route_id, data):
+            calls.append((method, route_id))
+            return 204, {}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(deploy_managed_file_mcp, 'Admin', lambda *_: Admin())
+    monkeypatch.setattr(deploy_managed_file_mcp.os, 'umask', lambda _: None)
+    monkeypatch.setattr(sys, 'argv', ['deploy', '--restore', str(snapshot), '--admin-key', 'unused'])
+    deploy_managed_file_mcp.main()
+    assert calls == [('DELETE', route_id) for route_id in sorted(deploy_managed_file_mcp.IDS)]
 
 @pytest.mark.parametrize('count', [300,400,1024])
 def test_wide_create_preserves_every_column_and_receipt_body_hash(count):

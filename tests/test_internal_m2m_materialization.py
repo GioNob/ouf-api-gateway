@@ -1,4 +1,5 @@
 import pytest
+import yaml
 from pathlib import Path
 
 from tools.compile_config import compile_config
@@ -22,6 +23,7 @@ def projection():
         }},
         "mcp":{"environment":{"MCP_OIDC_CLIENT_ID":"ouf-mcp-server"}},
         "gateway":{
+            "rateLimits": yaml.safe_load((ROOT/"config/development/r2b-rate-limits.yaml").read_text())["gateway"]["rateLimits"],
             "requiredAudience":"ouf-api-gateway",
             "issuerUrl":"https://auth.ouf-lab.it/realms/ouf",
             "publicApiBaseUrl":"https://api.ouf-lab.it",
@@ -40,7 +42,8 @@ def test_r2b_workload_routes_compile_with_installation_refs_and_backend_binding(
             "installation://iam.workloadClients.ingestion",
             "installation://iam.workloadClients.udp",
         ]
-        assert route["x-ouf-policy"]["allowedActorTypes"]==["SERVICE"]
+        actor = "SERVICE_IDENTITY" if route["id"] == "r2b-semantic-reference" else "SERVICE"
+        assert route["x-ouf-policy"]["allowedActorTypes"] == [actor]
         assert route["x-ouf-backend-binding"]["port"]==8080
 
 def test_projection_and_materialization_use_live_workload_clients_and_scopes():
@@ -62,7 +65,9 @@ def test_projection_and_materialization_use_live_workload_clients_and_scopes():
     assert "proxy-rewrite" not in publication["plugins"]
     assert semantic["plugins"]["proxy-rewrite"]["uri"]=="/api/semantic/v1/references:resolve"
     guard=semantic["plugins"]["serverless-post-function"]["functions"][0]
-    assert "ouf-ingestion" in guard and "ouf-udp" in guard and "SERVICE" in guard
+    assert semantic["labels"]["ouf-ingestion-workload"] == "ouf-ingestion"
+    assert semantic["labels"]["ouf-udp-workload"] == "ouf-udp"
+    assert 'claims.ouf_actor_type ~= "SERVICE"' in guard
     validate_routes(result["routes"])
 
 def test_materialization_rejects_unprojected_service_identity():

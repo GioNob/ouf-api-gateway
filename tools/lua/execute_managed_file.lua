@@ -52,7 +52,7 @@ local operations = {
 -- The exact route and request-validation schema bind the operation; both
 -- accepted URI forms have the same final segment.
 local operation = name and operations[name]
-local binding = ths_link
+-- MATERIALIZE FILE BINDING
 if not binding and operation then
     binding = {capability=operation[1],binding='capability://'..operation[1],operation=operation[2],
         scope=operation[1],path='/api/internal/v1/onboarding/managed-file-mcp/'..name}
@@ -114,7 +114,7 @@ local digest = require('resty.openssl.digest').new('sha256')
 local body_hash = require('resty.string').to_hex(digest:final(args))
 local receipt = {v=1,purpose='managed-file-owner',method='POST',
     path=binding.path,bodyHash=body_hash,
-    capability=e.CapabilityID,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
+    capability=OWNER_RECEIPT_CAPABILITY,iat=now,exp=math.min(p.exp,now+30),issuer=p.iss,audience=p.aud,
     workload=MCP_WORKLOAD,subject=p.principal,tenant=p.tenant,acr=p.acr,roles=roles,scope=p.scope,idempotencyKey=e.IdempotencyKey}
 local encoded = encode64(cjson.encode(receipt))
 local hmac = require('resty.openssl.hmac').new(owner_key,'sha256')

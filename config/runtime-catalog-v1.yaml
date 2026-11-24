@@ -1,6 +1,6 @@
 apiVersion: ouf.trieste.it/v1
 kind: GatewayRuntimeConfigurationCatalog
-version: "1.1"
+version: "1.2"
 entries:
   publication.batchSize: {type: integer, unit: objects, default: 50, minimum: 1, maximum: 1000, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
   publication.convergenceTimeout: {type: duration, unit: seconds, default: 30, minimum: 1, maximum: 120, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
@@ -23,3 +23,18 @@ entries:
   etcd.quorumRequiredForPublication: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
   restore.requireExactActiveRevision: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
   restore.rejectWildcardRoutes: {type: boolean, unit: boolean, default: true, minimum: false, maximum: true, scope: control-plane, environmentScope: all, secretClassification: public, reload: restart}
+  gateway.rateLimits.r2bLakeWrite.count: &r2bCount {type: integer, unit: requests, default: null, minimum: 1, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  gateway.rateLimits.r2bLakeWrite.timeWindowSeconds: &r2bTimeWindowSeconds {type: integer, unit: seconds, default: null, minimum: 1, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  gateway.rateLimits.r2bLakeWrite.key: &r2bKey {type: string, unit: APISIX variable, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  gateway.rateLimits.r2bHandoffWrite.count: *r2bCount
+  gateway.rateLimits.r2bHandoffWrite.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.r2bHandoffWrite.key: *r2bKey
+  gateway.rateLimits.r2bSemanticGet.count: *r2bCount
+  gateway.rateLimits.r2bSemanticGet.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.r2bSemanticGet.key: *r2bKey
+  gateway.rateLimits.r2bSemanticBatch.count: *r2bCount
+  gateway.rateLimits.r2bSemanticBatch.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.r2bSemanticBatch.key: *r2bKey
+  gateway.rateLimits.r2bPublication.count: *r2bCount
+  gateway.rateLimits.r2bPublication.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.r2bPublication.key: *r2bKey

@@ -14,6 +14,7 @@ from tests.test_dispatch_schema_contract import THS_LINK_DISPATCH_CASES, dispatc
 from tests.test_execute_delegation import Denied, Engine, INSTALL, KEY, human, proof, workload
 from tests.test_file_loop_coherence import retained_installation
 from tests.test_managed_file_mcp import request as managed_request
+from tests.test_value_type_schemas import matched_route_context
 from tests.test_onboarding_review import request as review_request
 from tools import gateway_release_bundle
 from tools.apply_installation_projection import apply_projection
@@ -237,6 +238,48 @@ def verified_owner_receipt(owner):
     receipt = json.loads(base64.urlsafe_b64decode(encoded + b'=='))
     assert receipt['bodyHash'] == hashlib.sha256(owner.body).hexdigest()
     return receipt
+
+
+@pytest.mark.parametrize('mode', ['handoff', 'handoff-issue'])
+def test_released_picker_delegation(tmp_path, mode):
+    """GW-51I-MEDIATION. Execute the actual substituted Lua with the owner's expected receipt."""
+    commit, workflow = '1' * 40, '.github/workflows/ci.yml'
+    gateway_release_bundle.generate(tmp_path, commit, workflow, '51')
+    profile = ci_profile(dict(INSTALL, installationId='fixture', revision=1), 18080)
+    routes = load_release_routes(tmp_path, commit, workflow, '51', profile)
+    route, = (r for r in routes if r['id'] == 'mcp-managed-file-' + mode)
+    owner_path = '/api/internal/v1/onboarding/managed-file-mcp/' + mode
+    assert route['plugins']['proxy-rewrite']['uri'] == owner_path
+    assert route['plugins']['client-control']['max_body_size'] == 65536
+    assert route['upstream']['timeout'] == dict(connect=3, send=3, read=3)
+    assert route['upstream']['retries'] == 0 and 'vars' not in route
+    assert route['labels']['ouf-owner-key-env'] == profile['gateway.sourceRevisionOwnerKeyEnv']
+    scope = 'ouf.managed-source.file.upload'
+    body = managed_request(mode)
+
+    def mediate(request, delegated_scope, path):
+        owner = dispatch_engine(request, delegated_scope, path)
+        before = owner.body
+        source, = route['plugins']['serverless-post-function']['functions']
+        owner.lua.execute(source.encode())(None, matched_route_context(owner, route))
+        assert owner.body == before
+        assert not {b'authorization', b'x-ouf-delegation', b'x-ouf-unlisted'} & owner.headers.keys()
+        return verified_owner_receipt(owner)
+
+    for path in (route['uri'], owner_path):
+        receipt = mediate(body, scope, path)
+        assert (receipt['capability'], receipt['path'], receipt['idempotencyKey']) == (
+            scope, owner_path, body['IdempotencyKey'])
+    with pytest.raises(Denied):
+        mediate(body, 'unrelated', route['uri'])
+    if mode == 'handoff-issue':
+        for invalid, path in [
+            (dict(body, IdempotencyKey=RUN_ID), route['uri']),
+            (managed_request('handoff'), route['uri']),
+            (body, owner_path.removesuffix('-issue')),
+        ]:
+            with pytest.raises(Denied):
+                mediate(invalid, scope, path)
 
 
 @pytest.mark.parametrize('mode', ['profile', 'preview', 'create', 'handoff', 'review-prepare', 'review-read'])
