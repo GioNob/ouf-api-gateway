@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ops.apisix.deploy_internal_m2m_routes import apply, restore
 from tests.release_bundle_fixture import (
-    BASE_3D69CB4, MODULE_API_IDS, ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS,
+    BASE_3D69CB4, BASE_5ED88C8, MODULE_API_IDS, ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS,
     THS_OWNER_IDS, THS_PAGES_IDS, THS_RECOVERY_IDS, canonical_json, ci_profile, load_release_routes, sha256,
 )
 from tools.gateway_release_bundle import ROOT, generate
@@ -116,8 +116,7 @@ class ModuleApiRelease(unittest.TestCase):
 
     def test_predecessors_and_service_bindings(self):
         """GW-60i-01. Identita dei due predecessori e binding Semantic per nome anche senza export."""
-        base = BASE_3D69CB4.union(ONBOARDING_IDS, SEMANTIC_MCP_IDS, READ_OPERATIONS_IDS, THS_PAGES_IDS,
-                                  THS_OWNER_IDS, THS_RECOVERY_IDS, {'public-mcp-endpoint', 'public-mcp-oauth-protected-resource'})
+        base = BASE_5ED88C8
         for ids, digest in [(BASE_3D69CB4, '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'),
                             (base, 'c1f2c25d8f43c4e8028330f9f98444d0339d44e4c73337ee3b897b5ac4576d22')]:
             self.assertEqual(sha256(canonical_json([r for r in self.resources if r['id'] in ids])), digest)

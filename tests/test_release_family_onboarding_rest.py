@@ -9,7 +9,7 @@ import pytest
 from ops.apisix import deploy_internal_m2m_routes as bulk
 from ops.apisix import deploy_trusted_human_installation as legacy_installation
 from tests.release_bundle_fixture import (
-    BASE_3D69CB4, ONBOARDING_IDS, ONBOARDING_REST_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS,
+    BASE_3D69CB4, BASE_5ED88C8, ONBOARDING_IDS, ONBOARDING_REST_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS,
     THS_OWNER_IDS, THS_PAGES_IDS, THS_RECOVERY_IDS, canonical_json, sha256,
 )
 from tests.test_execute_delegation import Denied, Engine
@@ -30,10 +30,7 @@ def artifact(tmp_path_factory):
 def test_portable_bodies_and_predecessors(artifact):
     """GW-60g-01. Digest dei soli sottoinsiemi chiusi, anche dopo altre adozioni."""
     resources = json.loads((artifact / 'bundle.json').read_bytes())['resources']
-    base_60u = BASE_3D69CB4.union(
-        ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS, THS_OWNER_IDS, THS_PAGES_IDS, THS_RECOVERY_IDS,
-        ('public-mcp-endpoint', 'public-mcp-oauth-protected-resource'),
-    )
+    base_60u = BASE_5ED88C8
     for ids, expected_size, expected_digest in (
         (BASE_3D69CB4, 31, '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'),
         (base_60u, 74, 'c1f2c25d8f43c4e8028330f9f98444d0339d44e4c73337ee3b897b5ac4576d22'),
