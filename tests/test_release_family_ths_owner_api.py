@@ -11,7 +11,8 @@ from ops.apisix.deploy_semantic_human import LEGACY_IDS, ROUTES, install, valida
 from ops.apisix.deploy_status_execute import apply_routes
 from tests.test_execute_delegation import Denied, Engine
 from tests.release_bundle_fixture import (
-    BASE_3D69CB4_IDS, THS_OWNER_IDS, THS_RECOVERY_IDS, canonical_json, ci_profile, load_release_routes, sha256,
+    BASE_3D69CB4_IDS, THS_OWNER_IDS, THS_RECOVERY_IDS, canonical_json, ci_profile, inventory_after_60u,
+    load_release_routes, sha256,
 )
 from tools.gateway_release_bundle import ROOT, generate
 from tools.plan_semantic_search import Change, changed_paths
@@ -262,6 +263,7 @@ def test_full_export_selector_conflicts(release):
     """GW-60h-03 / GW-60h-07. Apply 51h to every desired route and every foreign inventory ID."""
     live = export('live-routes-all-98.json')
     assert len(live) == 98
+    live = inventory_after_60u(live)
     profile = export_profile(export('live-routes-60h.json') | export('live-routes-60h-b.json'))
     bundle = json.loads((release / 'bundle.json').read_bytes())
     desired = {r['id']: r for r in load_release_routes(

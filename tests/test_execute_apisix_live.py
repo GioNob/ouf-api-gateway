@@ -248,6 +248,7 @@ def test_real_apisix_oidc_delegation_and_execute():
                                '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
             elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/history',
+                               '/api/internal/v1/ingestion/operations/incidents/explain', '/api/udp/v1/objects/related-search',
                                '/api/internal/v1/ingestion/operations/acquisition', '/api/udp/v1/operations/acquisition'):
                 self.reply({'headers': {k.lower(): v for k, v in self.headers.items()}, 'wire': body.decode()})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
@@ -833,6 +834,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                 encoded,signature=forwarded['receipt'].split('.')
                 assert hmac.compare_digest(base64.urlsafe_b64decode(pad(signature)),hmac.new(('34'*32).encode(),('ouf-udp-search-owner-v1.'+encoded).encode(),hashlib.sha256).digest())
                 receipt=json.loads(base64.urlsafe_b64decode(pad(encoded)))
+                assert receipt['path'] == '/api/udp/v1/objects/search'
+                assert receipt['capability'] == 'urban.object.search'
                 assert receipt['bodyHash']==hashlib.sha256(forwarded['body'].encode()).hexdigest()
                 assert receipt['tenant']=='tenant-a' and receipt['roles']=='ente:viewer' and receipt['client']=='chatgpt'
             for bad_args in ({'type':'*'},{'type':'ouf:Asset','pageSize':101},{'type':'ouf:Asset','sql':'select *'}):

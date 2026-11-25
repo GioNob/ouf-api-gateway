@@ -11,7 +11,9 @@ from ops.apisix import deploy_internal_m2m_routes, deploy_status_execute
 from tests.public_mcp_fixture import BASELINE_3D69CB4_IDS
 from tests.test_execute_delegation import Denied, Engine, INSTALL, execute, human
 from tests.test_value_type_schemas import matched_route_context
-from tests.release_bundle_fixture import canonical_json, ci_profile, load_release_routes, sha256
+from tests.release_bundle_fixture import (
+    REMOVED_BY_60U, canonical_json, ci_profile, inventory_after_60u, load_release_routes, sha256,
+)
 from tools.gateway_release_bundle import generate
 from tools.plan_semantic_search import Change, changed_paths
 from tools.release_family_public_mcp import ENDPOINT_ID, PROTECTED_RESOURCE_ROUTE_ID, PUBLIC_IDS, oauth_profile_values
@@ -129,6 +131,23 @@ def test_selector_collision_controls():
         assert conflicts([route], {'foreign': foreign | difference}, []) == []
 
 
+@pytest.mark.parametrize('source', [None] + ([INVENTORY] if INVENTORY.is_file() else []),
+                         ids=lambda p: p.stem if p else 'public-selectors')
+def test_related_search_conflicts_before_60u(artifact, source):
+    """GW-60m-b-08. Both installed legacy IDs conflict with the released related-search selector."""
+    before = {row['id']: row for row in json.loads(FIXTURE.read_bytes())}
+    routes = load_release_routes(artifact, COMMIT, WORKFLOW, '60', installed_profile(before))
+    retired = json.loads((artifact / 'bundle.json').read_bytes())['retired']
+    if source:
+        inventory = {row['id']: row for row in json.loads(source.read_bytes())}
+    else:
+        # Public selector projection of the two disabled 23/11 routes for CI.
+        inventory = {key: {'uri': '/internal/capabilities/v1/execute/urban.object.related_search',
+                           'methods': ['POST'], 'status': 0} for key in REMOVED_BY_60U}
+    assert sorted(conflicts(routes, inventory, retired)) == [
+        ('mcp-related-search', key) for key in sorted(REMOVED_BY_60U)]
+
+
 @pytest.mark.parametrize('source', [FIXTURE] + ([EXPORT] if EXPORT.is_file() else []), ids=lambda p: p.stem)
 def test_adoption_and_return(artifact, source):
     """GW-60e-02, GW-60e-03, GW-60e-04. Recursive parity, OAuth bytes and D-087 plan/readback/return."""
@@ -140,7 +159,7 @@ def test_adoption_and_return(artifact, source):
     retired = json.loads((artifact / 'bundle.json').read_bytes())['retired']
     inventory = dict(before)
     if source == EXPORT and INVENTORY.is_file():
-        inventory = {row['id']: row for row in json.loads(INVENTORY.read_bytes())} | before
+        inventory = inventory_after_60u({row['id']: row for row in json.loads(INVENTORY.read_bytes())} | before)
     assert conflicts(routes, inventory, retired) == []
 
     store = copy.deepcopy(before)

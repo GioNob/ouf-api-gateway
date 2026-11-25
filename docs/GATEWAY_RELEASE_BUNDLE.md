@@ -94,9 +94,14 @@ semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle
 | `r4a-ingestion-human-run-read` | `trusted-human-ingestion-run-read` |
 | `r4a-ingestion-human-run-resume` | `trusted-human-ingestion-run-resume` |
 
-Le due copie disattivate della ricerca correlata hanno `supersededBy: null`.
+Una voce «obsoleta» ha `supersededBy: null`.
 Per ciascun ID il digest copre anche il motivo pubblico e il `match` letterale
 di selettori, stato ed etichette. Un campo assente nell’export vale `null`.
+Il rilascio 60u ha rimosso così le due copie disattivate della ricerca correlata
+(`ouf-5708b3900d0f-001`, `ouf-6f5155e48422-001`). Dal task 60m-b quel selettore
+appartiene alla rotta governata `mcp-related-search`, quindi le due voci escono
+dall’elenco: il bundle si rilascia dopo il 60u, e se le copie fossero ancora
+installate il controllo dei conflitti dell’esecutore fermerebbe il plan.
 Prima del rilascio v3 va attivato l’esecutore aggiornato di `ouf-deploy` (task-60k).
 Il plan HUMAN mostra l’ID e «da rimuovere (obsoleta: motivo)» oppure «già assente».
 L’apply verifica il corpo approvato e conferma ogni assenza. Al ritorno l’esecutore

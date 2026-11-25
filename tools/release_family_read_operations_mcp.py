@@ -11,6 +11,8 @@ STATUS = 'ouf.system.status'
 INGESTION = 'ouf.ingestion.status'
 HISTORY = 'ouf.ingestion.history'
 SEARCH = 'urban.object.search'
+RELATED = 'urban.object.related_search'
+EXPLAIN = 'ouf.operations.explain'
 ACQUISITIONS = {
     'ouf.ingestion.acquisition.read': ('ingestion', 'afterLineageId', 'ingestion.contract.read ingestion.lineage.read ingestion.run.read',
                                        'ingestion-read-owner', 'X-OUF-Ingestion-Read-Receipt'),
@@ -18,6 +20,8 @@ ACQUISITIONS = {
                                'udp-acquisition-owner', 'X-OUF-UDP-Acquisition-Receipt'),
 }
 ROUTES = {
+    'mcp-related-search': RELATED,
+    'mcp-operations-explain': EXPLAIN,
     'mcp-generic-execution': STATUS,
     'mcp-ingestion-status': INGESTION,
     # DN-L3-3: adopted from the MCP manifest aligned to the owner limit (100).
@@ -37,7 +41,7 @@ NONZERO_UUID = r'^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}-[0-9a-f]{
 def declarations():
     rows = json.loads(SNAPSHOT.read_bytes())['capabilities']
     result = {row['capabilityId']: row for row in rows}
-    expected = set(ROUTES.values()) - PRODUCERS | {'ouf.ingestion.history', 'ouf.operations.explain', 'urban.object.related_search'}
+    expected = set(ROUTES.values()) - PRODUCERS
     if len(result) != len(rows) or result.keys() != expected:
         raise ValueError('incomplete read operations MCP snapshot')
     return result
@@ -50,7 +54,7 @@ def arguments(capability):
         return dispatch_schema(capability)['properties']['Arguments']
     schema = declarations()[capability]['inputSchema']
     fields = schema['properties']
-    if capability in ACQUISITIONS:
+    if capability in ACQUISITIONS or capability == EXPLAIN:
         for value in fields.values():
             if value.get('format') == 'uuid':
                 value['pattern'] = NONZERO_UUID
@@ -79,6 +83,17 @@ def mediation(cap, owner, path, scope):
                          RECEIPT_DOMAIN=f'ouf-{purpose}-v1.', RECEIPT_HEADER=header)
         owner_key = f'gateway.{owner}ReadOwnerKeyEnv'
         source = (LUA / 'execute_acquisition_read.lua').read_text()
+    elif cap in (RELATED, EXPLAIN):
+        if cap == RELATED:
+            profile, operation = 'udp-search-execute-v1', 'SEARCH'
+            purpose, domain, header = 'udp-object-search-owner', 'ouf-udp-search-owner-v1.', 'X-OUF-UDP-Search-Receipt'
+        else:
+            profile, operation = 'ingestion-read-owner-receipt-v1', 'READ'
+            purpose, domain, header = 'ingestion-read-owner', 'ouf-ingestion-read-owner-v1.', 'X-OUF-Ingestion-Read-Receipt'
+        owner_key = f'gateway.{owner}ReadOwnerKeyEnv'
+        constants.update(CAPABILITY=cap, OWNER=owner, OWNER_PATH=path, OPERATION=operation, REQUIRED_SCOPE=scope,
+                         RECEIPT_PURPOSE=purpose, RECEIPT_DOMAIN=domain, RECEIPT_HEADER=header)
+        source = (LUA / 'execute_related_search_explain.lua').read_text()
     elif cap in (INGESTION, HISTORY):
         profile = 'ingestion-read-owner-receipt-v1'
         owner_key = 'gateway.ingestionReadOwnerKeyEnv'
@@ -135,11 +150,13 @@ def materialize(runtime, generic, route_resource, installation):
                 INGESTION: ('ingestion', 'ouf-ingestion-runtime', '/api/internal/v1/ingestion/operations/status'),
                 HISTORY: ('ingestion', 'ouf-ingestion-runtime', '/api/internal/v1/ingestion/operations/history'),
                 SEARCH: ('udp', 'ouf-udp-object-resolution', '/api/udp/v1/objects/search'),
+                RELATED: ('udp', 'ouf-udp-object-resolution', '/api/udp/v1/objects/related-search'),
+                EXPLAIN: ('ingestion', 'ouf-ingestion-runtime', '/api/internal/v1/ingestion/operations/incidents/explain'),
             }[cap]
             expected_scope, expected_timeout = manifest[cap]['requiredAuthorizationCapability'], 3
         actors = (['HUMAN', 'HUMAN_USER', 'MCP_SERVER'] if cap == STATUS else
                   ['MCP_SERVER'] if cap in PRODUCERS else ['HUMAN_USER', 'MCP_SERVER']
-                  if cap in CAPABILITIES or cap in (INGESTION, HISTORY) else ['HUMAN'])
+                  if cap in CAPABILITIES or cap in (INGESTION, HISTORY, EXPLAIN) else ['HUMAN'])
         if ((owner, service, path, scope, timeout) !=
                 (expected_owner, expected_service, expected_path, expected_scope, expected_timeout)
                 or binding['methods'] != ['POST'] or binding.get('vars')
@@ -148,7 +165,7 @@ def materialize(runtime, generic, route_resource, installation):
                 or policy['allowedServiceIdentities'] != [runtime['x-ouf-installation']['mcpServiceIdentity']]
                 or policy['allowedActorTypes'] != actors or contract['humanRequired']
                 or contract['toolEligible'] != (cap not in PRODUCERS)
-                or operation != ('SEARCH' if cap == SEARCH else 'READ')):
+                or operation != ('SEARCH' if cap in (SEARCH, RELATED) else 'READ')):
             raise ValueError('read operation binding drift: ' + cap)
 
         route = copy.deepcopy(generic)
@@ -161,10 +178,12 @@ def materialize(runtime, generic, route_resource, installation):
         if cap != STATUS:
             fields.update(CapabilityID={'const': cap}, GatewayBindingRef={'const': 'capability://' + cap},
                           Owner={'const': owner})
-            if cap == SEARCH:
+            if cap in (SEARCH, RELATED, EXPLAIN):
                 fields['OperationClass'] = {'const': operation}
         if cap in CAPABILITIES or cap in (INGESTION, HISTORY):
             fields['MaxResultBytes']['maximum'] = 524288
+        if cap in (RELATED, EXPLAIN):
+            fields['MaxResultBytes']['maximum'] = manifest[cap]['baseCostEnvelope']['hardMaxResultBytes']
         fields['Arguments'] = arguments(cap)
         plugins['request-validation'] = dispatch_validation(schema, policy['maxRequestBytes'])
         plugins['request-id'] = binding['plugins']['request-id']

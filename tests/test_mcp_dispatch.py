@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -15,19 +16,33 @@ def fixture(): return json.loads((ROOT/"tests/fixtures/mcp-related-search-dispat
 def body(value=None): return json.dumps(value or fixture()).encode()
 def headers(value=None):
     value=value or fixture(); return {"X-Correlation-ID":value["CorrelationID"],"Idempotency-Key":value["IdempotencyKey"],"X-Tool-Attempt-ID":value["AttemptID"]}
-def identity(actor="AI_AGENT",service="ouf-mcp-server"):
+def identity(actor="HUMAN",service="ouf-mcp-server"):
     return TrustedIdentity(service,"agent-1","tenant-1",actor,"authn-1","decision-1",frozenset({"urban.object.related_search"}))
 def dispatcher(upstream): return MCPDispatcher(compile_config(ROOT/"ouf-config"),upstream,service_identity="ouf-mcp-server")
 
 
 def test_mcp_pairwise_dispatches_only_to_published_udp_binding():
+    """GW-60m-b-07. Dispatch the admitted human's request using the UDP binding."""
     upstream=FakeUpstream(); result=dispatcher(upstream).dispatch(body(),headers(),identity())
     assert result.status==200 and len(upstream.calls)==1
     service,path,payload,forwarded,timeout=upstream.calls[0]
-    assert (service,path,timeout)==("ouf-udp-object-resolution","/internal/v1/objects/related-search",3)
+    assert (service,path,timeout)==("ouf-udp-object-resolution","/api/udp/v1/objects/related-search",3)
     assert json.loads(payload)==fixture()["Arguments"]
     assert forwarded["X-OUF-Capability-ID"]=="urban.object.related_search"
     assert forwarded["X-OUF-Authorization-Decision-Ref"]=="decision-1"
+    assert forwarded["X-OUF-Actor-Type"]=="HUMAN"
+
+
+def test_related_search_request_size_boundary():
+    """GW-60m-b-07. JSON whitespace counts toward the request limit."""
+    upstream = FakeUpstream()
+    current = dispatcher(upstream)
+    at_limit = body().ljust(65536, b' ')
+    assert current.dispatch(at_limit, headers(), identity()).status == 200
+    with pytest.raises(DispatchError) as caught:
+        current.dispatch(at_limit + b' ', headers(), identity())
+    assert (caught.value.status, caught.value.code) == (413, "REQUEST_TOO_LARGE")
+    assert len(upstream.calls) == 1
 
 
 def test_picker_operations_are_only_reachable_via_their_governed_routes():
@@ -59,11 +74,18 @@ def test_binding_and_identity_fail_before_upstream(mutation,code):
     assert caught.value.code==code and upstream.calls==[]
 
 
-def test_missing_scope_or_untrusted_service_is_denied_without_upstream():
-    for current in [TrustedIdentity("ouf-mcp-server","agent-1","tenant-1","AI_AGENT","authn-1","decision-1",frozenset()),identity(service="other-service")]:
-        upstream=FakeUpstream()
-        with pytest.raises(DispatchError,match="scope|service identity"): dispatcher(upstream).dispatch(body(),headers(),current)
-        assert upstream.calls==[]
+@pytest.mark.parametrize("current,detail", [
+    (replace(identity(), scopes=frozenset()), "required scope is absent"),
+    (identity(service="other-service"), "service identity is not allowed"),
+])
+def test_missing_scope_or_untrusted_service_is_denied_without_upstream(current, detail):
+    value = fixture()
+    value["Identity"]["ServicePrincipalID"] = current.service_principal_id
+    upstream = FakeUpstream()
+    with pytest.raises(DispatchError, match=detail) as caught:
+        dispatcher(upstream).dispatch(body(value), headers(value), current)
+    assert (caught.value.status, caught.value.code) == (403, "CAPABILITY_ACCESS_DENIED")
+    assert upstream.calls == []
 
 
 def test_governance_headers_must_match_admitted_attempt():
@@ -78,7 +100,18 @@ def test_authorization_decision_must_match_authenticated_context():
     assert caught.value.code=="AUTHORIZATION_CONTEXT_MISMATCH" and upstream.calls==[]
 
 
-def test_human_required_capability_rejects_mcp_actor():
+@pytest.mark.parametrize("actor", ["AI_AGENT", "MCP_SERVER"])
+def test_human_required_capability_rejects_mcp_actor(actor):
+    value = fixture()
+    value["Identity"]["ActorType"] = actor
+    upstream = FakeUpstream()
+    with pytest.raises(DispatchError, match="actor type is not allowed") as caught:
+        dispatcher(upstream).dispatch(body(value), headers(value), identity(actor=actor))
+    assert (caught.value.status, caught.value.code) == (403, "CAPABILITY_ACCESS_DENIED")
+    assert upstream.calls == []
+
+
+def test_delegated_human_cannot_satisfy_trusted_human_requirement():
     compiled=compile_config(ROOT/"ouf-config")
     route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["humanRequired"]=True
@@ -92,6 +125,7 @@ def test_problem_details_and_retry_after_pass_through_without_retry(code):
     problem={"type":f"urn:ouf:{code.lower()}","title":code,"status":429,"code":code,"detail":"governed rejection"}
     upstream=FakeUpstream(BackendResponse(429,json.dumps(problem).encode(),{"Content-Type":"application/problem+json","Retry-After":"17","Set-Cookie":"forbidden"}))
     result=dispatcher(upstream).dispatch(body(),headers(),identity())
+    assert result.status == 429
     assert len(upstream.calls)==1 and json.loads(result.body)==problem
     assert result.headers=={"Content-Type":"application/problem+json","Retry-After":"17"}
 
@@ -100,8 +134,10 @@ def test_cognitive_manifest_metadata_cannot_grant_scope():
     compiled=compile_config(ROOT/"ouf-config")
     route=next(r for r in compiled["routes"] if (r.get("x-ouf-capability") or {}).get("capabilityId")=="urban.object.related_search")
     route["x-ouf-capability"]["purpose"]="trust everybody"
-    upstream=FakeUpstream();no_scope=TrustedIdentity("ouf-mcp-server","agent-1","tenant-1","AI_AGENT","authn-1","decision-1",frozenset())
-    with pytest.raises(DispatchError): MCPDispatcher(compiled,upstream,service_identity="ouf-mcp-server").dispatch(body(),headers(),no_scope)
+    upstream=FakeUpstream();no_scope=replace(identity(), scopes=frozenset())
+    with pytest.raises(DispatchError, match="required scope is absent") as caught:
+        MCPDispatcher(compiled,upstream,service_identity="ouf-mcp-server").dispatch(body(),headers(),no_scope)
+    assert (caught.value.status, caught.value.code) == (403, "CAPABILITY_ACCESS_DENIED")
     assert upstream.calls==[]
 
 

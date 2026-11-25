@@ -1,52 +1,6 @@
 [
   {
     "kind": "routes",
-    "id": "ouf-5708b3900d0f-001",
-    "supersededBy": null,
-    "reason": "Rotta disattivata, duplicata e senza consumatori. Il MCP non chiama questa URI.",
-    "match": {
-      "uri": "/internal/capabilities/v1/execute/urban.object.related_search",
-      "uris": null,
-      "methods": ["POST"],
-      "host": null,
-      "hosts": null,
-      "vars": null,
-      "remote_addrs": null,
-      "priority": null,
-      "filter_func": null,
-      "status": 0,
-      "labels": {
-        "ouf_index": "001",
-        "ouf_managed": "true",
-        "ouf_revision": "5708b3900d0f43d89801926d3f9554e110f4481f2a1cb08897cd2ec613dfa570"
-      }
-    }
-  },
-  {
-    "kind": "routes",
-    "id": "ouf-6f5155e48422-001",
-    "supersededBy": null,
-    "reason": "Rotta disattivata, duplicata e senza consumatori. Il MCP non chiama questa URI.",
-    "match": {
-      "uri": "/internal/capabilities/v1/execute/urban.object.related_search",
-      "uris": null,
-      "methods": ["POST"],
-      "host": null,
-      "hosts": null,
-      "vars": null,
-      "remote_addrs": null,
-      "priority": null,
-      "filter_func": null,
-      "status": 0,
-      "labels": {
-        "ouf_index": "001",
-        "ouf_managed": "true",
-        "ouf_revision": "6f5155e484228d958fd36b2c21b3538608cddc4d8ad2bb16fcacab860f86b01b"
-      }
-    }
-  },
-  {
-    "kind": "routes",
     "id": "r4a-ingestion-human-run-read",
     "supersededBy": "trusted-human-ingestion-run-read",
     "vars": [

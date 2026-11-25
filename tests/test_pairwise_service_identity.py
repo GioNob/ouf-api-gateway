@@ -8,6 +8,8 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+
 from tools.compile_config import ROOT
 
 
@@ -15,7 +17,7 @@ def test_pairwise_server_passes_governed_service_identity_and_starts(tmp_path):
     calls = []
     class Owner(BaseHTTPRequestHandler):
         def do_POST(self):
-            calls.append((self.path, self.headers.get('X-OUF-Capability-ID')))
+            calls.append((self.path, self.headers.get('X-OUF-Capability-ID'), self.headers.get('X-OUF-Actor-Type')))
             self.rfile.read(int(self.headers.get('Content-Length','0')))
             self.send_response(200);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(b'{"items":[]}')
         def log_message(self,*_): pass
@@ -37,14 +39,19 @@ def test_pairwise_server_passes_governed_service_identity_and_starts(tmp_path):
         request=urllib.request.Request(url,data=json.dumps(fixture).encode(),headers=headers,method='POST')
         with urllib.request.urlopen(request,timeout=3) as response:
             assert response.status==200 and response.read()==b'{"items":[]}'
-        assert calls==[('/internal/v1/objects/related-search','urban.object.related_search')]
+        assert calls==[('/api/udp/v1/objects/related-search','urban.object.related_search','HUMAN')]
+        oversized = json.dumps(fixture).encode().ljust(65537, b' ')
+        request = urllib.request.Request(url, data=oversized, headers=headers, method='POST')
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(request, timeout=3)
+        with rejected.value as exc:
+            assert exc.code == 413 and json.load(exc)['code'] == 'REQUEST_TOO_LARGE'
         fixture['Identity']['ServicePrincipalID']='forged-service'
         request=urllib.request.Request(url,data=json.dumps(fixture).encode(),headers=headers,method='POST')
-        try:
+        with pytest.raises(urllib.error.HTTPError) as rejected:
             urllib.request.urlopen(request,timeout=3)
-            raise AssertionError('forged service accepted')
-        except urllib.error.HTTPError as exc:
-            assert exc.code==403
+        with rejected.value as exc:
+            assert exc.code==403 and json.load(exc)['code']=='IDENTITY_CONTEXT_MISMATCH'
         assert len(calls)==1
     finally:
         process.terminate()

@@ -35,6 +35,7 @@ def reject_bundle_owned(ids):
 
 
 READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-urban-object-search',
+                      'mcp-related-search', 'mcp-operations-explain',
                       'execute-urban-acquisition-read', 'execute-ouf-ingestion-acquisition-read',
                       *('execute-ouf.' + producer + 'operations.' + mode
                         for producer in ('', 'gateway.', 'ingestion.') for mode in ('summary', 'incidents'))}
@@ -42,6 +43,7 @@ READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-inge
 
 READ_OPERATION_PATH = '/internal/capabilities/v1/execute'
 READ_OPERATION_URIS = {READ_OPERATION_PATH, *(READ_OPERATION_PATH + '/' + cap for cap in (
+    'urban.object.related_search', 'ouf.operations.explain',
     'ouf.ingestion.status', 'ouf.ingestion.history', 'urban.object.search', 'ouf.ingestion.acquisition.read',
     'urban.acquisition.read')),
     *(READ_OPERATION_PATH + '/' + key.removeprefix('execute-') for key in READ_OPERATION_IDS if key.startswith('execute-ouf.'))}
