@@ -128,7 +128,9 @@ expect_ready() {
 }
 chmod a-w "$root/authority-store/gateway.db"
 expect_ready 503
-chmod ug+w "$root/authority-store/gateway.db"
+# SQLite recreates -shm with the database file's mode while it is read-only, owned by
+# the service user: restoring write access covers every file of the store.
+sudo chmod ug+w "$root"/authority-store/gateway.db*
 expect_ready 204
 for id in "$authority" "$adapter"; do
   docker inspect "$id" | python -c '
