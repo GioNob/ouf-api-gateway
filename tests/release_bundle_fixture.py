@@ -90,8 +90,18 @@ ONBOARDING_REST_IDS = (
     'trusted-human-onboarding-sources-post',
 )
 
+MODULE_API_QUOTAS = ('moduleApiOnboarding', 'moduleApiPreflight', 'semanticRestApi')
+
+MODULE_API_IDS = (
+    'onboarding-managed-file-read', 'onboarding-identity-preflight-read',
+    'r4a-onboarding-ingestion-compatibility', 'r4a-onboarding-ingestion-compatibility-read',
+    'r4a-onboarding-ingestion-configuration-read', 'semantic-approval-request', 'semantic-artifact-propose',
+    'semantic-artifact-search', 'semantic-rdf-import', 'semantic-revision-validate',
+)
+
 RELEASE_ROUTE_IDS = sorted([
     *ONBOARDING_REST_IDS,
+    *MODULE_API_IDS,
     *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -206,6 +216,10 @@ def ci_profile(installation, port):
         'gateway.rateLimits.readOperationsMcp.count': 60, 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 60,
         **public_mcp_profile(installation, port),
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
+        'iam.workloadClients.onboarding': 'test-managed-file-consumer',
+        **{f'gateway.rateLimits.{group}.{field}': value for group in MODULE_API_QUOTAS
+           for field, value in [('count', 60), ('timeWindowSeconds', 60)]},
+        'iam.workloadClients.sourceOnboarding': 'test-preflight-consumer',
         'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')
            for field, value in [('count', 60), ('timeWindowSeconds', 60)]},

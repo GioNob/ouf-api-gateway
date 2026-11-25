@@ -16,6 +16,8 @@ def projection():
         "revision":3,
         "checksum":"sha256:test",
         "iam":{"workloadClients":{
+            "onboarding":"test-managed-file-consumer",
+            "sourceOnboarding":"test-preflight-consumer",
             "mcpServer":"ouf-mcp-server",
             "ingestion":"ouf-ingestion",
             "udp":"ouf-udp",
@@ -96,8 +98,9 @@ def test_managed_file_read_is_a_governed_workload_route():
     assert route["plugins"]["proxy-rewrite"]["uri"]=="/api/internal/v1/onboarding/managed-files/content"
     assert route["plugins"]["openid-connect"]["required_scopes"]==["ouf.internal.object-storage.read"]
     guard=route["plugins"]["serverless-post-function"]["functions"][0]
-    assert "ouf-onboarding" in guard and "ouf-ingestion" in guard and "SERVICE" in guard
-    validate_routes(result["routes"])
+    assert "test-managed-file-consumer" in guard and "ouf-ingestion" in guard and "SERVICE" in guard
+    with pytest.raises(ValueError, match="governed Gateway release"):
+        validate_routes(result["routes"])
 
 def test_managed_file_read_rejects_unverified_remote_upstream():
     resolved=apply_projection(compile_config(ROOT/"ouf-config"),projection())

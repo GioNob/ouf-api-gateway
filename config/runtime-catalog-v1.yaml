@@ -64,6 +64,12 @@ entries:
   gateway.rateLimits.thsOnboardingRest.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.thsInstallation.count: *r2bCount
   gateway.rateLimits.thsInstallation.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.moduleApiOnboarding.count: *r2bCount
+  gateway.rateLimits.moduleApiOnboarding.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.moduleApiPreflight.count: *r2bCount
+  gateway.rateLimits.moduleApiPreflight.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.semanticRestApi.count: *r2bCount
+  gateway.rateLimits.semanticRestApi.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.thsSemantic.count: *r2bCount
   gateway.rateLimits.thsSemantic.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.thsIngestionReadiness.count: *r2bCount
