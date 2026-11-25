@@ -1,0 +1,9 @@
+apiVersion: ouf.trieste.it/v1
+kind: Capability
+metadata: {id: ouf.analysis.mandate.renewal-check, version: 1.0.0, status: ACTIVE}
+spec:
+  owner: gateway
+  operationType: READ
+  scope: ouf.analysis.mandate.renewal-check
+  classification: [SECURITY_SENSITIVE]
+  mcp: {toolEligible: false, humanRequired: true}

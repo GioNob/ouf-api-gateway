@@ -61,6 +61,17 @@ class SearchPlanTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ambiguous'):
             search_plan(self.desired, inventory([self.old, dict(self.old, id='another')]), '1')
 
+    def test_retired_duplicate_with_uris_selector_restores(self):
+        """GW-55C-04. Restore derives the selector of a retired duplicate declared with `uris`."""
+        old = {k: v for k, v in self.old.items() if k != 'uri'}
+        old['uris'] = [self.old['uri']]
+        canonical = dict(self.old, id=self.desired[0]['id'])
+        unrelated = dict(self.old, id='unrelated', uri='/unrelated')
+        change, retire, create = search_plan(self.desired, inventory([old, canonical, unrelated]), '1')
+        self.assertEqual((retire.action, retire.before), ('retire', old))
+        restored = restore_plan([change, retire, create], inventory([change.after, create.after, unrelated]))
+        self.assertEqual({c.target_id: c.after for c in restored if c.after}, {r['id']: r for r in [canonical, old]})
+
     def test_refuse_partial_inventory_revision_drift_and_selector_collision(self):
         with self.assertRaisesRegex(ValueError, 'complete'):
             search_plan(self.desired, dict(inventory([self.old]), total=2), '1')

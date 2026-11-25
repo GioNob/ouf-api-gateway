@@ -1,0 +1,10 @@
+**
+!deploy/authority/requirements-authority.txt
+!deploy/authority/entrypoint.py
+!tools/analysis_*.py
+!tools/iam_keycloak_decisions.py
+!tools/mcp_dispatch_contract.py
+!tools/authority_host.py
+!contracts/mcp-capabilities.json
+!contracts/mcp-discovery-review-capabilities.json
+!contracts/semantic-search-batch-v1.json

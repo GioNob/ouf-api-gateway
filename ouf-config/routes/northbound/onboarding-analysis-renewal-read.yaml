@@ -1,0 +1,18 @@
+apiVersion: ouf.trieste.it/v1
+kind: RouteBinding
+metadata: {id: onboarding-analysis-renewal-read, version: 1.0.0, status: ACTIVE}
+spec:
+  direction: northbound
+  exposure: internal
+  capabilityRef: ouf.analysis.renewal.read@1.0.0
+  sourceRef: gateway-analysis-mandates@1.0.0
+  match:
+    method: POST
+    path: /internal/analysis/v1/renewals/read
+  backendBinding: {service: ouf-gateway-analysis-mandates, port: 8443, path: /internal/analysis/v1/renewals/read}
+  policy:
+    identity: OIDC
+    allowedServiceIdentities: [ouf-onboarding]
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 131072
+    timeoutSeconds: 30

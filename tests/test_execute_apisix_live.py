@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import hmac
 import json
+import math
 import os
 import socket
 import subprocess
@@ -18,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -25,11 +27,14 @@ import pytest
 import yaml
 
 from tools.materialize_object_search import materialize
+from tools.materialize_semantic_provider import DEFAULT_ORIGIN_ENV, materialize as provider_routes
+from tests.test_semantic_provider_429 import PROOF, VECTOR, provider_binding, verified_origin
 from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tools.analysis_protocol import ACTIONS, BASE as MANDATE_BASE
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -106,6 +111,15 @@ def check_r2b_mixed_window(request, token, installation):
         assert 0 <= float(quota['X-RateLimit-Reset']) <= 60
 
 
+def check_mandate_action_scopes(post, token):
+    """GW-58F-12. APISIX rejects a signed SERVICE token scoped to another mandate action."""
+    for action in ACTIONS:
+        other = 'dispatch' if action == 'issue' else 'issue'
+        bearer = token('SERVICE', scope='ouf.analysis.mandate.' + other)
+        status, _ = post(MANDATE_BASE + action, {}, bearer)
+        assert status == 403, (action, status)
+
+
 def wait_for_protected_routes(post, probes, timeout=60):
     """Wait for each required route to enforce OIDC before testing dispatch."""
     deadline = time.monotonic() + timeout
@@ -133,6 +147,30 @@ def wait_for_protected_routes(post, probes, timeout=60):
                 missing = {path: observed[path] for path in pending}
                 raise AssertionError(f'APISIX routes not ready: {missing}')
             time.sleep(min(0.5, remaining))
+
+
+def check_provider_origin(request, token, binding, forwarded):
+    """GW-55L-01/02/04. Real limit-count exits, upstream headers and binary signature."""
+    bearer = token('SERVICE', scope=binding['scope'])
+    for method, path in [('POST', binding['searchPath']), ('GET', binding['fetchPath'])]:
+        for index, delay in enumerate(('0007', 'Sun, 06 Nov 1994 08:49:37 GMT', None, None, None)):
+            target = path if method == 'POST' else path + '?case=' + str(index)
+            nonce = str(uuid.uuid4()) if index != 3 else 'malformed'
+            before = len(forwarded)
+            status, _, headers = request(method, target, {} if method == 'POST' else None, bearer,
+                                         with_headers=True, extra={'X-OUF-Exchange-Id': nonce, PROOF: 'forged'})
+            assert status == 429 and headers.get('X-RateLimit-Origin') is None
+            fields = headers.get_all(PROOF, [])
+            origin = verified_origin(fields, method=method, target=target, nonce=nonce, now=int(time.time()))
+            if index < 4:
+                assert len(forwarded) == before + 1 and forwarded[-1] == (None, None)
+                assert headers.get('Retry-After') == delay
+                assert origin == ('UNKNOWN' if index == 3 else 'UPSTREAM')
+                if index == 3:
+                    assert not fields
+            else:
+                assert len(forwarded) == before and origin == 'APISIX'
+                assert headers['Retry-After'] == str(math.ceil(float(headers['X-RateLimit-Reset'])))
 
 
 def test_apisix_readiness_requires_the_execute_route(monkeypatch):
@@ -182,9 +220,15 @@ def test_real_apisix_oidc_delegation_and_execute():
     }
     dispatch_calls = []
     dispatch_bodies = {}
+    provider = provider_binding()
+    provider.update(issuer=issuer, audience=aud, workload=workload, tenants=['tenant-a'])
+    provider['rateLimit']['count'] = 4
+    forwarded = []
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path=='/discovery':
+            if self.path.split('?')[0] == provider['fetchPath']:
+                self.provider_limited()
+            elif self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
             elif self.path.split('?')[0] in R2B_CASES: self.r2b()
@@ -198,7 +242,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
-            if self.path in R2B_CASES:
+            if self.path == provider['searchPath']:
+                self.provider_limited()
+            elif self.path in R2B_CASES:
                 self.r2b()
             elif self.path.startswith(terms_path):
                 terms_calls.append(self.path)
@@ -234,6 +280,16 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path=='/api/udp/v1/objects/search':
                 self.reply({'receipt':self.headers.get('X-OUF-UDP-Search-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization'),'delegation':self.headers.get('X-OUF-Delegation')})
             else:self.reply({'message': 'unexpected synthetic owner path'}, status=404)
+        def provider_limited(self):
+            index = len(forwarded) % 4
+            forwarded.append((self.headers.get('X-OUF-Exchange-Id'), self.headers.get(PROOF)))
+            self.send_response(429)
+            self.send_header(PROOF, 'forged')
+            self.send_header('X-RateLimit-Origin', 'APISIX')
+            for delay in (['0007'], ['Sun, 06 Nov 1994 08:49:37 GMT'], ['5', '7'], ['tomorrow'])[index]:
+                self.send_header('Retry-After', delay)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
         def r2b(self):
             self.reply({'path': self.path, 'bearerPresent': bool(self.headers.get('Authorization')),
                         'headers': {k.lower(): v for k, v in self.headers.items() if k.lower().startswith('x-ouf-')}})
@@ -249,7 +305,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
+    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False,extra=None):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
         if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
             headers['Idempotency-Key'] = body['IdempotencyKey']
@@ -258,6 +314,7 @@ def test_real_apisix_oidc_delegation_and_execute():
                             'X-OUF-Service-Principal': installation['ingestionServiceIdentity']})
         if bearer:headers['Authorization']='Bearer '+bearer
         if proof:headers['X-OUF-Delegation']=proof
+        if extra:headers.update(extra)
         data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode()
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=data,headers=headers,method=method)
         try:res=urllib.request.urlopen(req,timeout=5)
@@ -324,6 +381,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                 'postgres:17-alpine','psql','-h','127.0.0.1','-U',udp_env['OUF_UDP_DB_USER'],'-d','ouf_udp','-v','ON_ERROR_STOP=1','-c',sql],check=True,stdout=subprocess.DEVNULL)
         os.chmod(folder,0o755)
         doc=materialize(rt,'$ENV://OIDC_SECRET','DELEGATION_KEY','OWNER_KEY','UDP_KEY')
+        for route in provider_routes({'routes': []}, provider)['routes']:
+            route['upstream']['scheme'] = 'http'  # Same isolated fixture as the other synthetic owners.
+            doc['routes'].append(route)
         if owner_port:
             from tools.materialize_operational_execute import materialize as operational_routes
             signed = operational_routes(rt, '$ENV://OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY',
@@ -381,7 +441,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY',
+                                      DEFAULT_ORIGIN_ENV, provider['receiptKeyEnvironment']]},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -394,6 +455,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
             '-e', 'READ_KEY=' + '56' * 32,
+            '-e', DEFAULT_ORIGIN_ENV + '=' + VECTOR['seedHex'], '-e', 'FIXTURE_RECEIPT=' + '97' * 32,
             '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
@@ -401,6 +463,9 @@ def test_real_apisix_oidc_delegation_and_execute():
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            if bundle_dir:
+                check_mandate_action_scopes(post, token)
+            check_provider_origin(request, token, provider, forwarded)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']

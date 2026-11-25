@@ -7,6 +7,10 @@ entries:
   request.maxBytesCeiling: {type: integer, unit: bytes, default: 10485760, minimum: 1, maximum: 10485760, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
   request.timeoutCeiling: {type: integer, unit: seconds, default: 60, minimum: 1, maximum: 60, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
   rateLimit.defaultPerMinute: {type: integer, unit: requests/minute, default: 100, minimum: 1, maximum: 10000, scope: data-plane, environmentScope: all, secretClassification: public, reload: publication}
+  semanticProvider.quota.ceiling: {type: integer, unit: requests/route/window, default: 20, minimum: 1, maximum: 20, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  semanticProvider.quota.windowSeconds: {type: integer, unit: seconds, default: 60, minimum: 60, maximum: 60, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  semanticProvider.originLifetimeSeconds: {type: integer, unit: seconds, default: 30, minimum: 1, maximum: 30, scope: data-plane, environmentScope: installation, secretClassification: public, reload: publication}
+  semanticProvider.originKeyEnvironment: {type: string, unit: environment variable name, default: OUF_PROVIDER_429_ED25519_SEED, minimum: 2, maximum: 128, scope: data-plane, environmentScope: installation, secretClassification: reference, reload: restart}
   ha.northbound.replicas: {type: integer, unit: pods, default: 3, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
   ha.northbound.hpaMinReplicas: {type: integer, unit: pods, default: 3, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
   ha.northbound.hpaMaxReplicas: {type: integer, unit: pods, default: 10, minimum: 3, maximum: 10, scope: deployment, environmentScope: all, secretClassification: public, reload: restart}
@@ -44,3 +48,23 @@ entries:
   gateway.rateLimits.semanticSearchBatch.count: *r2bCount
   gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearchBatch.key: *r2bKey
+  gateway.authority.store: &gatewaySqlite {type: path, unit: SQLite file, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.iamAdapter.store: *gatewaySqlite
+  gateway.schemaStartup.maxAttempts: {type: integer, unit: attempts per worker, default: 4, minimum: 1, maximum: 4, scope: data-plane, environmentScope: installation, secretClassification: public, reload: restart}
+  gateway.schemaStartup.initialDelayMs: {type: integer, unit: milliseconds, default: 250, minimum: 1, maximum: 500, scope: data-plane, environmentScope: installation, secretClassification: public, reload: restart}
+  gateway.authority.configFile: &gatewayPrivateFile {type: path, unit: file reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.iamAdapter.configFile: *gatewayPrivateFile
+  gateway.authority.manifestFile: *gatewayPrivateFile
+  gateway.iamAdapter.profileFile: *gatewayPrivateFile
+  gateway.authority.serverCertFile: *gatewayPrivateFile
+  gateway.authority.serverKeyFile: &gatewayKeyRef {type: path, unit: private key reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: secret-reference, reload: restart}
+  gateway.authority.clientCaFile: *gatewayPrivateFile
+  gateway.iamAdapter.serverCertFile: *gatewayPrivateFile
+  gateway.iamAdapter.serverKeyFile: *gatewayKeyRef
+  gateway.iamAdapter.clientCaFile: *gatewayPrivateFile
+  # Both credential paths must resolve to regular files of at most 4096 bytes, including any terminator.
+  gateway.authority.delegationKeyFile: &gatewayCredentialFile {type: path, unit: credential file reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: secret-reference, reload: restart}
+  gateway.iamAdapter.secretFile: *gatewayCredentialFile
+  # On the IAM adapter, the probe principal must differ from gatewayTlsPrincipal.
+  gateway.iamAdapter.probePrincipal: &gatewayProbePrincipal {type: string, unit: verified TLS principal, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.authority.probePrincipal: *gatewayProbePrincipal

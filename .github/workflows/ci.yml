@@ -262,3 +262,52 @@ jobs:
         with:
           name: summary-stack-evidence-${{ github.run_id }}
           path: generated/summary-stack/**/*.log
+
+  authority-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Run the full offline suite on the image's Python base
+        run: |
+          base=$(awk '$1 == "FROM" {print $2; exit}' deploy/authority/Dockerfile)
+          wheels="$RUNNER_TEMP/authority-test-wheels"
+          python -m pip download --only-binary=:all: -d "$wheels" -r requirements-dev.txt
+          docker run --rm --network none -v "$PWD:/workspace:ro" -w /workspace -v "$wheels:/wheels:ro" \
+            -e PYTHONDONTWRITEBYTECODE=1 "$base" sh -ec '
+              python -m pip install --no-index --find-links=/wheels -r requirements-dev.txt
+              python -m pytest -p no:cacheprovider -q
+            '
+      - name: Build authority image from the tested revision
+        run: |
+          revision=$(git rev-parse HEAD)
+          docker build -f deploy/authority/Dockerfile --build-arg "REVISION=$revision" -t "gateway-authority:$revision" .
+      - name: Qualify HTTPS and mutual TLS on a read-only rootfs
+        run: bash deploy/authority/smoke.sh "gateway-authority:$(git rev-parse HEAD)"
+      - name: Export the qualified image
+        shell: bash
+        env:
+          REVIEWED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          revision=$(git rev-parse HEAD)
+          image="gateway-authority:$revision"
+          out="$RUNNER_TEMP/gateway-authority-image"
+          mkdir "$out"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$revision"
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" = "https://github.com/$GITHUB_REPOSITORY"
+          docker image save "$image" | gzip -n > "$out/image.tar.gz"
+          python -m deploy.authority.image_manifest "$out" "$(docker image inspect -f '{{.Id}}' "$image")"
+          (cd "$out" && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway-authority-image-${{ github.run_id }}
+          path: ${{ runner.temp }}/gateway-authority-image/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
