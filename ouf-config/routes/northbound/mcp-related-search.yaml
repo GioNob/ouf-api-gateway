@@ -7,10 +7,10 @@ spec:
   capabilityRef: urban.object.related_search@1.0.0
   sourceRef: udp-object-resolution@1.0.0
   match: {method: POST, path: /internal/capabilities/v1/execute/urban.object.related_search}
-  backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /internal/v1/objects/related-search}
+  backendBinding: {service: ouf-udp-object-resolution, port: 8080, path: /api/udp/v1/objects/related-search}
   policy:
     identity: M2M
     allowedServiceIdentities: [installation://iam.workloadClients.mcpServer]
-    allowedActorTypes: [AI_AGENT, MCP_SERVER, SERVICE_IDENTITY]
-    maxRequestBytes: 1048576
+    allowedActorTypes: [HUMAN]
+    maxRequestBytes: 65536
     timeoutSeconds: 3

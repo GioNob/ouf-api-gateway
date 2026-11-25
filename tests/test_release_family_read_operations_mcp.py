@@ -24,6 +24,7 @@ GENERIC = 'mcp-generic-execution'
 PREVIEW = 'mcp-managed-file-preview'
 INCIDENTS = 'execute-ouf.operations.incidents'
 UUID = '12345678-1234-4234-8234-123456789abc'
+DEDICATED_IDS = {'mcp-related-search', 'mcp-operations-explain'}
 
 
 @pytest.fixture(scope='module')
@@ -44,6 +45,40 @@ def resolved(artifact, profile):
 def synthetic_profile():
     return ci_profile({'installationId': 'fixture', 'revision': 1, 'issuerUrl': 'https://issuer.invalid',
                        'gatewayAudience': 'gateway', 'mcpServiceIdentity': 'workload'}, 18080)
+
+
+def test_60d_c_resources_and_dedicated_dispatch():
+    """GW-60m-b-01/02. Digest from 3b41fd4, and portable policy at the wire boundary."""
+    from tools.gateway_release_bundle import ordered_resources, placeholder_names, release_resources
+    rows = ordered_resources(release_resources())
+    predecessor = [r for r in rows if r['id'] not in DEDICATED_IDS]
+    assert len(predecessor) == 75
+    assert digest(canonical(predecessor)) == '7ba9bb33e33ef5bfb1d9dfd1ac82fb77aa7bf51aea4c73e602eea651ff4b98dc'
+    routes = {r['id']: r['body'] for r in rows if r['id'] in DEDICATED_IDS}
+    assert routes.keys() == DEDICATED_IDS
+    assert set(placeholder_names(rows)) == set(placeholder_names(predecessor))
+    verify_dispatch_arguments(rows)
+    for key, owner, operation, ceiling, backend, key_env in [
+        ('mcp-related-search', 'udp', 'SEARCH', 1048576, 'ouf-udp-object-resolution', 'gateway.udpReadOwnerKeyEnv'),
+        ('mcp-operations-explain', 'ingestion', 'READ', 131072, 'ouf-ingestion-runtime', 'gateway.ingestionReadOwnerKeyEnv'),
+    ]:
+        route = routes[key]
+        cap = ROUTES[key]
+        assert route['uri'] == '/internal/capabilities/v1/execute/' + cap and route['methods'] == ['POST']
+        assert route['upstream']['nodes'] == [{'host': {'$installation': 'services.bindings.' + backend},
+                                               'port': {'$installation': 'services.ports.' + backend}, 'weight': 1}]
+        assert route['upstream']['timeout'] == {'connect': 3, 'send': 3, 'read': 3}
+        assert route['labels']['ouf-owner-key-env'] == {'$installation': key_env}
+        assert route['labels']['ouf-mcp-workload'] == {'$installation': 'iam.workloadClients.mcpServer'}
+        quota = route['plugins']['limit-count']
+        assert quota['count'] == {'$installation': 'gateway.rateLimits.readOperationsMcp.count'}
+        assert quota['time_window'] == {'$installation': 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds'}
+        assert route['plugins']['request-validation']['max_req_body_size'] == 65536
+        schema = route['plugins']['request-validation']['body_schema']
+        assert schema['properties']['Owner'] == {'const': owner}
+        assert schema['properties']['OperationClass'] == {'const': operation}
+        assert schema['properties']['MaxResultBytes']['maximum'] == ceiling
+        assert ceiling == declarations()[cap]['baseCostEnvelope']['hardMaxResultBytes']
 
 
 def test_predecessor_and_adopted_ids(artifact):
@@ -93,6 +128,12 @@ def test_recursive_schema_drift(artifact, key):
     elif key == 'execute-urban-object-search':
         assert not Draft7Validator(args).is_valid({'type': '*'})
         del args['properties']['type']['pattern']
+    elif key == 'mcp-related-search':
+        del args['properties']['targetTypeCodes']['items']['maxLength']
+    elif key == 'mcp-operations-explain':
+        assert Draft7Validator(args).is_valid({'incidentId': UUID})
+        assert not Draft7Validator(args).is_valid({'incidentId': '00000000-0000-0000-0000-000000000000'})
+        del args['properties']['incidentId']['pattern']
     elif key == GENERIC:
         schema = row['body']['plugins']['request-validation']['body_schema']
         assert schema['properties']['CapabilityID']['enum'] == ['ouf.system.status']
@@ -116,7 +157,7 @@ def generic_requests():
     related['Identity']['ActorType'] = 'HUMAN'
     for cap, owner, operation, args in [
         ('ouf.system.status', 'mcp', 'READ', {}),
-        ('ouf.operations.explain', 'mcp', 'READ', {'incidentId': UUID}),
+        ('ouf.operations.explain', 'ingestion', 'READ', {'incidentId': UUID}),
         ('urban.object.related_search', 'udp', 'SEARCH', related['Arguments']),
     ]:
         yield dict(related, CapabilityID=cap, GatewayBindingRef='capability://' + cap,
@@ -130,6 +171,35 @@ def test_generic_dispatch_preserves_status_only(artifact):
         cap = request['CapabilityID']
         assert Draft7Validator(declarations()[cap]['inputSchema']).is_valid(request['Arguments'])
         assert check.is_valid(request) == (cap == 'ouf.system.status')
+
+
+@pytest.mark.parametrize('receiver,sender', [
+    ('urban.object.search', 'urban.object.related_search'),
+    ('urban.object.related_search', 'urban.object.search'),
+])
+def test_udp_lua_rejects_sibling_before_signing(receiver, sender):
+    """GW-60m-b-06. Exercise the signer even when the HTTP schema guard is out of the picture."""
+    from tests.test_execute_delegation import Denied, Engine, INSTALL, envelope, human, proof, workload
+    from tools.release_family_read_operations_mcp import mediation
+
+    args = (json.loads((ROOT / 'tests/fixtures/mcp-related-search-dispatch.json').read_bytes())['Arguments']
+            if sender == 'urban.object.related_search' else {'type': 'ouf:Asset'})
+    body = dict(envelope(), CapabilityID=sender, GatewayBindingRef='capability://' + sender,
+                Owner='udp', OperationClass='SEARCH', Arguments=args, RequestHash=digest(canonical(args)))
+    delegated = proof(dict(human(), scope='urban.object.search urban.object.related_search'))
+    headers = {'X-OUF-Delegation': delegated, 'X-Correlation-ID': body['CorrelationID'],
+               'Idempotency-Key': body['IdempotencyKey'], 'X-Tool-Attempt-ID': body['AttemptID']}
+    engine = Engine(workload(), headers, body)
+    route = {'labels': {'ouf-audience': INSTALL['gatewayAudience'], 'ouf-mcp-workload': INSTALL['mcpServiceIdentity'],
+                        'ouf-owner-key-env': 'UDP_KEY', 'ouf-delegation-key-env': 'TEST_KEY'},
+             'plugins': {'openid-connect': {'claim_validator': {'issuer': {'valid_issuers': [INSTALL['issuerUrl']]}}}}}
+    ctx = engine.modules[b'cjson.safe'][b'decode'](canonical({'matched_route': {'value': route}}))
+    path = '/api/udp/v1/objects/' + ('search' if receiver == 'urban.object.search' else 'related-search')
+    _, _, lua = mediation(receiver, 'udp', path, receiver)
+    with pytest.raises(Denied) as denied:
+        engine.lua.execute(lua.encode())(None, ctx)
+    assert denied.value.args == (403,)
+    assert b'x-ouf-udp-search-receipt' not in engine.headers
 
 
 def test_plan_fences_and_selector_intersection(artifact):
@@ -249,11 +319,14 @@ def review_change(change):
 
 
 @pytest.mark.skipif(not EXPORT.exists(), reason='private sanitized APISIX handoff required')
-def test_export_plan_recursive_review_and_exact_restore(artifact):
+def test_export_plan_recursive_review_and_exact_restore(artifact, monkeypatch):
     """GW-60d-03. Use actual before-images and independently bound installation values."""
     raw = json.loads(EXPORT.read_bytes())
     profile = export_profile(raw)
     desired = resolved(artifact, profile)
+    # The 60d before-images cover only the twelve adopted IDs. New selectors have no before-image.
+    monkeypatch.setattr('tools.plan_read_operations_mcp.ROUTES', {k: v for k, v in ROUTES.items() if k not in DEDICATED_IDS})
+    desired = [r for r in desired if r['id'] not in DEDICATED_IDS]
     rows = [normalize_export(r, profile) for r in raw]
     changes = adoption_plan(desired, inventory(rows))
     assert Counter(c.action for c in changes) == {'update': 12}
@@ -281,7 +354,12 @@ def test_export_plan_recursive_review_and_exact_restore(artifact):
 def check_read_owner_http(reads, post, token, dispatch_body):
     """GW-60d-04. Verify the bytes captured by the HTTP owner after APISIX mediation."""
     by_id = {r['id']: r for r in reads}
+    related_args = json.loads((ROOT / 'tests/fixtures/mcp-related-search-dispatch.json').read_bytes())['Arguments']
     for key, scopes, args, header, domain, secret in [
+        ('mcp-related-search', 'urban.object.related_search', related_args,
+         'x-ouf-udp-search-receipt', 'ouf-udp-search-owner-v1.', '34'),
+        ('mcp-operations-explain', 'operations.incident.explain', {'incidentId': UUID},
+         'x-ouf-ingestion-read-receipt', 'ouf-ingestion-read-owner-v1.', 'cd'),
         ('mcp-ingestion-status', 'ingestion.operations.read', {'limit': 7}, 'x-ouf-ingestion-read-receipt',
          'ouf-ingestion-read-owner-v1.', 'cd'),
         ('mcp-ingestion-history', 'ingestion.operations.read', {'sourceId': 'source-a', 'limit': 7},
@@ -313,6 +391,40 @@ def check_read_owner_http(reads, post, token, dispatch_body):
         assert receipt['bodyHash'] == hashlib.sha256(response['wire'].encode()).hexdigest()
         assert receipt['path'] == route['plugins']['proxy-rewrite']['uri']
         assert receipt['capability'] == body['CapabilityID']
+        if key in ('mcp-related-search', 'mcp-operations-explain'):
+            # GW-60m-b-03. The owner contract is independent of the generated proxy rewrite.
+            assert receipt['method'] == 'POST' and receipt['v'] == 1
+            assert 0 < receipt['exp'] - receipt['iat'] <= 30
+            assert receipt['scope'].split() == ['mcp.connect', scopes]
+            assert receipt['correlationId'] == body['CorrelationID']
+            if key == 'mcp-related-search':
+                assert receipt['path'] == '/api/udp/v1/objects/related-search'
+                assert receipt['capability'] == 'urban.object.related_search'
+                assert receipt['purpose'] == 'udp-object-search-owner'
+                assert receipt['client'] == body['Identity']['ServicePrincipalID']
+                assert receipt['requestHash'] == body['RequestHash']
+            else:
+                assert receipt['path'] == '/api/internal/v1/ingestion/operations/incidents/explain'
+                assert receipt['capability'] == 'ouf.operations.explain'
+                assert receipt['purpose'] == 'ingestion-read-owner' and receipt['actor'] == 'HUMAN'
+                assert receipt['attemptId'] == body['AttemptID']
+                assert receipt['idempotencyKey'] == body['IdempotencyKey']
+                assert receipt['decisionRef'] == body['AuthorizationDecisionRef']
+            code, raw = post('/mcp', {}, token(scope='mcp.connect'))
+            assert code == 200
+            assert post(route['uri'], body, token('SERVICE'), json.loads(raw)['proof'])[0] == 403
+    # GW-60m-b-04. Even a delegation granting both searches cannot exchange their envelopes.
+    code, raw = post('/mcp', {}, token(scope='mcp.connect urban.object.search urban.object.related_search'))
+    assert code == 200
+    both = json.loads(raw)['proof']
+    for source, target, args in [
+        ('execute-urban-object-search', 'mcp-related-search', {'type': 'ouf:Asset'}),
+        ('mcp-related-search', 'execute-urban-object-search', related_args),
+    ]:
+        schema = by_id[source]['plugins']['request-validation']['body_schema']
+        body = dispatch_body(schema, args)
+        body['RequestHash'] = digest(canonical(args))
+        assert post(by_id[target]['uri'], body, token('SERVICE'), both)[0] == 400
     route = by_id[GENERIC]
     schema = route['plugins']['request-validation']['body_schema']
     for request in list(generic_requests())[1:]:
@@ -337,3 +449,16 @@ def test_legacy_guards():
         bulk.apply([alias], None)
     with pytest.raises(SystemExit, match='governed Gateway release'):
         search.main()
+
+
+@pytest.mark.parametrize('capability', ['urban.object.related_search', 'ouf.operations.explain'])
+def test_legacy_writer_rejects_dedicated_uri_under_another_id(capability):
+    """GW-60m-b-05. Guard aliases on both apply and restore."""
+    from ops.apisix import deploy_internal_m2m_routes as bulk
+    uri = '/internal/capabilities/v1/execute/' + capability
+    for selector in [{'uri': uri}, {'uris': [uri]}]:
+        alias = {'id': 'legacy-alias', **selector}
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            bulk.apply([alias], None)
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            bulk.restore({alias['id']: alias}, None)

@@ -8,7 +8,7 @@ from ops.apisix import deploy_internal_m2m_routes as bulk, deploy_managed_file_t
 from ops.apisix import deploy_trusted_human_authorization as admin_api
 from ops.apisix import deploy_trusted_human_onboarding as onboarding, repair_managed_file_picker_login
 from tests.release_bundle_fixture import (
-    BASELINE_3D69CB4_IDS, THS_PAGES_IDS, canonical_json, ci_profile, load_release_routes, sha256,
+    BASELINE_3D69CB4_IDS, THS_PAGES_IDS, canonical_json, ci_profile, inventory_after_60u, load_release_routes, sha256,
 )
 from tests.test_execute_delegation import Denied, Engine, human, workload
 from tools.gateway_release_bundle import ROOT, generate
@@ -166,7 +166,7 @@ def test_export_parity_plan_and_exact_return(artifact):
         pytest.skip('supply both sanitized task-60f exports to replay the installation')
     full_rows = json.loads(inventory_file.read_bytes())
     assert len(full_rows) == 98
-    live = by_id(full_rows)
+    live = inventory_after_60u(by_id(full_rows))
     family = by_id(json.loads(family_file.read_bytes()))
     profile = fixture_profile()
     approvals = family['trusted-human-onboarding-approvals-get']

@@ -66,6 +66,8 @@ def dispatch_body(schema, arguments):
         field_schema = fields[field]
         body[field] = field_schema['const'] if 'const' in field_schema else field_schema['enum'][0]
     body['Arguments'] = arguments
+    if body['CapabilityID'] == 'ouf.operations.explain':
+        body['MaxResultBytes'] = 131072
     if body['CapabilityID'] == 'ouf.managed-source.file.handoff-issue' and isinstance(arguments, dict):
         body['IdempotencyKey'] = arguments.get('commandKey', body['IdempotencyKey'])
     return body

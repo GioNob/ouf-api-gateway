@@ -62,7 +62,18 @@ ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-so
 
 BASELINE_51M_IDS = BASE_3D69CB4  # alias kept for the 60d family tests
 
+REMOVED_BY_60U = frozenset({'ouf-5708b3900d0f-001', 'ouf-6f5155e48422-001'})
+
+
+def inventory_after_60u(exported):
+    inventory = exported.copy()
+    for route_id in REMOVED_BY_60U:
+        del inventory[route_id]
+    return inventory
+
+
 READ_OPERATIONS_IDS = (
+    'mcp-related-search', 'mcp-operations-explain',
     'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-ouf-ingestion-acquisition-read',
     'execute-urban-acquisition-read', 'execute-urban-object-search', 'execute-ouf.operations.incidents',
     'execute-ouf.operations.summary', 'execute-ouf.gateway.operations.incidents', 'execute-ouf.gateway.operations.summary',

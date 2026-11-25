@@ -6,7 +6,7 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import BASE_3D69CB4, BASELINE_3D69CB4_IDS, BASELINE_51M_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tests.release_bundle_fixture import BASE_3D69CB4, BASELINE_3D69CB4_IDS, BASELINE_51M_IDS, DISCOVERY_REVIEW_IDS, REMOVED_BY_60U, SEARCH_IDS, canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -97,27 +97,20 @@ def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
     assert {entry['supersededBy'] for entry in replacements} <= resources.keys()
 
 
-def test_obsolete_routes_pin_the_sanitized_export(bundle):
-    """GW-60J-03. Each historical ID has its own provenance and exact public match."""
+def test_obsolete_routes_pin_the_sanitized_export(bundle, resources):
+    """GW-60J-03 / GW-60m-b-05. The two obsolete related-search routes are retired by the 60u release.
+
+    After it the selector belongs to the governed mcp-related-search route, so this bundle no longer
+    lists them: if they were still installed, the executor's conflict check would stop the plan
+    (GATEWAY_ROUTE_CONFLICT) instead of overwriting or ignoring them.
+    """
     obsolete = [entry for entry in bundle['retired'] if entry['supersededBy'] is None]
-    revisions = {
-        'ouf-5708b3900d0f-001': '5708b3900d0f43d89801926d3f9554e110f4481f2a1cb08897cd2ec613dfa570',
-        'ouf-6f5155e48422-001': '6f5155e484228d958fd36b2c21b3538608cddc4d8ad2bb16fcacab860f86b01b',
-    }
-    assert [e['id'] for e in obsolete] == list(revisions)
+    assert obsolete == []
+    assert REMOVED_BY_60U.isdisjoint(e['id'] for e in bundle['retired'])
+    route = resources['mcp-related-search']
+    assert route['uri'] == '/internal/capabilities/v1/execute/urban.object.related_search'
+    assert route['methods'] == ['POST']
     assert [e['id'] for e in bundle['retired']] == sorted({e['id'] for e in bundle['retired']})
-    for entry in obsolete:
-        expected = {
-            'kind': 'routes', 'id': entry['id'], 'supersededBy': None,
-            'reason': 'Rotta disattivata, duplicata e senza consumatori. Il MCP non chiama questa URI.',
-            'match': {
-                'uri': '/internal/capabilities/v1/execute/urban.object.related_search', 'methods': ['POST'],
-                'uris': None, 'host': None, 'hosts': None, 'vars': None, 'priority': None,
-                'remote_addrs': None, 'filter_func': None, 'status': 0,
-                'labels': {'ouf_index': '001', 'ouf_managed': 'true', 'ouf_revision': revisions[entry['id']]},
-            },
-        }
-        assert canonical_json(entry) == canonical_json(expected)
     assert bundle['retiredSha256'] == sha256(canonical_json(bundle['retired']))
 
 
