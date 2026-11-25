@@ -116,22 +116,35 @@ code=$(ready "$adapter" -H 'Remote-User: urn:fixture:observer' -H 'SSL-Client-Ve
 [[ $rc != 0 && $code == 000 ]]
 # Readiness is polled: wait up to 5 s for each transition and report what was observed.
 expect_ready() {
-  local want=$1 seen=() code
+  local want=$1 container=$2 seen=() code
+  shift 2
   for _ in 1 2 3 4 5; do
-    code=$(ready "$authority") || true
+    code=$(ready "$container" "$@") || true
     seen+=("$code")
-    [[ $code == "$want" ]] && return 0
+    if [[ $code == "$want" && ! -s "$root/body" ]]; then
+      echo "readiness expected $want, observed ${seen[*]}"
+      return 0
+    fi
     sleep 1
   done
-  echo "readiness expected $want, observed ${seen[*]}"; ls -ln "$root/authority-store"
+  echo "readiness expected $want, observed ${seen[*]}"
+  ls -ldn "$root"/{authority-store,iam-store}
+  ls -ln "$root"/{authority-store,iam-store}
   return 1
 }
 chmod a-w "$root/authority-store/gateway.db"
-expect_ready 503
+expect_ready 503 "$authority"
 # SQLite recreates -shm with the database file's mode while it is read-only, owned by
 # the service user: restoring write access covers every file of the store.
 sudo chmod ug+w "$root"/authority-store/gateway.db*
-expect_ready 204
+expect_ready 204 "$authority"
+# GW-58IB-01. The adapter's database file remains writable throughout.
+# Its rollback journal must be created in the store directory.
+observer=(--cert "$root/pki/observer.pem" --key "$root/pki/observer.key")
+chmod g-w "$root/iam-store"
+expect_ready 503 "$adapter" "${observer[@]}"
+chmod g+w "$root/iam-store"
+expect_ready 204 "$adapter" "${observer[@]}"
 for id in "$authority" "$adapter"; do
   docker inspect "$id" | python -c '
 import json, sys

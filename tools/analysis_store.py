@@ -1,43 +1,75 @@
 """Additive mandate tables in the existing Gateway SQLite database."""
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
 import json
+import random
 import sqlite3
+import time
 
 from tools.analysis_protocol import Rejected, require, wire
 
-DDL = """
-create table if not exists analysis_mandate_v1 (
- id text primary key, scope text not null, plan text not null, record blob not null,
- unique(scope, plan));
-create table if not exists analysis_command_v1 (
- actor text not null, command text not null, fingerprint text not null, reply blob not null,
- primary key(actor, command));
-create table if not exists analysis_attempt_v1 (
- mandate text not null, attempt text not null, intent text not null, operation text not null,
- fence integer not null, phase text not null, crossed_revocation integer not null default 0,
- evidence blob not null, primary key(mandate, attempt));
-create index if not exists analysis_fence_v1 on analysis_attempt_v1(mandate,intent,operation,fence);
-create index if not exists analysis_phase_v1 on analysis_attempt_v1(mandate,phase);
-create table if not exists analysis_discovery_v1 (
- mandate text not null, intent text not null, subject_ref text not null, owner_key_hash text not null,
- arguments_hash text not null, primary key(mandate,intent), unique(subject_ref,owner_key_hash));
-create table if not exists analysis_audit_v1 (
- sequence integer primary key, decision text not null, evidence blob not null);
-create table if not exists analysis_status_quota_v1 (
- id integer primary key check(id=1), window_end integer not null, reads integer not null);
-"""
+DDL = (
+    """create table if not exists analysis_mandate_v1 (
+        id text primary key, scope text not null, plan text not null, record blob not null,
+        unique(scope, plan))""",
+    """create table if not exists analysis_command_v1 (
+        actor text not null, command text not null, fingerprint text not null, reply blob not null,
+        primary key(actor, command))""",
+    """create table if not exists analysis_attempt_v1 (
+        mandate text not null, attempt text not null, intent text not null, operation text not null,
+        fence integer not null, phase text not null, crossed_revocation integer not null default 0,
+        evidence blob not null, primary key(mandate, attempt))""",
+    "create index if not exists analysis_fence_v1 on analysis_attempt_v1(mandate,intent,operation,fence)",
+    "create index if not exists analysis_phase_v1 on analysis_attempt_v1(mandate,phase)",
+    """create table if not exists analysis_discovery_v1 (
+        mandate text not null, intent text not null, subject_ref text not null, owner_key_hash text not null,
+        arguments_hash text not null, primary key(mandate,intent), unique(subject_ref,owner_key_hash))""",
+    """create table if not exists analysis_audit_v1 (
+        sequence integer primary key, decision text not null, evidence blob not null)""",
+    """create table if not exists analysis_status_quota_v1 (
+        id integer primary key check(id=1), window_end integer not null, reads integer not null)""",
+)
+
+
+# Worker schema lock profile v1. Only acquisition is retried, before any DDL.
+SCHEMA_LOCK_DELAYS = (0.25, 0.75, 2.0)
+
+
+@contextmanager
+def schema_transaction(uri):
+    deadline = time.monotonic() + 5
+    with ExitStack() as connection:
+        for attempt in range(len(SCHEMA_LOCK_DELAYS) + 1):
+            try:
+                db = connection.enter_context(closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=0)))
+                db.execute('begin exclusive')
+                break
+            except sqlite3.OperationalError as exc:
+                connection.close()
+                code = getattr(exc, 'sqlite_errorcode', 0) & 0xff
+                if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or attempt == len(SCHEMA_LOCK_DELAYS):
+                    raise
+                delay = SCHEMA_LOCK_DELAYS[attempt] * random.uniform(1, 1.2)
+                if time.monotonic() + delay >= deadline:
+                    raise
+                time.sleep(delay)
+                if time.monotonic() >= deadline:
+                    raise
+
+        yield db
+        db.commit()
 
 
 class MandateStore:
     def __init__(self, path):
         # A missing volume must not silently create a second authority.
         self.uri = Path(path).resolve().as_uri() + '?mode=rw'
-        with closing(self.connect()) as db:
+        with schema_transaction(self.uri) as db:
             if not db.execute("""select 1 from sqlite_master where type='table'
                                  and name='gateway_operational_incident'""").fetchone():
                 raise ValueError('existing Gateway operational store required')
-            db.executescript(DDL)
+            for statement in DDL:
+                db.execute(statement)
 
     def connect(self):
         return sqlite3.connect(self.uri, uri=True, isolation_level=None, timeout=1)

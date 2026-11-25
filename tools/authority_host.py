@@ -6,11 +6,13 @@ from pathlib import Path
 import re
 import sqlite3
 import ssl
+import stat
 import sys
 
 from tools.analysis_protocol import CAPACITY_FIELDS, Rejected, capacity_profile, matches, opaque, parse
 
 CONFIG_FILES = {'authority': 'OUF_ANALYSIS_CONFIG', 'iam-adapter': 'OUF_KEYCLOAK_DECISIONS_CONFIG'}
+CREDENTIAL_MAX_BYTES = 4096
 
 
 class HostError(ValueError):
@@ -28,7 +30,17 @@ def credential(cfg, file_key, env_key, *, reference=None):
         return os.environ[source]
     if key == file_key and isinstance(source, str) and source:
         try:
-            value = Path(source).read_bytes().decode('utf-8')
+            def nonblocking(path, flags):
+                return os.open(path, flags | getattr(os, 'O_NONBLOCK', 0))
+
+            with open(source, 'rb', opener=nonblocking) as stream:
+                info = os.fstat(stream.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size > CREDENTIAL_MAX_BYTES:
+                    raise ValueError()
+                raw = stream.read(CREDENTIAL_MAX_BYTES + 1)
+            if len(raw) > CREDENTIAL_MAX_BYTES:
+                raise ValueError()
+            value = raw.decode('utf-8')
         except (OSError, ValueError):
             raise ValueError(f'invalid {file_key}') from None
         if value.endswith('\n'):
@@ -80,6 +92,9 @@ def hosting(command, env):
             raise ValueError()
     except (OSError, ValueError, Rejected):
         fields = None  # Only the unavailable response can be served on this listener.
+    probe = env.get('OUF_HOST_PROBE_PRINCIPAL')
+    if command == 'iam-adapter' and fields is not None and probe is not None and probe == fields.get('gatewayTlsPrincipal'):
+        raise HostError('OUF_HOST_PROBE_PRINCIPAL must differ from gatewayTlsPrincipal')
     if command == 'authority' and fields is not None:
         try:
             capacity = capacity_profile(fields.get('capacity', {}))
@@ -152,11 +167,10 @@ def store_ready(command, uri):
     try:
         with closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=0)) as db:
             db.execute('begin immediate')
-            # Exercise write access even if SQLite opened a read-only handle.
             if command == 'authority':
-                db.execute('update analysis_mandate_v1 set id=id where 0')
+                db.execute("insert into analysis_mandate_v1 (id,scope,plan,record) values ('readiness','','',X'')")
             else:
-                db.execute('update keycloak_rate_v1 set used=used where 0')
+                db.execute("insert into keycloak_rate_v1 (kind,until_epoch,used) values ('readiness',0,0)")
             db.execute('rollback')
         return True
     except sqlite3.Error:

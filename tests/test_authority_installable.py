@@ -3,16 +3,21 @@ from contextlib import closing, redirect_stderr
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import sqlite3
 import ssl
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from deploy.authority.image_manifest import publish
 from deploy.authority.smoke_config import generate
-from tools.authority_host import credential, worker_application
+from tools.analysis_store import MandateStore
+from tools.authority_host import credential, main, store_ready, worker_application
+from tools.iam_keycloak_decisions import VerifierStore
 
 
 class InstallableTests(unittest.TestCase):
@@ -123,3 +128,112 @@ class InstallableTests(unittest.TestCase):
                 self.assertNotIn('private-fixture', logs.getvalue())
                 if command == 'iam-adapter':
                     self.assertEqual(self.request(app, REMOTE_USER='other'), ('403 Forbidden', b''))
+
+    def test_gw_58ib_01_reversible_insert(self):
+        """GW-58IB-01. Both probes must insert a row and roll it back."""
+        for command, config, _ in self.configurations():
+            if command == 'authority':
+                MandateStore(config['store'])
+                table = 'analysis_mandate_v1'
+                seed = "('existing','scope','plan',X'01')"
+            else:
+                VerifierStore(config['store'])
+                table = 'keycloak_rate_v1'
+                seed = "('decisions',9,8)"
+            uri = Path(config['store']).as_uri() + '?mode=rw'
+            with self.subTest(command=command), closing(sqlite3.connect(config['store'], isolation_level=None)) as db:
+                db.execute(f'insert into {table} values {seed}')
+                rows = db.execute(f'select * from {table}').fetchall()
+                db.execute(f"""create trigger detect_insert after insert on {table}
+                               begin select raise(abort, 'probe insert'); end""")
+                self.assertFalse(store_ready(command, uri))
+                db.execute('drop trigger detect_insert')
+                self.assertTrue(store_ready(command, uri))
+                self.assertEqual(db.execute(f'select * from {table}').fetchall(), rows)
+
+    def test_gw_58ib_02_factory_contention(self):
+        """GW-58IB-02. Boot under a real SQLite lock, release or exhaust in the same worker."""
+        for command, config, _ in self.configurations():
+            def boot():
+                return worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
+
+            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as other, \
+                    patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
+                    patch('tools.analysis_service.Catalog'), \
+                    patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
+                other.execute('begin exclusive')
+                with patch('tools.analysis_store.time.sleep', side_effect=lambda _: other.rollback()) as wait:
+                    app = boot()
+                wait.assert_called_once()
+                self.assertEqual(self.request(app), ('204 No Content', b''))
+
+                other.execute('begin exclusive')
+                with patch('tools.analysis_store.time.sleep') as wait, redirect_stderr(io.StringIO()):
+                    app = boot()
+                    self.assertEqual(wait.call_count, 3)
+                    for call, base in zip(wait.call_args_list, (0.25, 0.75, 2)):
+                        self.assertGreaterEqual(call.args[0], base)
+                        self.assertLessEqual(call.args[0], base * 1.2)
+                    other.rollback()
+                    self.assertEqual(self.request(app), ('503 Service Unavailable', b''))
+                    self.assertEqual(self.request(app, PATH_INFO='/decisions'), ('503 Service Unavailable', b''))
+                    self.assertEqual(wait.call_count, 3)
+
+                other.execute('begin exclusive')
+                with patch('tools.analysis_store.time.monotonic', side_effect=[0, 0, 5]), \
+                        patch('tools.analysis_store.time.sleep', side_effect=lambda _: other.rollback()) as wait, \
+                        redirect_stderr(io.StringIO()):
+                    self.assertEqual(self.request(boot()), ('503 Service Unavailable', b''))
+                    wait.assert_called_once()
+
+                config['store'] = str(self.root / 'absent.db')
+                with patch('tools.analysis_store.time.sleep') as wait, redirect_stderr(io.StringIO()):
+                    self.assertEqual(self.request(boot()), ('503 Service Unavailable', b''))
+                    wait.assert_not_called()
+
+    def test_gw_58ib_03_reject_probe_as_gateway_before_bind(self):
+        """GW-58IB-03. The entrypoint rejects equal identities before loading TLS or binding."""
+        _, config, _ = self.configurations()[1]
+        path = self.root / 'config/iam.json'
+        path.write_text(json.dumps(config), encoding='utf-8')
+        env = dict(OUF_KEYCLOAK_DECISIONS_CONFIG=str(path), OUF_HOST_PROBE_PRINCIPAL=config['gatewayTlsPrincipal'],
+                   OUF_HOST_ADDRESS='localhost', OUF_HOST_PORT='8443', OUF_HOST_PROCESSES='1', OUF_HOST_THREADS='8',
+                   OUF_HOST_CONNECTIONS='8')
+        with patch.dict(os.environ, env), patch('tools.authority_host.tls_settings') as tls, redirect_stderr(io.StringIO()) as log:
+            self.assertEqual(main(['iam-adapter']), 2)
+            tls.assert_not_called()
+        self.assertIn('OUF_HOST_PROBE_PRINCIPAL', log.getvalue())
+        self.assertNotIn(config['gatewayTlsPrincipal'], log.getvalue())
+
+    def test_gw_58ib_04_regular_bounded_credentials(self):
+        """GW-58IB-04. Count raw bytes, including CRLF, even if the opened file grows."""
+        path = self.root / 'credential'
+        config = {'secretFile': str(path)}
+        path.write_bytes(b'a' * 4094 + b'\r\n')
+        self.assertEqual(credential(config, 'secretFile', 'secretEnv'), 'a' * 4094)
+        with patch('tools.authority_host.os.fstat', return_value=os.stat(os.devnull)), self.assertRaises(ValueError):
+            credential(config, 'secretFile', 'secretEnv')
+        prior = path.stat()
+        path.write_bytes(b'a' * 4095 + b'\r\n')
+        with self.assertRaisesRegex(ValueError, '^invalid secretFile$'):
+            credential(config, 'secretFile', 'secretEnv')
+        with patch('tools.authority_host.os.fstat', return_value=prior) as descriptor, self.assertRaises(ValueError):
+            credential(config, 'secretFile', 'secretEnv')
+        self.assertIsInstance(descriptor.call_args.args[0], int)
+        with self.assertRaisesRegex(ValueError, '^invalid secretFile$'):
+            credential({'secretFile': os.devnull}, 'secretFile', 'secretEnv')
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires POSIX FIFO')
+    def test_gw_58ib_04_fifo_without_writer(self):
+        """GW-58IB-04. A FIFO without a writer cannot hang worker boot."""
+        fifo = self.root / 'fifo'
+        os.mkfifo(fifo)
+        code = """from tools.authority_host import credential
+import sys
+try:
+    credential({'secretFile': sys.argv[1]}, 'secretFile', 'secretEnv')
+except ValueError as exc:
+    sys.exit(0 if str(exc) == 'invalid secretFile' else 1)
+sys.exit(1)
+"""
+        subprocess.run([sys.executable, '-c', code, str(fifo)], timeout=5, check=True)

@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 from uuid import uuid4
 
 from tools.analysis_clients import Endpoint
+from tools.analysis_store import schema_transaction
 from tools.authority_host import credential
 from tools.analysis_protocol import (
     BINDINGS, CONTRACT, RENEWAL_REQUEST_MAX, REVIEW_REF, Rejected, b64, digest, exact, is_digest,
@@ -56,7 +57,7 @@ class VerifierStore:
     """Private state shared by the installation's introspection and decision processes."""
     def __init__(self, path):
         self.path = Path(path).resolve().as_uri() + '?mode=rw'
-        with closing(self.connect()) as db:
+        with schema_transaction(self.path) as db:
             db.execute('create table if not exists keycloak_rate_v1 '
                        '(kind text primary key, until_epoch integer not null, used integer not null)')
             db.execute('create table if not exists keycloak_permission_v1 '
