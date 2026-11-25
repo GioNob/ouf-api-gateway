@@ -63,7 +63,7 @@ ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-so
 BASELINE_51M_IDS = BASE_3D69CB4  # alias kept for the 60d family tests
 
 READ_OPERATIONS_IDS = (
-    'mcp-generic-execution', 'mcp-ingestion-status', 'execute-ouf-ingestion-acquisition-read',
+    'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-ouf-ingestion-acquisition-read',
     'execute-urban-acquisition-read', 'execute-urban-object-search', 'execute-ouf.operations.incidents',
     'execute-ouf.operations.summary', 'execute-ouf.gateway.operations.incidents', 'execute-ouf.gateway.operations.summary',
     'execute-ouf.ingestion.operations.incidents', 'execute-ouf.ingestion.operations.summary',

@@ -34,7 +34,7 @@ def reject_bundle_owned(ids):
         raise ValueError("read operations are owned by the governed Gateway release")
 
 
-READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'execute-urban-object-search',
+READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-urban-object-search',
                       'execute-urban-acquisition-read', 'execute-ouf-ingestion-acquisition-read',
                       *('execute-ouf.' + producer + 'operations.' + mode
                         for producer in ('', 'gateway.', 'ingestion.') for mode in ('summary', 'incidents'))}
@@ -42,7 +42,8 @@ READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'execute-
 
 READ_OPERATION_PATH = '/internal/capabilities/v1/execute'
 READ_OPERATION_URIS = {READ_OPERATION_PATH, *(READ_OPERATION_PATH + '/' + cap for cap in (
-    'ouf.ingestion.status', 'urban.object.search', 'ouf.ingestion.acquisition.read', 'urban.acquisition.read')),
+    'ouf.ingestion.status', 'ouf.ingestion.history', 'urban.object.search', 'ouf.ingestion.acquisition.read',
+    'urban.acquisition.read')),
     *(READ_OPERATION_PATH + '/' + key.removeprefix('execute-') for key in READ_OPERATION_IDS if key.startswith('execute-ouf.'))}
 
 
