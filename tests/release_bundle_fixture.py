@@ -79,6 +79,7 @@ THS_PAGES_IDS = (
     'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
     'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
     'trusted-human-authorization-get', 'trusted-human-authorization-post',
+    'trusted-human-authorization-put', 'trusted-human-authorization-delete',
 )
 
 RELEASE_ROUTE_IDS = sorted([
