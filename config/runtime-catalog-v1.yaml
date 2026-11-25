@@ -48,6 +48,8 @@ entries:
   gateway.rateLimits.semanticSearchBatch.count: *r2bCount
   gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearchBatch.key: *r2bKey
+  # D-065: both stores include <store>.schema-boot.sqlite on the same persistent volume.
+  # Inventory and restore the pair together; the companion holds the shared v2 startup budget.
   gateway.authority.store: &gatewaySqlite {type: path, unit: SQLite file, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
   gateway.iamAdapter.store: *gatewaySqlite
   gateway.authority.configFile: &gatewayPrivateFile {type: path, unit: file reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}

@@ -12,7 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 from uuid import uuid4
 
 from tools.analysis_clients import Endpoint
-from tools.analysis_store import schema_transaction
+from tools.analysis_schema import initialize_schema
 from tools.authority_host import credential
 from tools.analysis_protocol import (
     BINDINGS, CONTRACT, RENEWAL_REQUEST_MAX, REVIEW_REF, Rejected, b64, digest, exact, is_digest,
@@ -56,13 +56,13 @@ def retry_seconds(value, now):
 class VerifierStore:
     """Private state shared by the installation's introspection and decision processes."""
     def __init__(self, path):
-        self.path = Path(path).resolve().as_uri() + '?mode=rw'
-        with schema_transaction(self.path) as db:
-            db.execute('create table if not exists keycloak_rate_v1 '
-                       '(kind text primary key, until_epoch integer not null, used integer not null)')
-            db.execute('create table if not exists keycloak_permission_v1 '
-                       '(binding text primary key, expiry integer not null, grant_id text, scopes blob not null)')
-            db.execute('create index if not exists keycloak_expiry_v1 on keycloak_permission_v1(expiry)')
+        self.path = initialize_schema(path, 'iam-adapter', (
+            'create table if not exists keycloak_rate_v1 '
+            '(kind text primary key, until_epoch integer not null, used integer not null)',
+            'create table if not exists keycloak_permission_v1 '
+            '(binding text primary key, expiry integer not null, grant_id text, scopes blob not null)',
+            'create index if not exists keycloak_expiry_v1 on keycloak_permission_v1(expiry)',
+        ))
 
     def connect(self):
         return sqlite3.connect(self.path, uri=True, timeout=1, isolation_level=None)

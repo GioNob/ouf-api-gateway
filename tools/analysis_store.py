@@ -1,12 +1,10 @@
 """Additive mandate tables in the existing Gateway SQLite database."""
-from contextlib import closing, contextmanager, ExitStack
-from pathlib import Path
+from contextlib import closing, contextmanager
 import json
-import random
 import sqlite3
-import time
 
 from tools.analysis_protocol import Rejected, require, wire
+from tools.analysis_schema import initialize_schema
 
 DDL = (
     """create table if not exists analysis_mandate_v1 (
@@ -31,45 +29,10 @@ DDL = (
 )
 
 
-# Worker schema lock profile v1. Only acquisition is retried, before any DDL.
-SCHEMA_LOCK_DELAYS = (0.25, 0.75, 2.0)
-
-
-@contextmanager
-def schema_transaction(uri):
-    deadline = time.monotonic() + 5
-    with ExitStack() as connection:
-        for attempt in range(len(SCHEMA_LOCK_DELAYS) + 1):
-            try:
-                db = connection.enter_context(closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=0)))
-                db.execute('begin exclusive')
-                break
-            except sqlite3.OperationalError as exc:
-                connection.close()
-                code = getattr(exc, 'sqlite_errorcode', 0) & 0xff
-                if code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED) or attempt == len(SCHEMA_LOCK_DELAYS):
-                    raise
-                delay = SCHEMA_LOCK_DELAYS[attempt] * random.uniform(1, 1.2)
-                if time.monotonic() + delay >= deadline:
-                    raise
-                time.sleep(delay)
-                if time.monotonic() >= deadline:
-                    raise
-
-        yield db
-        db.commit()
-
-
 class MandateStore:
     def __init__(self, path):
         # A missing volume must not silently create a second authority.
-        self.uri = Path(path).resolve().as_uri() + '?mode=rw'
-        with schema_transaction(self.uri) as db:
-            if not db.execute("""select 1 from sqlite_master where type='table'
-                                 and name='gateway_operational_incident'""").fetchone():
-                raise ValueError('existing Gateway operational store required')
-            for statement in DDL:
-                db.execute(statement)
+        self.uri = initialize_schema(path, 'authority', DDL, prerequisite='gateway_operational_incident')
 
     def connect(self):
         return sqlite3.connect(self.uri, uri=True, isolation_level=None, timeout=1)
