@@ -114,14 +114,22 @@ ready() {
 rc=0
 code=$(ready "$adapter" -H 'Remote-User: urn:fixture:observer' -H 'SSL-Client-Verify: SUCCESS') || rc=$?
 [[ $rc != 0 && $code == 000 ]]
+# Readiness is polled: wait up to 5 s for each transition and report what was observed.
+expect_ready() {
+  local want=$1 seen=() code
+  for _ in 1 2 3 4 5; do
+    code=$(ready "$authority") || true
+    seen+=("$code")
+    [[ $code == "$want" ]] && return 0
+    sleep 1
+  done
+  echo "readiness expected $want, observed ${seen[*]}"; ls -ln "$root/authority-store"
+  return 1
+}
 chmod a-w "$root/authority-store/gateway.db"
-code=$(ready "$authority") || true
-if [[ $code != 503 ]]; then
-  echo "readiness with a read-only store: $code"; ls -ln "$root/authority-store"; docker exec "$authority" id || true
-fi
-[[ $code == 503 ]]
+expect_ready 503
 chmod ug+w "$root/authority-store/gateway.db"
-[[ $(ready "$authority") == 204 ]]
+expect_ready 204
 for id in "$authority" "$adapter"; do
   docker inspect "$id" | python -c '
 import json, sys
