@@ -16,6 +16,7 @@ from tools.delegation_functions import INSTALLATION_LABELS
 from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
 from tools.r2b_limits import ROUTE_CLASSES
 from tools.release_family_onboarding_mcp import family_routes as onboarding_mcp
+from tools.release_family_onboarding_rest import materialize as onboarding_rest
 from tools.release_family_read_operations_mcp import materialize as read_operations
 from tools.release_family_public_mcp import public_mcp_resources
 from tools.release_family_ths_pages import materialize as ths_pages
@@ -121,6 +122,8 @@ def release_resources():
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
     for route in ths_pages(reviewed, runtime, bindings, secret_ref):
         resources.append(route_resource(route, 'ouf-onboarding', optional_labels='uris' in route))
+    for route in onboarding_rest(bindings, runtime['x-ouf-installation'], secret_ref):
+        resources.append(route_resource(route, 'ouf-onboarding'))
     for route, service in owner_routes(runtime, secret_ref, routes, reviewed['routes']):
         resources.append(route_resource(route, service))
     resources.extend(recovery_resources(installation))

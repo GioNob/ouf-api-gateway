@@ -82,7 +82,16 @@ THS_PAGES_IDS = (
     'trusted-human-authorization-put', 'trusted-human-authorization-delete',
 )
 
+ONBOARDING_REST_IDS = (
+    'trusted-human-managed-file-actions-post', 'trusted-human-managed-file-preview-get',
+    'trusted-human-managed-file-upload', 'trusted-human-installation-get', 'trusted-human-installation-post',
+    'trusted-human-onboarding-lifecycle-get', 'trusted-human-onboarding-lifecycle-post',
+    'trusted-human-onboarding-lifecycle-put', 'trusted-human-onboarding-sources-get',
+    'trusted-human-onboarding-sources-post',
+)
+
 RELEASE_ROUTE_IDS = sorted([
+    *ONBOARDING_REST_IDS,
     *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -95,7 +104,7 @@ RELEASE_ROUTE_IDS = sorted([
     'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS, *READ_OPERATIONS_IDS,
     *THS_PAGES_IDS,
 ])
-THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization')
+THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization', 'thsOnboardingRest', 'thsInstallation')
 
 BASE_3D69CB4_IDS = BASE_3D69CB4  # alias kept for the 60h family tests
 
