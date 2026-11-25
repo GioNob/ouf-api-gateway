@@ -115,7 +115,11 @@ rc=0
 code=$(ready "$adapter" -H 'Remote-User: urn:fixture:observer' -H 'SSL-Client-Verify: SUCCESS') || rc=$?
 [[ $rc != 0 && $code == 000 ]]
 chmod a-w "$root/authority-store/gateway.db"
-[[ $(ready "$authority") == 503 ]]
+code=$(ready "$authority") || true
+if [[ $code != 503 ]]; then
+  echo "readiness with a read-only store: $code"; ls -ln "$root/authority-store"; docker exec "$authority" id || true
+fi
+[[ $code == 503 ]]
 chmod ug+w "$root/authority-store/gateway.db"
 [[ $(ready "$authority") == 204 ]]
 for id in "$authority" "$adapter"; do
