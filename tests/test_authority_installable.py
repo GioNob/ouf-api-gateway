@@ -1,6 +1,5 @@
 """GW-58I offline qualification for the two private installation roles."""
 from contextlib import closing, redirect_stderr
-from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import io
 import json
@@ -17,6 +16,7 @@ from unittest.mock import Mock, patch
 
 from deploy.authority.image_manifest import publish
 from deploy.authority.smoke_config import generate
+from tools import analysis_schema
 from tools.analysis_store import MandateStore
 from tools.authority_host import credential, main, store_ready, worker_application
 from tools.iam_keycloak_decisions import VerifierStore
@@ -153,135 +153,108 @@ class InstallableTests(unittest.TestCase):
                 self.assertTrue(store_ready(command, uri))
                 self.assertEqual(db.execute(f'select * from {table}').fetchall(), rows)
 
-    def test_gw_58ib_02_factory_contention(self):
-        """GW-58IB-02. Boot under a real SQLite lock, release or exhaust in the same worker."""
+    @staticmethod
+    def boot_worker(command, config):
+        with patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
+                patch('tools.analysis_service.Catalog'), \
+                patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
+            return worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
+
+    def test_gw_58ie_01_release_during_backoff(self):
+        """GW-58IE-01 / GW-58IB-02. A reader blocking schema installation releases before the final attempt."""
         for command, config, _ in self.configurations():
-            def boot():
-                return worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
+            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as reader, \
+                    patch.dict(os.environ, OUF_SCHEMA_MAX_ATTEMPTS='3', OUF_SCHEMA_INITIAL_DELAY_MS='500'), \
+                    patch('tools.analysis_schema.time.sleep') as sleep:
+                reader.execute('pragma journal_mode=delete')
+                reader.execute('begin')
+                reader.execute('select count(*) from sqlite_master').fetchone()
 
-            now = 1000.
+                def release_on_second_wait(seconds):
+                    if sleep.call_count == 2:
+                        reader.rollback()
 
-            def sleep(seconds):
-                nonlocal now
-                now += seconds
-
-            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as other, \
-                    patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
-                    patch('tools.analysis_service.Catalog'), \
-                    patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)), \
-                    patch('tools.analysis_schema.time') as clock:
-                clock.time.side_effect = clock.monotonic.side_effect = lambda: now
-                # Even schema reads contend with an exclusive writer in DELETE mode.
-                self.assertEqual(other.execute('pragma journal_mode=delete').fetchone(), ('delete',))
-                other.execute('begin exclusive')
-                def release(seconds):
-                    sleep(seconds)
-                    other.rollback()
-                clock.sleep.side_effect = release
-                app = boot()
-                clock.sleep.assert_called_once()
+                sleep.side_effect = release_on_second_wait
+                app = self.boot_worker(command, config)
                 self.assertEqual(self.request(app), ('204 No Content', b''))
+                self.assertEqual(sleep.call_count, 2)
+                for call, base in zip(sleep.call_args_list, (0.5, 1.0)):
+                    self.assertGreaterEqual(call.args[0], base)
+                    self.assertLessEqual(call.args[0], base * 1.2)
+                path = Path(config['store'])
+                self.assertEqual(list(path.parent.iterdir()), [path])
 
-                # Each exhaustion scenario must start on an independent store.
-                deadline_store = config['store'] + '.deadline'
-                with closing(sqlite3.connect(deadline_store)) as db:
-                    other.backup(db)
-                other.execute('begin exclusive')
-                clock.sleep.reset_mock()
-                clock.sleep.side_effect = sleep
-                with redirect_stderr(io.StringIO()):
-                    app = boot()
-                    self.assertEqual(clock.sleep.call_count, 3)
-                    for call, base in zip(clock.sleep.call_args_list, (0.25, 0.75, 2)):
-                        self.assertGreaterEqual(call.args[0], base)
-                        self.assertLessEqual(call.args[0], base * 1.2)
-                    other.rollback()
-                    self.assertEqual(self.request(app), ('503 Service Unavailable', b''))
-                    self.assertEqual(self.request(app, PATH_INFO='/decisions'), ('503 Service Unavailable', b''))
-                    self.assertEqual(clock.sleep.call_count, 3)
-
-                config['store'] = deadline_store
-                with closing(sqlite3.connect(deadline_store)) as holder, redirect_stderr(io.StringIO()):
-                    holder.execute('begin exclusive')
-                    clock.sleep.reset_mock()
-                    clock.sleep.side_effect = lambda _: sleep(5)
-                    self.assertEqual(self.request(boot()), ('503 Service Unavailable', b''))
-                    clock.sleep.assert_called_once()
-                    holder.rollback()
-                    clock.sleep.reset_mock()
-                    sleep(24 * 3600)
-                    self.assertEqual(self.request(boot()), ('503 Service Unavailable', b''))
-                    clock.sleep.assert_not_called()
-
-                config['store'] = str(self.root / 'absent.db')
-                with redirect_stderr(io.StringIO()):
-                    self.assertEqual(self.request(boot()), ('503 Service Unavailable', b''))
-                    clock.sleep.assert_not_called()
-
-    def test_gw_58ic_01_exhaustion_survives_process_restart(self):
-        """GW-58IC-01. A replacement process cannot replenish an exhausted store budget."""
-        boot = """from tools.analysis_store import MandateStore
-from tools.iam_keycloak_decisions import VerifierStore
-from pathlib import Path
-import os
-import sqlite3
-import sys
-import time
-target = Path(sys.argv[2]).resolve().as_uri() + '?mode=rw'
-def observe(event, args):
-    if event == 'sqlite3.connect' and args[0] == target:
-        print('attempt', flush=True)
-sys.addaudithook(observe)
-if sys.argv[3] == 'crash':
-    time.sleep = lambda _: os._exit(31)
-try:
-    (MandateStore if sys.argv[1] == 'authority' else VerifierStore)(sys.argv[2])
-except (RuntimeError, sqlite3.OperationalError):
-    sys.exit(23)
+    def test_gw_58ie_02_exhaustion_and_restart(self):
+        """GW-58IE-02. An exhausted worker serves 503. A replacement gets its own attempts."""
+        restart = """from tests.test_authority_installable import InstallableTests as T
+from tools import analysis_schema
+from unittest.mock import patch
+import json, sys
+with patch.object(analysis_schema, '_install', wraps=analysis_schema._install) as install:
+    print(T.request(T.boot_worker(sys.argv[1], json.loads(sys.argv[2])))[0], install.call_count)
 """
         for command, config, _ in self.configurations():
-            def restart(mode='restart'):
-                result = subprocess.run([sys.executable, '-c', boot, command, config['store'], mode],
-                                        capture_output=True, text=True, timeout=15)
-                self.assertEqual(result.returncode, 31 if mode == 'crash' else 23, result.stderr)
-                return result.stdout.splitlines().count('attempt')
+            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as writer, \
+                    patch.dict(os.environ, OUF_SCHEMA_MAX_ATTEMPTS='4', OUF_SCHEMA_INITIAL_DELAY_MS='1'), \
+                    patch.object(analysis_schema, '_install', wraps=analysis_schema._install) as install, \
+                    patch('tools.analysis_schema.time.sleep') as sleep, redirect_stderr(io.StringIO()):
+                writer.execute('pragma journal_mode=delete')
+                writer.execute('begin exclusive')
+                exhausted = self.boot_worker(command, config)
+                self.assertEqual(self.request(exhausted), ('503 Service Unavailable', b''))
+                self.assertEqual(install.call_count, 4)
+                self.assertEqual(sleep.call_count, 3)
+                process = subprocess.run([sys.executable, '-c', restart, command, json.dumps(config)],
+                                         capture_output=True, text=True, timeout=10, check=True)
+                self.assertEqual(process.stdout.strip(), '503 Service Unavailable 4')
+                # The replacement encounters the same lock and recovers in its own backoff.
+                sleep.side_effect = lambda _: writer.rollback()
+                fresh = self.boot_worker(command, config)
+                self.assertEqual(install.call_count, 6)
+                self.assertEqual(self.request(fresh), ('204 No Content', b''))
+                self.assertEqual(self.request(exhausted), ('503 Service Unavailable', b''))
+                self.assertEqual(self.request(exhausted, PATH_INFO='/decisions'), ('503 Service Unavailable', b''))
+                self.assertEqual(install.call_count, 6)
 
-            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as holder:
-                holder.execute('begin exclusive')
-                self.assertEqual(restart('crash'), 1)
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    attempts = list(pool.map(restart, ['restart', 'restart']))
-                holder.rollback()
-                self.assertEqual(restart(), 0)
-                self.assertLessEqual(sum(attempts), 3)
-                with closing(sqlite3.connect(config['store'] + '.schema-boot.sqlite')) as ledger:
-                    self.assertEqual(ledger.execute('select attempts, state from schema_boot_v2').fetchall(),
-                                     [(1 + sum(attempts), 'EXHAUSTED')])
-                with redirect_stderr(io.StringIO()), \
-                        patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
-                        patch('tools.analysis_service.Catalog'), \
-                        patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
-                    app = worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
-                    self.assertEqual(self.request(app), ('503 Service Unavailable', b''))
-
-    def test_gw_58ic_01_restart_inherits_deadline(self):
-        """GW-58IC-01. An interrupted backoff cannot obtain a fresh five-second window."""
+    def test_gw_58ie_03_bounds_and_deadline(self):
+        """GW-58IE-03. Invalid parameters fail before SQLite. No new attempt starts after expiry."""
         for command, config, _ in self.configurations():
-            store = MandateStore if command == 'authority' else VerifierStore
-            with self.subTest(command=command), closing(sqlite3.connect(config['store'])) as holder, \
-                    patch('time.time', return_value=1000) as wall, patch('time.monotonic', return_value=0), \
-                    patch('time.sleep', side_effect=SystemExit) as stop:
-                holder.execute('begin exclusive')
-                with self.assertRaises(SystemExit):
-                    store(config['store'])
-                stop.assert_called_once()
-                holder.rollback()
-                wall.return_value += 3600
-                with self.assertRaisesRegex(RuntimeError, 'exhausted'):
-                    store(config['store'])
-                with closing(sqlite3.connect(config['store'] + '.schema-boot.sqlite')) as ledger:
-                    self.assertEqual(ledger.execute('select attempts, deadline, state from schema_boot_v2').fetchall(),
-                                     [(1, 1005, 'EXHAUSTED')])
+            with self.subTest(command=command), redirect_stderr(io.StringIO()), \
+                    patch.object(analysis_schema, '_install', wraps=analysis_schema._install) as install, \
+                    patch('tools.analysis_schema.time') as clock:
+                for key, invalid in [('OUF_SCHEMA_MAX_ATTEMPTS', ('', '0', '5', '1.5')),
+                                     ('OUF_SCHEMA_INITIAL_DELAY_MS', ('0', '501', '-1', 'nan'))]:
+                    for value in invalid:
+                        with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}):
+                            self.assertEqual(self.request(self.boot_worker(command, config))[0], '503 Service Unavailable')
+                install.assert_not_called()
+                clock.sleep.assert_not_called()
+
+                clock.monotonic.return_value = 0
+                with closing(sqlite3.connect(config['store'])) as writer:
+                    writer.execute('begin exclusive')
+                    with patch.dict(os.environ, OUF_SCHEMA_MAX_ATTEMPTS='1'):
+                        self.assertEqual(self.request(self.boot_worker(command, config))[0], '503 Service Unavailable')
+                    self.assertEqual(install.call_count, 1)
+                    clock.sleep.assert_not_called()
+                    clock.sleep.side_effect = lambda _: setattr(clock.monotonic, 'return_value', 5)
+                    self.assertEqual(self.request(self.boot_worker(command, config))[0], '503 Service Unavailable')
+                    self.assertEqual(install.call_count, 2)
+                    clock.sleep.assert_called_once()
+
+                # SQLite reports SQLITE_READONLY when the missing schema requires a write.
+                connect = sqlite3.connect
+
+                def read_only_connection(*args, **kwargs):
+                    db = connect(*args, **kwargs)
+                    db.execute('pragma query_only=on')
+                    return db
+
+                clock.sleep.reset_mock()
+                with patch('sqlite3.connect', side_effect=read_only_connection):
+                    self.assertEqual(self.request(self.boot_worker(command, config))[0], '503 Service Unavailable')
+                self.assertEqual(install.call_count, 3)
+                clock.sleep.assert_not_called()
 
     def test_gw_58ic_02_initialized_store_with_active_reader(self):
         """GW-58IC-02. A rollback-journal reader coexists with boot and reversible readiness."""
@@ -321,23 +294,8 @@ except (RuntimeError, sqlite3.OperationalError):
                 with self.assertRaisesRegex(ValueError, 'incompatible store schema'):
                     store(config['store'])
 
-    def test_gw_58id_01_ledger_reader(self):
-        """GW-58ID-01. An open diagnostic read cannot strand a booted worker in 503."""
-        for command, config, _ in self.configurations():
-            store = MandateStore if command == 'authority' else VerifierStore
-            store(config['store'])
-            with self.subTest(command=command), closing(sqlite3.connect(config['store'] + '.schema-boot.sqlite')) as reader, \
-                    patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
-                    patch('tools.analysis_service.Catalog'), \
-                    patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
-                reader.execute('begin')
-                reader.execute('select * from schema_boot_v2').fetchall()
-                app = worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
-                reader.rollback()
-                self.assertEqual(self.request(app), ('204 No Content', b''))
-
-    def test_gw_58id_02_index_structure(self):
-        """GW-58ID-02. Equivalent quoted indexes qualify. Structural drift stays blocked."""
+    def test_gw_58ie_04_index_structure(self):
+        """GW-58IE-04 / GW-58ID-02. Only structurally equivalent indexes qualify, also on restart."""
         index = 'keycloak_expiry_v1'
         for unique, indexed in (
             ('unique', 'keycloak_permission_v1(expiry)'),
@@ -359,48 +317,35 @@ except (RuntimeError, sqlite3.OperationalError):
                     db.execute(f'create {unique} index "{index}" on {indexed}')
                     with self.assertRaisesRegex(ValueError, 'incompatible store schema'):
                         VerifierStore(target)
-                with closing(sqlite3.connect(str(target) + '.schema-boot.sqlite')) as ledger:
-                    self.assertEqual(ledger.execute('select state from schema_boot_v2').fetchall(), [('BLOCKED',)])
-                with self.assertRaisesRegex(RuntimeError, 'intervention'):
+                with patch('tools.analysis_schema.time.sleep') as sleep, self.assertRaisesRegex(ValueError, 'incompatible'):
                     VerifierStore(target)
+                sleep.assert_not_called()
 
-    def test_gw_58id_03_restore_exhausted_budget(self):
-        """GW-58ID-03. Quiescent volume restore preserves the incident seen by a replacement worker."""
+    def test_gw_58ie_05_restore_main_store(self):
+        """GW-58IE-05. D-065 restores application state and writability from a quiescent volume."""
         for command, config, _ in self.configurations():
-            store = MandateStore if command == 'authority' else VerifierStore
             path = Path(config['store'])
-            ledger_path = path.with_name(path.name + '.schema-boot.sqlite')
-            store(path)
-            query = 'select role, attempts, deadline, next_at, state from schema_boot_v2'
-            with self.subTest(command=command), closing(sqlite3.connect(ledger_path)) as reader, \
-                    closing(sqlite3.connect(path)) as holder, patch('tools.analysis_schema.time') as clock:
-                clock.time.return_value, clock.monotonic.return_value = 1000, 0
-                reader.execute('begin')
-                reader.execute(query).fetchall()
-                self.assertEqual(holder.execute('pragma journal_mode=delete').fetchone(), ('delete',))
-                holder.execute('begin exclusive')
-                clock.sleep.side_effect = SystemExit
-                with self.assertRaises(SystemExit):
-                    store(path)
-                # The first worker died in backoff. A restart sees the original deadline.
-                clock.time.return_value = 1010
-                with self.assertRaisesRegex(RuntimeError, 'exhausted'):
-                    store(path)
-                holder.rollback()
-                reader.rollback()
-                row, = reader.execute(query).fetchall()
-                self.assertEqual(row[:3], (command, 1, 1005))
-                self.assertEqual(row[-1], 'EXHAUSTED')
+            with self.subTest(command=command):
+                self.assertEqual(self.request(self.boot_worker(command, config))[0], '204 No Content')
+                with closing(sqlite3.connect(path)) as db:
+                    if command == 'authority':
+                        db.execute("insert into analysis_mandate_v1 values ('m','s','p',X'7B7D')")
+                        db.execute("insert into analysis_command_v1 values ('actor','cmd','fp',X'7B7D')")
+                        db.execute("insert into analysis_attempt_v1 values ('m','a','i','op',3,'ADMITTED',0,X'7B7D')")
+                    else:
+                        db.execute("insert into keycloak_rate_v1 values ('decisions',60,2)")
+                        db.execute("insert into keycloak_permission_v1 values ('binding',60,'grant',X'5B5D')")
+                    db.commit()
+                    expected = list(db.iterdump())
 
-            # With all handles closed, copy the whole volume to a fresh directory.
-            restored = self.root / ('restored-' + command)
-            shutil.copytree(path.parent, restored)
-            with patch('tools.analysis_schema._install') as install, \
-                    self.assertRaisesRegex(RuntimeError, 'intervention'):
-                store(restored / path.name)
-            install.assert_not_called()
-            with closing(sqlite3.connect(restored / ledger_path.name)) as ledger:
-                self.assertEqual(ledger.execute(query).fetchall(), [row])
+                restored = self.root / ('restored-' + command)
+                shutil.copytree(path.parent, restored)
+                restored_path = restored / path.name
+                app = self.boot_worker(command, {**config, 'store': str(restored_path)})
+                self.assertEqual(self.request(app), ('204 No Content', b''))
+                with closing(sqlite3.connect(restored_path)) as db:
+                    self.assertEqual(db.execute('pragma integrity_check').fetchone(), ('ok',))
+                    self.assertEqual(list(db.iterdump()), expected)
 
     def test_gw_58ib_03_reject_probe_as_gateway_before_bind(self):
         """GW-58IB-03. The entrypoint rejects equal identities before loading TLS or binding."""

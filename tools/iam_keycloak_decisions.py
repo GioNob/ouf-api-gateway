@@ -56,7 +56,7 @@ def retry_seconds(value, now):
 class VerifierStore:
     """Private state shared by the installation's introspection and decision processes."""
     def __init__(self, path):
-        self.path = initialize_schema(path, 'iam-adapter', (
+        self.path = initialize_schema(path, (
             'create table if not exists keycloak_rate_v1 '
             '(kind text primary key, until_epoch integer not null, used integer not null)',
             'create table if not exists keycloak_permission_v1 '

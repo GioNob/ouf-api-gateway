@@ -32,7 +32,7 @@ DDL = (
 class MandateStore:
     def __init__(self, path):
         # A missing volume must not silently create a second authority.
-        self.uri = initialize_schema(path, 'authority', DDL, prerequisite='gateway_operational_incident')
+        self.uri = initialize_schema(path, DDL, prerequisite='gateway_operational_incident')
 
     def connect(self):
         return sqlite3.connect(self.uri, uri=True, isolation_level=None, timeout=1)
