@@ -273,10 +273,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Run offline host tests
+      - name: Run the full offline suite on the image's Python base
         run: |
-          python -m pip install -r requirements-dev.txt
-          python -m pytest -q tests/test_authority_host.py
+          base=$(awk '$1 == "FROM" {print $2; exit}' deploy/authority/Dockerfile)
+          wheels="$RUNNER_TEMP/authority-test-wheels"
+          python -m pip download --only-binary=:all: -d "$wheels" -r requirements-dev.txt
+          docker run --rm --network none -v "$PWD:/workspace:ro" -w /workspace -v "$wheels:/wheels:ro" \
+            -e PYTHONDONTWRITEBYTECODE=1 "$base" sh -ec '
+              python -m pip install --no-index --find-links=/wheels -r requirements-dev.txt
+              python -m pytest -p no:cacheprovider -q
+            '
       - name: Build authority image from the tested revision
         run: |
           revision=$(git rev-parse HEAD)
@@ -285,18 +291,19 @@ jobs:
         run: bash deploy/authority/smoke.sh "gateway-authority:$(git rev-parse HEAD)"
       - name: Export the qualified image
         shell: bash
+        env:
+          REVIEWED_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           revision=$(git rev-parse HEAD)
           image="gateway-authority:$revision"
-          mkdir "$RUNNER_TEMP/gateway-authority-image"
-          cd "$RUNNER_TEMP/gateway-authority-image"
+          out="$RUNNER_TEMP/gateway-authority-image"
+          mkdir "$out"
           test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")" = "$revision"
-          docker image inspect -f '{{.Id}}' "$image" > image-id.txt
-          printf '%s\n' "$revision" > source-commit.txt
-          docker image save "$image" | gzip -n > image.tar.gz
-          sha256sum image.tar.gz image-id.txt source-commit.txt > SHA256SUMS
-          sha256sum -c SHA256SUMS
+          test "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.source"}}' "$image")" = "https://github.com/$GITHUB_REPOSITORY"
+          docker image save "$image" | gzip -n > "$out/image.tar.gz"
+          python -m deploy.authority.image_manifest "$out" "$(docker image inspect -f '{{.Id}}' "$image")"
+          (cd "$out" && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: gateway-authority-image-${{ github.run_id }}

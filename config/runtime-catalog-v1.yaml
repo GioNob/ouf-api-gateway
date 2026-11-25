@@ -60,3 +60,7 @@ entries:
   gateway.iamAdapter.serverCertFile: *gatewayPrivateFile
   gateway.iamAdapter.serverKeyFile: *gatewayKeyRef
   gateway.iamAdapter.clientCaFile: *gatewayPrivateFile
+  gateway.authority.delegationKeyFile: &gatewayCredentialFile {type: path, unit: credential file reference, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: secret-reference, reload: restart}
+  gateway.iamAdapter.secretFile: *gatewayCredentialFile
+  gateway.iamAdapter.probePrincipal: &gatewayProbePrincipal {type: string, unit: verified TLS principal, default: null, minimum: null, maximum: null, scope: data-plane, environmentScope: installation, secretClassification: private, reload: restart}
+  gateway.authority.probePrincipal: *gatewayProbePrincipal

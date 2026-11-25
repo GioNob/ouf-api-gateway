@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 from uuid import uuid4
 
 from tools.analysis_clients import Endpoint
+from tools.authority_host import credential
 from tools.analysis_protocol import (
     BINDINGS, CONTRACT, RENEWAL_REQUEST_MAX, REVIEW_REF, Rejected, b64, digest, exact, is_digest,
     is_uuid, matches, opaque, parse, proposal_version, require, seq, validate, wire,
@@ -376,11 +377,13 @@ class Verifier:
         return [body]
 
 
-def application():
-    cfg = parse(Path(os.environ['OUF_KEYCLOAK_DECISIONS_CONFIG']).read_bytes())
-    required = {'profileFile', 'secretEnv', 'caFile', 'store', 'gatewayTlsPrincipal'}
+def application(cfg=None):
+    if cfg is None:
+        cfg = parse(Path(os.environ['OUF_KEYCLOAK_DECISIONS_CONFIG']).read_bytes())
+    required = {'profileFile', 'caFile', 'store', 'gatewayTlsPrincipal'}
     tls_keys = {'clientCertFile', 'clientKeyFile'}
-    if (type(cfg) is not dict or not required <= cfg.keys() or cfg.keys() - required - tls_keys - {'timeoutSeconds', 'resourceServer'}
+    if (type(cfg) is not dict or not required <= cfg.keys()
+            or cfg.keys() - required - tls_keys - {'timeoutSeconds', 'resourceServer', 'secretFile', 'secretEnv'}
             or cfg.keys() & tls_keys not in (set(), tls_keys)):
         raise ValueError('invalid private Keycloak verifier configuration')
     profile = parse(Path(cfg['profileFile']).read_bytes())
@@ -389,14 +392,10 @@ def application():
             or not isinstance(server.get('secretRef'), str) or not server['secretRef'].strip()
             or cfg.get('resourceServer', server['clientId']) != server['clientId']):
         raise ValueError('invalid resource-server binding for approved profile')
-    secret_env = cfg['secretEnv']
-    if isinstance(secret_env, dict):
-        secret_env = secret_env.get(server['secretRef'])
-    if not matches(secret_env, '[A-Z][A-Z0-9_]{0,127}'):
-        raise ValueError('service credential environment reference required')
+    secret = credential(cfg, 'secretFile', 'secretEnv', reference=server['secretRef'])
     ctx = ssl.create_default_context(cafile=cfg['caFile'])
     if 'clientCertFile' in cfg:
         ctx.load_cert_chain(cfg['clientCertFile'], cfg['clientKeyFile'])
     endpoint = Endpoint(profile['trust']['issuer'], ctx, cfg.get('timeoutSeconds', 5))
-    return Verifier(profile, server['clientId'], os.environ[secret_env], endpoint, VerifierStore(cfg['store']),
+    return Verifier(profile, server['clientId'], secret, endpoint, VerifierStore(cfg['store']),
                     gateway_principal=cfg['gatewayTlsPrincipal'])

@@ -13,7 +13,6 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from unittest.mock import patch
 
 from tests import test_analysis_mandate as fixtures
-from tests.test_analysis_transport import tls_server
 from tools.analysis_clients import RemoteIAM
 from tools.analysis_mandate import new_ref
 from tools.analysis_protocol import Rejected, b64, delegation, digest, parse, wire
@@ -121,6 +120,8 @@ class Keycloak:
 
 class KeycloakPET(unittest.TestCase):
     def setUp(self):
+        from tests.test_analysis_transport import tls_server
+
         self.pet = fixtures.MandatePET()
         self.pet.setUp()
         self.addCleanup(self.pet.doCleanups)

@@ -1,18 +1,41 @@
 """Closed HTTPS host for the two private Gateway WSGI factories."""
+from contextlib import closing
 import ipaddress
 import os
 from pathlib import Path
 import re
+import sqlite3
 import ssl
 import sys
 
-from tools.analysis_protocol import CAPACITY_FIELDS, Rejected, capacity_profile, opaque, parse
+from tools.analysis_protocol import CAPACITY_FIELDS, Rejected, capacity_profile, matches, opaque, parse
 
 CONFIG_FILES = {'authority': 'OUF_ANALYSIS_CONFIG', 'iam-adapter': 'OUF_KEYCLOAK_DECISIONS_CONFIG'}
 
 
 class HostError(ValueError):
     """Contains only static diagnostics and public configuration field names."""
+
+
+def credential(cfg, file_key, env_key, *, reference=None):
+    if (file_key in cfg) == (env_key in cfg):
+        raise ValueError(f'exactly one of {file_key} and {env_key} required')
+    key = file_key if file_key in cfg else env_key
+    source = cfg[key]
+    if reference is not None and isinstance(source, dict):
+        source = source.get(reference)
+    if key == env_key and matches(source, '[A-Z][A-Z0-9_]{0,127}'):
+        return os.environ[source]
+    if key == file_key and isinstance(source, str) and source:
+        try:
+            value = Path(source).read_bytes().decode('utf-8')
+        except (OSError, ValueError):
+            raise ValueError(f'invalid {file_key}') from None
+        if value.endswith('\n'):
+            value = value[:-1].removesuffix('\r')
+        if value and not any(c in value for c in '\r\n\x00'):
+            return value
+    raise ValueError(f'invalid {key}')
 
 
 def required(env, name):
@@ -56,8 +79,8 @@ def hosting(command, env):
         if not isinstance(fields, dict):
             raise ValueError()
     except (OSError, ValueError, Rejected):
-        raise HostError(f'{CONFIG_FILES[command]} unreadable or invalid') from None
-    if command == 'authority':
+        fields = None  # Only the unavailable response can be served on this listener.
+    if command == 'authority' and fields is not None:
         try:
             capacity = capacity_profile(fields.get('capacity', {}))
         except ValueError:
@@ -67,7 +90,7 @@ def hosting(command, env):
     # Gunicorn applies the same worker_connections limit to each gthread worker.
     if total % workers:
         raise HostError('AUTHORITY_HOSTING_MISMATCH: connections must divide evenly among processes')
-    return dict(bind=[listener(env)], workers=workers, threads=threads, worker_connections=total // workers)
+    return dict(bind=[listener(env)], workers=workers, threads=threads, worker_connections=total // workers), fields
 
 
 def tls_settings(command, env):
@@ -125,8 +148,56 @@ def authenticated(app, field):
     return serve
 
 
+def store_ready(command, uri):
+    try:
+        with closing(sqlite3.connect(uri, uri=True, isolation_level=None, timeout=0)) as db:
+            db.execute('begin immediate')
+            # Exercise write access even if SQLite opened a read-only handle.
+            if command == 'authority':
+                db.execute('update analysis_mandate_v1 set id=id where 0')
+            else:
+                db.execute('update keycloak_rate_v1 set used=used where 0')
+            db.execute('rollback')
+        return True
+    except sqlite3.Error:
+        return False
+
+
+def worker_application(command, fields, *, mtls, probe_principal):
+    from tools.analysis_service import application as authority
+    from tools.iam_keycloak_decisions import application as adapter
+
+    app = None
+    if fields is not None:
+        try:
+            app = (authority if command == 'authority' else adapter)(fields)
+            store_uri = Path(fields['store']).resolve().as_uri() + '?mode=rw'
+        except Exception:
+            # Factory diagnostics can quote credentials. Keep this worker fail-closed.
+            print(f'{CONFIG_FILES[command]}: factory initialization failed', file=sys.stderr)
+            app = None
+
+    def serve(env, start_response):
+        status = '503 Service Unavailable'
+        if env.get('PATH_INFO') == '/health/ready' and env.get('REQUEST_METHOD') == 'GET':
+            if env.get('QUERY_STRING'):
+                status = '400 Bad Request'
+            elif mtls and not opaque(probe_principal):
+                pass  # No trusted probe configured for this listener.
+            elif mtls and (env.get('SSL_CLIENT_VERIFY') != 'SUCCESS' or env.get('REMOTE_USER') != probe_principal):
+                status = '403 Forbidden'
+            elif app is not None and store_ready(command, store_uri):
+                status = '204 No Content'
+        elif app is not None:
+            return app(env, start_response)
+        start_response(status, [('Cache-Control', 'no-store')])
+        return [b'']
+
+    return serve
+
+
 def run(command, env):
-    settings = hosting(command, env)
+    settings, fields = hosting(command, env)
     settings.update(tls_settings(command, env))
     field = env.get('OUF_HOST_IDENTITY_FIELD', 'subject-cn')
     if field not in ('subject-cn', 'san-uri'):
@@ -150,15 +221,9 @@ def run(command, env):
 
         def load(self):
             # Gunicorn calls load after fork: each process owns its own admission pools.
-            try:
-                if command == 'authority':
-                    from tools.analysis_service import application
-                else:
-                    from tools.iam_keycloak_decisions import application
-                return authenticated(application(), field)
-            except Exception:
-                print(f'{CONFIG_FILES[command]}: factory initialization failed', file=sys.stderr)
-                raise RuntimeError('Gateway factory initialization failed') from None
+            app = worker_application(command, fields, mtls=settings['cert_reqs'] == ssl.CERT_REQUIRED,
+                                     probe_principal=env.get('OUF_HOST_PROBE_PRINCIPAL'))
+            return authenticated(app, field)
 
     Host().run()
 
