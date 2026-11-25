@@ -53,6 +53,14 @@ I PET da `GW-60f-01` a `GW-60f-08` verificano il sottoinsieme di base, i corpi A
 i conflitti, il ritorno, i deployer legacy e gli header inoltrati. La prova sull’inventario
 richiede i due export sanificati del task. [Test della famiglia](../tests/test_release_family_ths_pages.py)
 
+### Adozione di PUT e DELETE (60f-b)
+
+La decisione DN-L3-2 chiude la valutazione lasciata aperta dal 60f. Il bundle governa
+`trusted-human-authorization-put` e `trusted-human-authorization-delete` con il
+materializzatore, il bearer verso Onboarding e la quota `thsAuthorization` di GET e POST.
+I PET `GW-60f-b-01`, `GW-60f-b-02` e `GW-60f-b-03` verificano rispettivamente i corpi
+generati, la parità e il ritorno sull’inventario completo, e il rifiuto delle scritture legacy.
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |

@@ -1,6 +1,7 @@
 """Offline D-087 qualification of the F5a APISIX bodies, selectors and return."""
 import copy
 import json
+import sys
 
 import pytest
 
@@ -13,6 +14,9 @@ from tests.release_bundle_fixture import (
 from tests.test_execute_delegation import Denied, Engine, human, workload
 from tools.gateway_release_bundle import ROOT, generate
 from tools.plan_semantic_search import Change, changed_paths, inventory_routes
+
+ADMIN_NAMESPACE = '/api/trusted-human/v1/authorization/*'
+ADMIN_WRITE_IDS = ('trusted-human-authorization-put', 'trusted-human-authorization-delete')
 
 
 @pytest.fixture(scope='module')
@@ -75,9 +79,9 @@ def check_conflicts(desired, live, retired):
             assert not selectors_overlap(route, live[key]), (route_id, key)
 
 
-def adoption(desired, live):
+def adoption(desired, live, ids):
     changes = []
-    for key in THS_PAGES_IDS:
+    for key in ids:
         before = live.get(key)
         after = desired[key]
         if before is not None:
@@ -109,10 +113,12 @@ def test_portable_family_contract(artifact):
     resources = json.loads((artifact / 'bundle.json').read_bytes())['resources']
     family = [r for r in resources if r['id'] in THS_PAGES_IDS]
     assert [r['id'] for r in family] == sorted(THS_PAGES_IDS)
-    assert sha256(canonical_json(family)) == '1262543e68a5e866b18cd81b3b228059918787f81c109652ece842a9d4d7a33d'
+    # The ten 60f bodies keep their digest; 60f-b only adds the two admin write routes.
+    first = [r for r in family if r['id'] not in ADMIN_WRITE_IDS]
+    assert sha256(canonical_json(first)) == '1262543e68a5e866b18cd81b3b228059918787f81c109652ece842a9d4d7a33d'
     routes = by_id(resolved(artifact, fixture_profile()))
     check_conflicts(routes, routes, [])
-    assert not {'trusted-human-authorization-put', 'trusted-human-authorization-delete'} & routes.keys()
+    assert set(ADMIN_WRITE_IDS) <= routes.keys()
 
 
 def test_literal_collision_in_any_uri_or_governed_route(artifact):
@@ -134,14 +140,14 @@ def test_literal_collision_in_any_uri_or_governed_route(artifact):
         check_conflicts(routes, {'old': page}, [dict(id='old', supersededBy=page['id'], vars=[['x', '==', 'y']])])
 
 
-def exercise_return(desired, before):
-    changes = adoption(desired, before)
-    assert [c.action for c in changes] == ['update'] * len(THS_PAGES_IDS)
+def exercise_return(desired, before, ids=THS_PAGES_IDS):
+    changes = adoption(desired, before, ids)
+    assert [c.action for c in changes] == ['update'] * len(ids)
     live = copy.deepcopy(before)
     for c in changes:
         live[c.target_id] = copy.deepcopy(c.after)
     reread = by_id(json.loads(canonical_json(list(live.values()))))
-    assert all(c.action == 'unchanged' for c in adoption(desired, reread))
+    assert all(c.action == 'unchanged' for c in adoption(desired, reread, ids))
     stale = dict(reread, **{changes[0].target_id: dict(changes[0].after, status=0)})
     with pytest.raises(AssertionError):
         return_plan(changes, stale)
@@ -157,20 +163,29 @@ def test_exact_return_and_replay(artifact):
     exercise_return(desired, before)
 
 
-def test_export_parity_plan_and_exact_return(artifact):
-    """GW-60f-05. Private offline evidence supplied for qualification; never required for the build."""
+@pytest.mark.parametrize('ids,family_export', [
+    pytest.param(tuple(key for key in THS_PAGES_IDS if key not in ADMIN_WRITE_IDS), 'live-routes-60f.json', id='60f'),
+    pytest.param(ADMIN_WRITE_IDS, None, id='60f-b'),
+])
+def test_export_parity_plan_and_exact_return(artifact, ids, family_export):
+    """GW-60f-05 / GW-60f-b-02. Recursive parity, collisions, replay and return on the full export."""
     inputs = ROOT / '.codex-input'
-    family_file = inputs / 'live-routes-60f.json'
     inventory_file = inputs / 'live-routes-all-98.json'
-    if not family_file.exists() and not inventory_file.exists():
-        pytest.skip('supply both sanitized task-60f exports to replay the installation')
+    if not inventory_file.exists():
+        pytest.skip('supply the sanitized 98-route export to replay the installation')
     full_rows = json.loads(inventory_file.read_bytes())
     assert len(full_rows) == 98
     live = by_id(full_rows)
-    family = by_id(json.loads(family_file.read_bytes()))
+    if family_export:
+        family_file = inputs / family_export
+        if not family_file.exists():
+            pytest.skip('supply the sanitized family export for the historical 60f comparison')
+        family = by_id(json.loads(family_file.read_bytes()))
+        for key in ids:
+            assert list(changed_paths(family[key], live[key])) == [], key
     profile = fixture_profile()
-    approvals = family['trusted-human-onboarding-approvals-get']
-    admin = family['trusted-human-authorization-get']
+    approvals = live['trusted-human-onboarding-approvals-get']
+    admin = live['trusted-human-authorization-get']
     address, = approvals['upstream']['nodes']
     host, port = address.rsplit(':', 1)
     profile.update({
@@ -188,9 +203,8 @@ def test_export_parity_plan_and_exact_return(artifact):
     governed_oidc = desired['semantic-human-terms']['plugins']['openid-connect']
     retired = json.loads((artifact / 'bundle.json').read_bytes())['retired']
     check_conflicts(desired, live, retired)
-    for key in THS_PAGES_IDS:
-        assert list(changed_paths(family[key], live[key])) == [], key
-        expected = copy.deepcopy(family[key])
+    for key in ids:
+        expected = copy.deepcopy(live[key])
         nodes = expected['upstream']['nodes']
         expected['upstream']['nodes'] = [{'host': host, 'port': int(port), 'weight': nodes[address]}]
         assert len(nodes) == 1
@@ -201,7 +215,7 @@ def test_export_parity_plan_and_exact_return(artifact):
                 oidc[field] = governed_oidc[field]
             expected['labels']['ouf-installation-revision'] = profile['revision']
         assert list(changed_paths(expected, desired[key])) == [], key
-    exercise_return(desired, live)
+    exercise_return(desired, live, ids)
 
 
 @pytest.mark.parametrize('command', [deploy_managed_file_ths, repair_managed_file_picker_login])
@@ -211,8 +225,7 @@ def test_picker_legacy_entrypoints_closed(command):
         command.main()
 
 
-@pytest.mark.parametrize('module', [onboarding, admin_api])
-def test_mixed_legacy_deploy_and_old_snapshot_skip_governed_ids(tmp_path, module):
+def test_mixed_legacy_deploy_and_old_snapshot_skip_governed_ids(tmp_path):
     """GW-60f-07. Simulate apply, snapshot and return through the former mixed writers."""
     class MemoryAdmin:
         work = tmp_path
@@ -221,7 +234,7 @@ def test_mixed_legacy_deploy_and_old_snapshot_skip_governed_ids(tmp_path, module
             self.routes = {}
 
         def route(self, method, key, data=None):
-            assert key not in module.RELEASE_IDS, key
+            assert key not in onboarding.RELEASE_IDS, key
             if method == 'GET':
                 return (200, self.routes[key]) if key in self.routes else (404, {})
             if method == 'PUT':
@@ -234,13 +247,12 @@ def test_mixed_legacy_deploy_and_old_snapshot_skip_governed_ids(tmp_path, module
         def curl(self, path, *args, **kwargs):
             return (200 if path.startswith('/apisix/admin/plugins/') else 401), {}
 
-    ids = onboarding.ROUTE_IDS if module is onboarding else admin_api.CURRENT_IDS
+    ids = onboarding.ROUTE_IDS
     routes = [{'id': key, 'plugins': {'proxy-control': {'request_buffering': False}}} for key in ids]
     backend = MemoryAdmin()
-    module.apply(routes, backend)
-    assert backend.routes.keys() == ids - module.RELEASE_IDS
-    old_ids = ids if module is onboarding else admin_api.MANAGED_IDS
-    module.restore(dict.fromkeys(old_ids), backend)
+    onboarding.apply(routes, backend)
+    assert backend.routes.keys() == ids - onboarding.RELEASE_IDS
+    onboarding.restore(dict.fromkeys(ids), backend)
     assert backend.routes == {}
 
 
@@ -277,3 +289,74 @@ def test_forwarded_session_and_human_headers(artifact, key):
         service = Engine(workload())
         with pytest.raises(Denied, match='403'):
             service.lua.execute(post.encode())(None, None)
+
+
+def test_admin_write_routes_follow_sibling_bodies(artifact):
+    """GW-60f-b-01. PUT and DELETE come from the GET/POST materializer: only the method differs."""
+    bodies = {r['id']: r['body'] for r in json.loads((artifact / 'bundle.json').read_bytes())['resources']}
+    template = bodies['trusted-human-authorization-get']
+    for key, method in zip(ADMIN_WRITE_IDS, ('PUT', 'DELETE')):
+        assert bodies[key] == dict(template, methods=[method]), key
+        assert bodies[key]['uri'] == ADMIN_NAMESPACE and 'proxy-rewrite' not in bodies[key]['plugins']
+        limits = bodies[key]['plugins']['limit-count']
+        assert (limits['count'], limits['time_window']) == (
+            {'$installation': 'gateway.rateLimits.thsAuthorization.count'},
+            {'$installation': 'gateway.rateLimits.thsAuthorization.timeWindowSeconds'})
+    routes = by_id(resolved(artifact, fixture_profile()))
+    for method in ('PUT', 'DELETE'):
+        with pytest.raises(AssertionError):
+            check_conflicts(routes, {'foreign-id': {'uri': ADMIN_NAMESPACE, 'methods': [method]}}, [])
+    check_conflicts(routes, {'foreign-id': {'uri': ADMIN_NAMESPACE, 'methods': ['PATCH']}}, [])
+
+
+@pytest.mark.parametrize('ids', [
+    ADMIN_WRITE_IDS[:1], ADMIN_WRITE_IDS[1:], admin_api.LEGACY_IDS | set(ADMIN_WRITE_IDS), admin_api.MANAGED_IDS,
+])
+def test_legacy_admin_refuses_governed_ids_before_writes(ids):
+    """GW-60f-b-03. Reject single IDs and mixed snapshots from both earlier generations."""
+    with pytest.raises(ValueError, match='governed Gateway release'):
+        admin_api.apply(({'id': key} for key in ids), None)
+    for saved in (None, {'status': 1}):
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            admin_api.restore(dict.fromkeys(ids, saved), None)
+
+
+def test_legacy_admin_entrypoints(tmp_path, monkeypatch):
+    """GW-60f-b-03. The CLI rejects governed input and can still restore a complete legacy-only snapshot."""
+    calls = []
+
+    class MemoryAdmin:
+        def __init__(self, args):
+            pass
+
+        def route(self, method, key, data=None):
+            calls.append((method, key, data))
+            return 204, {}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(admin_api, 'Admin', MemoryAdmin)
+    monkeypatch.setattr(admin_api.os, 'umask', lambda mask: 0)
+    source = tmp_path / 'input.json'
+
+    def run(option):
+        monkeypatch.setattr(sys, 'argv', ['deploy', option, str(source), '--admin-key', str(tmp_path / 'unused')])
+        admin_api.main()
+
+    with pytest.raises(ValueError, match='governed Gateway release'):
+        run('--materialization')
+    for ids in (admin_api.LEGACY_IDS | set(ADMIN_WRITE_IDS), admin_api.MANAGED_IDS):
+        source.write_text(json.dumps(dict.fromkeys(ids)))
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            run('--restore')
+    retained, absent = sorted(admin_api.LEGACY_IDS)
+    for invalid in ({absent: None}, {absent: None, retained: None, 'foreign-id': None}):
+        source.write_text(json.dumps(invalid))
+        with pytest.raises(ValueError, match='full managed route set'):
+            run('--restore')
+    assert calls == []
+    saved = {'status': 1}
+    source.write_text(json.dumps({retained: saved, absent: None}))
+    run('--restore')
+    assert calls == [('PUT', retained, saved), ('DELETE', absent, None)]

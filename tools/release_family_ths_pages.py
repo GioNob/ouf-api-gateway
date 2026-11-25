@@ -10,6 +10,7 @@ PAGE_IDS = (
 )
 APPROVAL_IDS = ('trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post')
 ADMIN_IDS = ('trusted-human-authorization-get', 'trusted-human-authorization-post')
+ADMIN_IDS += ('trusted-human-authorization-put', 'trusted-human-authorization-delete')
 
 
 def materialize(reviewed, runtime, bindings, secret_ref):
