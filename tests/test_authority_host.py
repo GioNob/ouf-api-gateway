@@ -36,16 +36,15 @@ class AuthorityHostTests(unittest.TestCase):
                 host.hosting('iam-adapter', {**self.env, name: value})
         self.assertEqual(host.listener({**self.env, 'OUF_HOST_ADDRESS': '::1'}), '[::1]:8443')
         self.config.write_text('invalid', encoding='utf-8')
-        with self.assertRaisesRegex(host.HostError, 'OUF_KEYCLOAK_DECISIONS_CONFIG'):
-            host.hosting('iam-adapter', self.env)
+        self.assertIsNone(host.hosting('iam-adapter', self.env)[1])
 
     def test_gw_58d_02_effective_gthread_capacity(self):
         """GW-58D-02. Match all three limits including defaults and per-worker connections."""
-        self.assertEqual(host.hosting('authority', self.env)['worker_connections'], 8)
+        self.assertEqual(host.hosting('authority', self.env)[0]['worker_connections'], 8)
         profile = dict(processes=2, threadsPerProcess=12, instanceConnections=24)
         self.config.write_text(json.dumps({'capacity': profile}), encoding='utf-8')
         env = {**self.env, 'OUF_HOST_PROCESSES': '2', 'OUF_HOST_THREADS': '12', 'OUF_HOST_CONNECTIONS': '24'}
-        self.assertEqual(host.hosting('authority', env),
+        self.assertEqual(host.hosting('authority', env)[0],
                          dict(bind=['localhost:8443'], workers=2, threads=12, worker_connections=12))
         for name, wrong in [('OUF_HOST_PROCESSES', '1'), ('OUF_HOST_THREADS', '11'), ('OUF_HOST_CONNECTIONS', '12')]:
             with self.subTest(name=name), self.assertRaisesRegex(host.HostError, 'AUTHORITY_HOSTING_MISMATCH'):

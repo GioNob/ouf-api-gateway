@@ -21,11 +21,11 @@ def generate(root):
     # C5 (task-58f): the resource-server comes from the approved profile; an explicit
     # override must be identical, so the smoke uses the profile's own client.
     save('iam.json', dict(profileFile='/config/profile.json', resourceServer=p['grant']['resourceServer']['clientId'],
-                          secretEnv='FIXTURE_IAM', caFile='/pki/ca.pem', store='/state/iam.db',
+                          secretFile='/credential/resource-server', caFile='/pki/ca.pem', store='/state/iam.db',
                           gatewayTlsPrincipal='urn:fixture:gateway'))
     cfg = dict(contract='ouf.analysis.installation.v1', store='/state/gateway.db',
                manifestFile='/app/contracts/mcp-capabilities.json', issuer=p['trust']['issuer'],
-               audience='gateway', workload='worker', delegationKeyEnv='FIXTURE_DELEGATION',
+               audience='gateway', workload='worker', delegationKeyFile='/credential/delegation',
                introspection=endpoint(p['trust']['introspection']), decisions=endpoint(p['trust']['decisions']),
                reservations=endpoint('https://owner.invalid/reservations'), execute=endpoint('https://owner.invalid'),
                timeoutSeconds=2, mandateTtlSeconds=60, proofTtlSeconds=10, maxResultBytes=1024,
