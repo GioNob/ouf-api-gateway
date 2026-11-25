@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import ssl
 import subprocess
@@ -319,6 +320,87 @@ except (RuntimeError, sqlite3.OperationalError):
                 db.execute(f'create table {index} (unrelated integer)')
                 with self.assertRaisesRegex(ValueError, 'incompatible store schema'):
                     store(config['store'])
+
+    def test_gw_58id_01_ledger_reader(self):
+        """GW-58ID-01. An open diagnostic read cannot strand a booted worker in 503."""
+        for command, config, _ in self.configurations():
+            store = MandateStore if command == 'authority' else VerifierStore
+            store(config['store'])
+            with self.subTest(command=command), closing(sqlite3.connect(config['store'] + '.schema-boot.sqlite')) as reader, \
+                    patch('tools.analysis_service.https_endpoint', return_value=Mock(path='/')), \
+                    patch('tools.analysis_service.Catalog'), \
+                    patch('ssl.create_default_context', return_value=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)):
+                reader.execute('begin')
+                reader.execute('select * from schema_boot_v2').fetchall()
+                app = worker_application(command, config, mtls=command == 'iam-adapter', probe_principal='probe')
+                reader.rollback()
+                self.assertEqual(self.request(app), ('204 No Content', b''))
+
+    def test_gw_58id_02_index_structure(self):
+        """GW-58ID-02. Equivalent quoted indexes qualify. Structural drift stays blocked."""
+        index = 'keycloak_expiry_v1'
+        for unique, indexed in (
+            ('unique', 'keycloak_permission_v1(expiry)'),
+            ('', 'keycloak_permission_v1(grant_id)'),
+            ('', 'keycloak_permission_v1(expiry) where expiry > 0'),
+            ('', 'keycloak_rate_v1(used)'),
+            ('', 'keycloak_permission_v1(expiry collate nocase)'),
+            ('', 'keycloak_permission_v1(expiry desc)'),
+        ):
+            with self.subTest(unique=unique, indexed=indexed), tempfile.TemporaryDirectory(dir=self.root) as volume:
+                target = Path(volume) / 'iam.db'
+                target.touch()
+                VerifierStore(target)
+                with closing(sqlite3.connect(target, isolation_level=None)) as db:
+                    db.execute(f'drop index {index}')
+                    db.execute(f'CREATE INDEX "{index}" ON keycloak_permission_v1 ("expiry")')
+                    VerifierStore(target)
+                    db.execute(f'drop index {index}')
+                    db.execute(f'create {unique} index "{index}" on {indexed}')
+                    with self.assertRaisesRegex(ValueError, 'incompatible store schema'):
+                        VerifierStore(target)
+                with closing(sqlite3.connect(str(target) + '.schema-boot.sqlite')) as ledger:
+                    self.assertEqual(ledger.execute('select state from schema_boot_v2').fetchall(), [('BLOCKED',)])
+                with self.assertRaisesRegex(RuntimeError, 'intervention'):
+                    VerifierStore(target)
+
+    def test_gw_58id_03_restore_exhausted_budget(self):
+        """GW-58ID-03. Quiescent volume restore preserves the incident seen by a replacement worker."""
+        for command, config, _ in self.configurations():
+            store = MandateStore if command == 'authority' else VerifierStore
+            path = Path(config['store'])
+            ledger_path = path.with_name(path.name + '.schema-boot.sqlite')
+            store(path)
+            query = 'select role, attempts, deadline, next_at, state from schema_boot_v2'
+            with self.subTest(command=command), closing(sqlite3.connect(ledger_path)) as reader, \
+                    closing(sqlite3.connect(path)) as holder, patch('tools.analysis_schema.time') as clock:
+                clock.time.return_value, clock.monotonic.return_value = 1000, 0
+                reader.execute('begin')
+                reader.execute(query).fetchall()
+                self.assertEqual(holder.execute('pragma journal_mode=delete').fetchone(), ('delete',))
+                holder.execute('begin exclusive')
+                clock.sleep.side_effect = SystemExit
+                with self.assertRaises(SystemExit):
+                    store(path)
+                # The first worker died in backoff. A restart sees the original deadline.
+                clock.time.return_value = 1010
+                with self.assertRaisesRegex(RuntimeError, 'exhausted'):
+                    store(path)
+                holder.rollback()
+                reader.rollback()
+                row, = reader.execute(query).fetchall()
+                self.assertEqual(row[:3], (command, 1, 1005))
+                self.assertEqual(row[-1], 'EXHAUSTED')
+
+            # With all handles closed, copy the whole volume to a fresh directory.
+            restored = self.root / ('restored-' + command)
+            shutil.copytree(path.parent, restored)
+            with patch('tools.analysis_schema._install') as install, \
+                    self.assertRaisesRegex(RuntimeError, 'intervention'):
+                store(restored / path.name)
+            install.assert_not_called()
+            with closing(sqlite3.connect(restored / ledger_path.name)) as ledger:
+                self.assertEqual(ledger.execute(query).fetchall(), [row])
 
     def test_gw_58ib_03_reject_probe_as_gateway_before_bind(self):
         """GW-58IB-03. The entrypoint rejects equal identities before loading TLS or binding."""

@@ -17,6 +17,19 @@ def _tokens(sql):
     return re.findall(r'\w+|[^\w\s]', sql.lower())
 
 
+def _matches_index(db, name, table, columns):
+    # The owned indexes are non-unique, unfiltered, ascending BINARY keys.
+    flags = db.execute('select "unique", partial from pragma_index_list(?) where name = ? collate nocase',
+                       (table, name)).fetchone()
+    if flags != (0, 0):
+        return False
+    keys = db.execute('select lower(name) from pragma_index_info(?) order by seqno', (name,))
+    if [column for column, in keys] != columns:
+        return False
+    return all(not desc and coll.lower() == 'binary' for desc, coll in
+               db.execute('select "desc", coll from pragma_index_xinfo(?) where key', (name,)))
+
+
 def _install(uri, statements, prerequisite, now, deadline):
     def missing(db):
         schema = {name.lower(): (kind, sql) for name, kind, sql in
@@ -30,6 +43,11 @@ def _install(uri, statements, prerequisite, now, deadline):
             name = definition[2]
             if name not in schema:
                 absent.append(statement)
+            elif definition[1] == 'index':
+                # Owned DDL: CREATE INDEX name ON table (column, ...).
+                table, columns = definition[4], definition[6:-1:2]
+                if not _matches_index(db, name, table, columns):
+                    raise ValueError('incompatible store schema')
             elif definition != _tokens(schema[name][1] or ''):
                 raise ValueError('incompatible store schema')
         return absent
@@ -48,16 +66,24 @@ def _install(uri, statements, prerequisite, now, deadline):
 
 
 def _step(ledger, role, uri, statements, prerequisite, now, boot_deadline):
-    # Exclusive locking mode retains this sidecar lock across commits, including
-    # the durable attempt reservation. Process death releases it automatically.
-    ledger.execute('pragma locking_mode=exclusive')
-    ledger.execute('begin exclusive')
+    ledger.execute('begin immediate')
+    if ledger.execute('pragma journal_mode').fetchone() != ('wal',):
+        # Serialize the one-time conversion among initializers. Closing this
+        # connection releases exclusive mode before any attempt is reserved.
+        if ledger.execute("select 1 from sqlite_master where name='schema_boot_v2'").fetchone():
+            # A rollback-mode reader can prevent *any* durable write. Require
+            # a quiescent cutover instead of granting a new wait at every boot.
+            ledger.execute('pragma busy_timeout=0')
+        ledger.execute('pragma locking_mode=exclusive')
+        ledger.commit()
+        if ledger.execute('pragma journal_mode=wal').fetchone() != ('wal',):
+            raise RuntimeError('schema startup ledger requires WAL')
+        return 0
     ledger.execute("""create table if not exists schema_boot_v2 (
         role text primary key, attempts integer not null, deadline real not null,
         next_at real not null, state text not null)""")
-    ledger.commit()
-    row = ledger.execute('select attempts, deadline, next_at, state from schema_boot_v2 where role=?',
-                         (role,)).fetchone()
+    read_budget = 'select attempts, deadline, next_at, state from schema_boot_v2 where role=?'
+    row = ledger.execute(read_budget, (role,)).fetchone()
     current = now()
     if row is None and current >= boot_deadline:
         # A late waiter may arrive after another worker resolved the incident.
@@ -68,11 +94,17 @@ def _step(ledger, role, uri, statements, prerequisite, now, boot_deadline):
     def pause():
         ledger.execute("insert or replace into schema_boot_v2 values (?,?,?,?,'EXHAUSTED')",
                        (role, attempts, deadline, next_at))
+        ledger.commit()
         raise RuntimeError('schema startup budget exhausted')
 
     if state not in ('ACTIVE', 'RETRY_WAIT'):
         raise RuntimeError('schema startup requires intervention')
-    if attempts >= len(DELAYS) + 1 or max(current, next_at) >= deadline or current < deadline - WINDOW:
+    if current >= deadline or current < deadline - WINDOW:
+        pause()
+    if state == 'ACTIVE' and attempts == len(DELAYS) + 1:
+        # Allow the final reservation to reacquire the writer lock and finish.
+        return min(DELAYS[0], deadline - current)
+    if attempts >= len(DELAYS) + 1 or next_at >= deadline:
         pause()
     if current < next_at:
         return next_at - current
@@ -84,6 +116,15 @@ def _step(ledger, role, uri, statements, prerequisite, now, boot_deadline):
     next_at = current + delay
     ledger.execute('insert or replace into schema_boot_v2 values (?,?,?,?,?)',
                    (role, attempts, deadline, next_at, 'ACTIVE'))
+    ledger.commit()
+    # A replacement may have taken over between the durable reservation and
+    # reacquiring the writer lock. Only the current reservation can touch the store.
+    ledger.execute('begin immediate')
+    reserved = ledger.execute(read_budget, (role,)).fetchone()
+    if reserved is None:
+        return None
+    if reserved != (attempts, deadline, next_at, 'ACTIVE'):
+        return 0
     try:
         if now() >= deadline:
             raise TimeoutError('schema startup deadline reached')
@@ -94,16 +135,19 @@ def _step(ledger, role, uri, statements, prerequisite, now, boot_deadline):
             pause()
         if not isinstance(exc, sqlite3.OperationalError) or code not in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED):
             ledger.execute("update schema_boot_v2 set state='BLOCKED' where role=?", (role,))
+            ledger.commit()
             raise
         next_at = now() + delay
         if not delay or next_at >= deadline:
             pause()
         ledger.execute("update schema_boot_v2 set next_at=?, state='RETRY_WAIT' where role=?", (next_at, role))
+        ledger.commit()
         return delay
 
     if now() >= deadline:
         pause()
     ledger.execute('delete from schema_boot_v2 where role=?', (role,))
+    ledger.commit()
     return None
 
 
@@ -123,4 +167,5 @@ def initialize_schema(path, role, statements, *, prerequisite=None):
             delay = _step(ledger, role, uri, statements, prerequisite, now, boot_deadline)
         if delay is None:
             return uri
-        time.sleep(delay)
+        if delay:
+            time.sleep(delay)
