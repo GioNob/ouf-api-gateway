@@ -1,0 +1,19 @@
+{
+  "schema": "ouf.source-api-binding-registry.v1",
+  "revision": 1,
+  "bindings": [
+    {
+      "bindingRef": "gateway://sources/vertical-mock",
+      "title": "Verticale di prova (dati fittizi)",
+      "contract": "ouf.vertical-source.v1",
+      "origin": "https://vertical-mock.example.invalid:8443",
+      "allowedNetworks": ["192.0.2.0/24"],
+      "credentialRef": "secret://vertical-mock-read",
+      "trustRef": "trust://vertical-mock-ca",
+      "tenants": ["tenant-example"],
+      "collections": ["*"],
+      "limits": {"maxPageBytes": 5000000, "timeout": "PT20S", "maxRequestsPerMinute": 60, "maxConcurrency": 4},
+      "status": "ACTIVE"
+    }
+  ]
+}
