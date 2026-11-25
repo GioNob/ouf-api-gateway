@@ -23,7 +23,7 @@ spec:
   policy:
     identity: M2M
     allowedServiceIdentities:
-    - ouf-onboarding
+    - installation://iam.workloadClients.onboarding
     - installation://iam.workloadClients.ingestion
     allowedActorTypes:
     - SERVICE

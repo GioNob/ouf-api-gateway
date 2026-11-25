@@ -25,6 +25,13 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry',
                 'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read', 'ths-identity-preflight-create'}
 
+BUNDLE_OWNED.update({
+    'onboarding-managed-file-read', 'onboarding-identity-preflight-read',
+    'r4a-onboarding-ingestion-compatibility', 'r4a-onboarding-ingestion-compatibility-read',
+    'r4a-onboarding-ingestion-configuration-read', 'semantic-approval-request', 'semantic-artifact-propose',
+    'semantic-artifact-search', 'semantic-rdf-import', 'semantic-revision-validate',
+})
+
 
 def reject_bundle_owned(ids):
     ids = set(ids)  # callers pass generators; both checks must see every ID
