@@ -487,6 +487,14 @@ def test_current_pinned_catalog():
     catalog = Catalog(wire({'capabilities': rows}))
     assert set(catalog.entries) == set(BINDINGS)
     # GW-58A-01: the batch row keeps the MCP tool name; the operation name is not a tool.
+    # GW-58O-01: the expected name is the literal of the real MCP manifest (1.17.0 onwards,
+    # `internal/manifest/capabilities.json`), not derived from TOOL_NAMES itself.
+    assert TOOL_NAMES == {SEARCH_BATCH: 'semantic.search.batch'}
+    literal = copy.deepcopy(rows)
+    for row in literal:
+        if row['capabilityId'] == SEARCH_BATCH:
+            row['toolName'] = 'semantic.search.batch'
+    assert SEARCH_BATCH in Catalog(wire({'capabilities': literal})).entries
     renamed = copy.deepcopy(rows)
     for row in renamed:
         if row['capabilityId'] == SEARCH_BATCH:
