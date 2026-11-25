@@ -13,6 +13,8 @@ cleanup() {
   rm -rf -- "$root"
 }
 trap cleanup EXIT
+# Name the failing check and show the captured container output (no secrets are logged).
+trap 'echo "::error::smoke failed at line $LINENO"; for f in "$root"/*.log; do [[ -f $f ]] && { echo "== $f"; cat "$f"; }; done' ERR
 mkdir -p "$root"/{pki,config,authority-store,iam-store}
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=fixture-ca \
   -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' \
