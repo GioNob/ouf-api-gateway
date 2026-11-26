@@ -105,7 +105,7 @@ def test_baseline(artifact):
     resources = json.loads((artifact / 'bundle.json').read_bytes())['resources']
     baseline = [r for r in resources if r['id'] in BASELINE_3D69CB4_IDS]
     assert len(baseline) == len(BASELINE_3D69CB4_IDS) == 31
-    assert sha256(canonical_json(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert sha256(canonical_json(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
 
 
 def test_portable_family_contract(artifact):

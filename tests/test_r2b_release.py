@@ -59,7 +59,7 @@ def test_release_additions_preserve_predecessor_resources_and_placeholders(bundl
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
     task_51j = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS - set(SEARCH_IDS)]
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
-        '9cb3f58933b92bece3c2ed8074f6b04ef21bb4520868a5d4009a2eca4cdba12e')
+        'f7754f3b385b7b94eab360b0b3dcf1fe164aa1cf25df4e89c1650f70256593f3')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
     assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
@@ -73,7 +73,7 @@ def test_v3_preserves_baseline_resources_and_placeholders(bundle):
     """GW-60J-01. Pin the 3d69cb4 projection independently of subsequent route families."""
     baseline = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS]
     assert {row['id'] for row in baseline} == BASELINE_3D69CB4_IDS
-    assert sha256(canonical_json(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert sha256(canonical_json(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
     assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources']))
     names = set(placeholder_names(baseline))
     placeholders = [p for p in bundle['placeholders'] if p['name'] in names]

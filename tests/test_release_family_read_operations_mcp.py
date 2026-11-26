@@ -50,7 +50,7 @@ def test_predecessor_and_adopted_ids(artifact):
     """GW-60d-01. Pin the explicit predecessor independently of future families."""
     rows = resources(artifact)
     baseline = [r for r in rows if r['id'] in BASELINE_51M_IDS]
-    assert digest(canonical(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert digest(canonical(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
     assert {r['id'] for r in rows}.issuperset(READ_OPERATIONS_IDS)
     assert set(READ_OPERATIONS_IDS) == ROUTES.keys()
     # GW-60d-c-01. DN-L3-3: one contract, the owner limit, adopted on the live ID.

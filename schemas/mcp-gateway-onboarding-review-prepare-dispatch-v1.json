@@ -79,8 +79,7 @@
           "required": [
             "semanticBindings",
             "semanticPublicationSetRef",
-            "udp",
-            "limits"
+            "udp"
           ],
           "properties": {
             "semanticBindings": {
@@ -388,11 +387,7 @@
             "limits": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "maxRows",
-                "maxColumns",
-                "maxCellChars"
-              ],
+              "description": "Onboarding derives ceilings from the file profile. Supply only tighter limits at or above the observed file values.",
               "properties": {
                 "maxRows": {
                   "type": "integer",
