@@ -16,6 +16,8 @@ from tools.delegation_functions import INSTALLATION_LABELS
 from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
 from tools.r2b_limits import ROUTE_CLASSES
 from tools.release_family_onboarding_mcp import family_routes as onboarding_mcp
+from tools.release_family_onboarding_rest import materialize as onboarding_rest
+from tools.release_family_module_api import module_api_routes
 from tools.release_family_read_operations_mcp import materialize as read_operations
 from tools.release_family_public_mcp import public_mcp_resources
 from tools.release_family_ths_pages import materialize as ths_pages
@@ -87,7 +89,7 @@ def placeholder_type(name):
 def release_resources():
     # Exercise the same D-058 projection and materializer guards as a private
     # installation. These build-only inputs must never be distributed.
-    clients = {key: 'bundle-input-' + key for key in ('mcpServer', 'semantic', 'ingestion', 'udp')}
+    clients = {key: 'bundle-input-' + key for key in ('mcpServer', 'semantic', 'ingestion', 'udp', 'onboarding', 'sourceOnboarding')}
     projection = {
         'installationId': 'bundle-input-installation', 'revision': 'bundle-input-revision',
         'checksum': 'bundle-input-checksum', 'iam': {'workloadClients': clients},
@@ -121,9 +123,13 @@ def release_resources():
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
     for route in ths_pages(reviewed, runtime, bindings, secret_ref):
         resources.append(route_resource(route, 'ouf-onboarding', optional_labels='uris' in route))
+    for route in onboarding_rest(bindings, runtime['x-ouf-installation'], secret_ref):
+        resources.append(route_resource(route, 'ouf-onboarding'))
     for route, service in owner_routes(runtime, secret_ref, routes, reviewed['routes']):
         resources.append(route_resource(route, service))
     resources.extend(recovery_resources(installation))
+    for route, service in module_api_routes(runtime, bindings, routes, reviewed['routes'], clients, secret_ref, installation):
+        resources.append(route_resource(route, service))
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
             resources.append(route_resource(route, 'ouf-onboarding'))

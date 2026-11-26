@@ -20,10 +20,23 @@ BUNDLE_OWNED = {'mcp-managed-file-review-prepare', 'mcp-semantic-discovery-reque
                 'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
                 'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
                 'trusted-human-authorization-get', 'trusted-human-authorization-post',
+                'trusted-human-authorization-put', 'trusted-human-authorization-delete',
+                'trusted-human-managed-file-actions-post', 'trusted-human-managed-file-preview-get',
+                'trusted-human-managed-file-upload', 'trusted-human-installation-get', 'trusted-human-installation-post',
+                'trusted-human-onboarding-lifecycle-get', 'trusted-human-onboarding-lifecycle-post',
+                'trusted-human-onboarding-lifecycle-put', 'trusted-human-onboarding-sources-get',
+                'trusted-human-onboarding-sources-post',
                 'semantic-human-card', 'semantic-human-decision', 'semantic-human-publish',
                 'r4a-ingestion-human-quarantine-read', 'r4a-ingestion-human-quarantine-retry',
                 'r4a-udp-human-materialization-review', 'r4a-udp-human-materialization-retry',
                 'trusted-human-ingestion-onboarding-readiness', 'ths-identity-preflight-read', 'ths-identity-preflight-create'}
+
+BUNDLE_OWNED.update({
+    'onboarding-managed-file-read', 'onboarding-identity-preflight-read',
+    'r4a-onboarding-ingestion-compatibility', 'r4a-onboarding-ingestion-compatibility-read',
+    'r4a-onboarding-ingestion-configuration-read', 'semantic-approval-request', 'semantic-artifact-propose',
+    'semantic-artifact-search', 'semantic-rdf-import', 'semantic-revision-validate',
+})
 
 
 def reject_bundle_owned(ids):
@@ -34,7 +47,7 @@ def reject_bundle_owned(ids):
         raise ValueError("read operations are owned by the governed Gateway release")
 
 
-READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'execute-urban-object-search',
+READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-urban-object-search',
                       'execute-urban-acquisition-read', 'execute-ouf-ingestion-acquisition-read',
                       *('execute-ouf.' + producer + 'operations.' + mode
                         for producer in ('', 'gateway.', 'ingestion.') for mode in ('summary', 'incidents'))}
@@ -42,7 +55,8 @@ READ_OPERATION_IDS = {'mcp-generic-execution', 'mcp-ingestion-status', 'execute-
 
 READ_OPERATION_PATH = '/internal/capabilities/v1/execute'
 READ_OPERATION_URIS = {READ_OPERATION_PATH, *(READ_OPERATION_PATH + '/' + cap for cap in (
-    'ouf.ingestion.status', 'urban.object.search', 'ouf.ingestion.acquisition.read', 'urban.acquisition.read')),
+    'ouf.ingestion.status', 'ouf.ingestion.history', 'urban.object.search', 'ouf.ingestion.acquisition.read',
+    'urban.acquisition.read')),
     *(READ_OPERATION_PATH + '/' + key.removeprefix('execute-') for key in READ_OPERATION_IDS if key.startswith('execute-ouf.'))}
 
 

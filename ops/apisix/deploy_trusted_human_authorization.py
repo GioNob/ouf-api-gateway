@@ -23,6 +23,12 @@ MANAGED_IDS = CURRENT_IDS | LEGACY_IDS
 
 
 RELEASE_IDS = {"trusted-human-authorization-get", "trusted-human-authorization-post"}
+RELEASE_IDS |= {"trusted-human-authorization-put", "trusted-human-authorization-delete"}
+
+
+def reject_release_ids(ids):
+    if RELEASE_IDS.intersection(ids):
+        raise ValueError("these routes are owned by the governed Gateway release")
 
 def route_value(doc):
     value = doc.get("value", doc)
@@ -85,6 +91,9 @@ def snapshot(admin):
 
 
 def restore(previous, admin):
+    reject_release_ids(previous)
+    if not isinstance(previous, dict) or set(previous) != MANAGED_IDS - RELEASE_IDS:
+        raise ValueError("snapshot does not contain the full managed route set")
     failures = []
     for route_id in sorted(MANAGED_IDS - RELEASE_IDS):
         old = previous.get(route_id)
@@ -99,6 +108,8 @@ def restore(previous, admin):
 
 
 def apply(routes, admin):
+    routes = tuple(routes)
+    reject_release_ids(route["id"] for route in routes)
     previous = snapshot(admin)
     try:
         for route in routes:
@@ -138,12 +149,16 @@ def main():
     parser.add_argument("--curl-image", default="curlimages/curl:8.16.0")
     parser.add_argument("--backup-dir", type=Path, default=Path("/opt/ouf/backup"))
     args = parser.parse_args()
+    # Every valid namespace materialization contains the four governed routes.
+    if args.materialization:
+        reject_release_ids(CURRENT_IDS)
     os.umask(0o077)
     admin = Admin(args)
     try:
         if args.restore:
             previous = json.loads(args.restore.read_text())
             if set(previous) not in (MANAGED_IDS, MANAGED_IDS - RELEASE_IDS):
+                reject_release_ids(previous)
                 raise ValueError("snapshot does not contain the full managed route set")
             restore(previous, admin)
             print("TRUSTED_HUMAN_AUTHORIZATION_ROUTES_RESTORED")

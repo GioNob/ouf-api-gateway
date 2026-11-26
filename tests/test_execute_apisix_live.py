@@ -247,8 +247,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                                '/api/internal/v1/ingestion/operations/summary', '/api/internal/v1/ingestion/operations/incidents',
                                '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
-            elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/acquisition',
-                               '/api/udp/v1/operations/acquisition'):
+            elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/history',
+                               '/api/internal/v1/ingestion/operations/acquisition', '/api/udp/v1/operations/acquisition'):
                 self.reply({'headers': {k.lower(): v for k, v in self.headers.items()}, 'wire': body.decode()})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})

@@ -1,9 +1,9 @@
 {
   "provenance": {
     "repository": "GioNob/ouf-mcp-server",
-    "commit": "4b395686ab1dccb80e37e63d26a8228b472d05ac",
-    "version": "1.17.0-published-batch-v1",
-    "sha256": "ec67c43add39551d561a1ffa142dbaf1d6437b584d85b3892f07c29e0aff3acc"
+    "commit": "c6e57f2a9418315d097d3699059fcb9bb0727821",
+    "version": "1.17.1-history-limit-v1",
+    "sha256": "c8bcbb046f9e6c1626238fd32822c05a6a1d101c1cc123ac5adc42494be34850"
   },
   "capabilities": [
     {
@@ -229,7 +229,7 @@
         "ouf.operations.incidents"
       ],
       "operationalLimits": {
-        "maxLimit": 200
+        "maxLimit": 100
       },
       "resultSemantics": "Bounded persisted run history for authorized sources",
       "securityNotes": [
@@ -245,7 +245,7 @@
       "baseCostEnvelope": {
         "hardMaxToolCalls": 1,
         "hardMaxGraphCalls": 0,
-        "hardMaxDistinctObjects": 200,
+        "hardMaxDistinctObjects": 100,
         "hardMaxResultBytes": 524288,
         "hardMaxElapsedMs": 3000
       },
@@ -271,7 +271,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 200
+            "maximum": 100
           }
         }
       }
