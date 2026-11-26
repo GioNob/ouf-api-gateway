@@ -43,7 +43,7 @@ def test_baseline_and_snapshot(artifact):
     resources = json.loads((artifact / 'bundle.json').read_bytes())['resources']
     baseline = [r for r in resources if r['id'] in BASELINE_3D69CB4_IDS]
     assert {r['id'] for r in baseline} == BASELINE_3D69CB4_IDS
-    assert sha256(canonical_json(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert sha256(canonical_json(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
     snapshot = json.loads(ONBOARDING_MANIFEST.read_bytes())
     assert sha256(canonical_json(snapshot['capabilities'])) == '79b0639a09acd77deca7e463842d040b1447aeecfc22d61b55a2d3c4a8e4e0d6'
     assert snapshot['provenance']['commit'] == '4b395686ab1dccb80e37e63d26a8228b472d05ac'

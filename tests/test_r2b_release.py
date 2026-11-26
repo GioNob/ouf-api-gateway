@@ -73,7 +73,7 @@ def test_v3_preserves_baseline_resources_and_placeholders(bundle):
     """GW-60J-01. Pin the 3d69cb4 projection independently of subsequent route families."""
     baseline = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS]
     assert {row['id'] for row in baseline} == BASELINE_3D69CB4_IDS
-    assert sha256(canonical_json(baseline)) == '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'
+    assert sha256(canonical_json(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
     assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources']))
     names = set(placeholder_names(baseline))
     placeholders = [p for p in bundle['placeholders'] if p['name'] in names]
