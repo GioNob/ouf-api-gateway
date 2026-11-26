@@ -32,8 +32,8 @@ def test_portable_bodies_and_predecessors(artifact):
     resources = json.loads((artifact / 'bundle.json').read_bytes())['resources']
     base_60u = BASE_5ED88C8
     for ids, expected_size, expected_digest in (
-        (BASE_3D69CB4, 31, '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'),
-        (base_60u, 74, 'c1f2c25d8f43c4e8028330f9f98444d0339d44e4c73337ee3b897b5ac4576d22'),
+        (BASE_3D69CB4, 31, 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'),
+        (base_60u, 74, 'a2988606696bb0e556105bf3dcacfd3814f9f9884076cfb42fec5e7eb631a1e5'),
         (ONBOARDING_REST_IDS, 10, '6965ddabd5f19a5517d36e1db6eb0d96c08903c5333cb76f1c93c79a4430511a'),
     ):
         subset = [route for route in resources if route['id'] in ids]

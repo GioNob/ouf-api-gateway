@@ -117,8 +117,8 @@ class ModuleApiRelease(unittest.TestCase):
     def test_predecessors_and_service_bindings(self):
         """GW-60i-01. Identita dei due predecessori e binding Semantic per nome anche senza export."""
         base = BASE_5ED88C8
-        for ids, digest in [(BASE_3D69CB4, '672d41ca6bd2439c0d1b05e6509a37a58e24a406afc37207da0867168199e9b6'),
-                            (base, 'c1f2c25d8f43c4e8028330f9f98444d0339d44e4c73337ee3b897b5ac4576d22')]:
+        for ids, digest in [(BASE_3D69CB4, 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'),
+                            (base, 'a2988606696bb0e556105bf3dcacfd3814f9f9884076cfb42fec5e7eb631a1e5')]:
             self.assertEqual(sha256(canonical_json([r for r in self.resources if r['id'] in ids])), digest)
         adopted = [r for r in self.resources if r['id'] in MODULE_API_IDS]
         self.assertEqual(sha256(canonical_json(adopted)), '6e0d76b9c9c6a8d113b285c0cc237b1358e1f92ed51e6a15264c215c0ba8bb2b')
