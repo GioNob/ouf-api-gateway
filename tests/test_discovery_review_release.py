@@ -14,13 +14,16 @@ from tests.test_onboarding_review import request as review_request
 from tests.test_semantic_discovery_execute import request as discovery_request
 from tests.test_value_type_schemas import matched_route_context, routes, run_dispatch_rewrite
 from tools.apisix_request_schema import inline_dispatch_schema
-from tools.mcp_dispatch_contract import DISCOVERY_REVIEW_MANIFEST, DISCOVERY_SCOPE, envelope_refs
+from tools.mcp_dispatch_contract import DISCOVERY_REVIEW_MANIFEST, DISCOVERY_SCOPE, dispatch_input_schema, envelope_refs
 
 
 def test_snapshot_provenance():
-    """GW-51J-MANIFEST. Canonical five-row extraction from MCP 868daf3."""
+    """GW-51J-MANIFEST / GW-59F-MANIFEST. Canonical five-row extraction from MCP cefa37c (task-59c).
+
+    json.dumps(rows, indent=2) + newline, rows in the order of the previous extraction (868daf3).
+    """
     assert hashlib.sha256(DISCOVERY_REVIEW_MANIFEST.read_bytes()).hexdigest() == (
-        '1d92893b4e084b076cff500a862dbb5a224834a154b2ba852db98b446a4503e4')
+        'fec1ea84d71464efe7bb85e618c10fae4a92dad903846b9879d04ae8a28c593d')
 
 
 @pytest.mark.parametrize('route_id', DISCOVERY_REVIEW_IDS)
@@ -31,8 +34,8 @@ def test_release_schema_matches_manifest(routes, route_id):
     capability = fields['CapabilityID']['const']
     rows = json.loads(DISCOVERY_REVIEW_MANIFEST.read_bytes())
     row, = (r for r in rows if r['capabilityId'] == capability)
-    args = row['inputSchema']
-    args['properties'].pop('analysisId', None)
+    args = dispatch_input_schema(capability, row['inputSchema'])
+    assert not {'analysisId', 'draftAssetRef', 'revisionAssetRef'} & args['properties'].keys()
     expected = inline_dispatch_schema({'properties': {'Arguments': envelope_refs(args)}})
     assert fields['Arguments'] == expected['properties']['Arguments'], f'{route_id}: MCP Arguments drift'
     maximum = 1048576 if route_id.endswith(('adopt', 'prepare')) else 264192

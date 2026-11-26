@@ -1,0 +1,141 @@
+[
+  {
+    "id": "public-mcp-endpoint",
+    "labels": {
+      "ouf-installation": "fixture",
+      "ouf-installation-revision": "1",
+      "ouf-managed": "true",
+      "ouf-protocol": "MCP"
+    },
+    "methods": [
+      "POST"
+    ],
+    "plugins": {
+      "client-control": {
+        "max_body_size": 4194304
+      },
+      "limit-count": {
+        "count": 60,
+        "rejected_code": 429,
+        "time_window": 60
+      },
+      "openid-connect": {
+        "bearer_only": true,
+        "claim_validator": {
+          "audience": {
+            "match_with_client_id": true,
+            "required": true
+          }
+        },
+        "client_id": "fixture-audience",
+        "client_secret": "<redatto>",
+        "discovery": "https://issuer.invalid/.well-known/openid-configuration",
+        "required_scopes": [
+          "mcp.connect"
+        ],
+        "set_access_token_header": "<redatto>",
+        "set_id_token_header": "<redatto>",
+        "set_userinfo_header": false,
+        "ssl_verify": true,
+        "unauth_action": "deny",
+        "use_jwks": true
+      },
+      "proxy-rewrite": {
+        "uri": "/mcp"
+      },
+      "request-id": {
+        "algorithm": "uuid",
+        "header_name": "X-Correlation-ID",
+        "include_in_response": true
+      },
+      "request-validation": {
+        "body_schema": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "max_req_body_size": 4194304
+      },
+      "response-rewrite": {
+        "headers": {
+          "set": {
+            "WWW-Authenticate": "Bearer resource_metadata=\"https://public.invalid/.well-known/oauth-protected-resource\", scope=\"mcp.connect\""
+          }
+        },
+        "vars": [
+          [
+            "status",
+            "==",
+            401
+          ]
+        ]
+      },
+      "serverless-post-function": {
+        "functions": [
+          "return function(conf, ctx)\nlocal DELEGATION_KEY_ENV = \"FIXTURE_SIGNING_KEY\"\nlocal ISSUER = \"https://issuer.invalid\"\nlocal AUDIENCE = \"fixture-audience\"\nlocal MCP_WORKLOAD = \"fixture-client\"\n-- This code runs only after openid-connect has verified the request bearer.\nlocal cjson = require('cjson.safe')\nlocal function fail(status)\n    return ngx.exit(status)\nend\nlocal function text(v)\n    return type(v) == 'string' and #v > 0 and #v <= 4096 and not v:find('[%c]')\nend\n-- Only the canonical IAM claim is authority. No role lookup or client header.\nlocal function role_refs(values)\n    if values == nil then return '' end\n    if type(values) ~= 'table' then return nil end\n    local count, seen, roles = 0, {}, {}\n    for k,v in pairs(values) do\n        count = count + 1\n        if type(k) ~= 'number' or k < 1 or k % 1 ~= 0 or k > 32\n            or type(v) ~= 'string' or #v < 1 or #v > 128\n            or v:find('[^A-Za-z0-9_:./-]') or seen[v] then return nil end\n        seen[v] = true\n        roles[#roles+1] = v\n    end\n    if count > 32 or count ~= #values then return nil end\n    table.sort(roles)\n    local joined = table.concat(roles, ' ')\n    if #joined > 4096 then return nil end\n    return joined\nend\nlocal function role_header(value)\n    if value == nil or value == '' then return '' end\n    if type(value) ~= 'string' or #value > 4096 then return nil end\n    local roles = {}\n    for role in value:gmatch('%S+') do roles[#roles+1] = role end\n    local canonical = role_refs(roles)\n    if canonical ~= value then return nil end\n    return canonical\nend\nlocal function decode64(v)\n    if type(v) ~= 'string' or v:find('[^%w_-]') then return nil end\n    v = v:gsub('-', '+'):gsub('_', '/')\n    return ngx.decode_base64(v .. string.rep('=', (4 - #v % 4) % 4))\nend\nlocal function encode64(v)\n    return ngx.encode_base64(v):gsub('%+', '-'):gsub('/', '_'):gsub('=', '')\nend\nlocal function jwt_claims()\n    local auth = ngx.var.http_authorization\n    if type(auth) ~= 'string' then return nil end\n    local token = auth:match('^[Bb]earer%s+([^%s]+)$')\n    local payload = token and token:match('^[^.]+%.([^.]+)%.[^.]+$')\n    local raw = payload and decode64(payload)\n    return raw and cjson.decode(raw)\nend\nlocal function scope_has(scopes, wanted)\n    if type(scopes) ~= 'string' then return false end\n    for value in scopes:gmatch('%S+') do if value == wanted then return true end end\n    return false\nend\nlocal function audience_has(aud, wanted)\n    if type(aud) == 'string' then return aud == wanted end\n    if type(aud) == 'table' then\n        for _, value in ipairs(aud) do if value == wanted then return true end end\n    end\n    return false\nend\nlocal function sign(payload)\n    local key = os.getenv(DELEGATION_KEY_ENV)\n    if type(key) ~= 'string' or #key ~= 64 or key:find('[^0-9a-fA-F]') then return nil end\n    local h = require('resty.openssl.hmac').new(key, 'sha256')\n    return h and h:final('ouf-mcp-delegation-v1.' .. payload)\nend\nlocal function same(a, b)\n    if type(a) ~= 'string' or type(b) ~= 'string' or #a ~= #b then return false end\n    local bit = require('bit')\n    local diff = 0\n    for i = 1, #a do diff = bit.bor(diff, bit.bxor(a:byte(i), b:byte(i))) end\n    return diff == 0\nend\n\nlocal claims = jwt_claims()\nif type(claims) ~= 'table' or claims.iss ~= ISSUER or not audience_has(claims.aud, AUDIENCE) then return fail(401) end\nlocal now = ngx.time()\nif type(claims.exp) ~= 'number' or claims.exp <= now then return fail(401) end\nlocal client = claims.azp or claims.client_id\nif not text(client) then return fail(401) end\nlocal roles = role_refs(claims.externalRoleRefs)\nif roles == nil then return fail(401) end\nfor _, key in ipairs({'sub','tenant_id','acr','scope','ouf_actor_type'}) do\n    if not text(claims[key]) then return fail(401) end\nend\nlocal proof = cjson.encode({v=1, purpose='mcp-execute', aud=AUDIENCE, iss=ISSUER,\n    workload=MCP_WORKLOAD, iat=now, exp=math.min(claims.exp, now+60),\n    principal=claims.sub, tenant=claims.tenant_id, actor=claims.ouf_actor_type,\n    acr=claims.acr, client=client, scope=claims.scope, roles=roles})\nlocal payload = encode64(proof)\nlocal mac = sign(payload)\nif not mac then return fail(503) end\nngx.req.set_header('X-OUF-Delegation', payload .. '.' .. encode64(mac))\nngx.req.clear_header('X-OUF-External-Role-Refs')\nif roles ~= '' then ngx.req.set_header('X-OUF-External-Role-Refs', roles) end\n\nend",
+          "return function(conf, ctx) local cjson=require('cjson.safe'); local auth=ngx.var.http_authorization; if not auth then return ngx.exit(401) end; local token=auth:match('^[Bb]earer%s+(.+)$'); if not token then return ngx.exit(401) end; local payload=token:match('^[^.]+%.([^.]+)%.[^.]+$'); if not payload then return ngx.exit(401) end; payload=payload:gsub('-','+'):gsub('_','/'); local rem=#payload%4; if rem>0 then payload=payload..string.rep('=',4-rem) end; local decoded=ngx.decode_base64(payload); local claims=decoded and cjson.decode(decoded) or nil; if type(claims)~='table' then return ngx.exit(401) end; local allowed={[\"HUMAN\"]=true,[\"AI_AGENT\"]=true,[\"SERVICE\"]=true}; local actor=claims['ouf_actor_type']; if type(actor)~='string' or not allowed[actor] then return ngx.exit(403) end; local required={'sub','tenant_id','acr','iss','scope'}; for _,k in ipairs(required) do if claims[k]==nil or tostring(claims[k])=='' then return ngx.exit(401) end end; local aud=claims['aud']; if type(aud)=='table' then aud=table.concat(aud,' ') end; if aud==nil or tostring(aud)=='' then return ngx.exit(401) end; local sp=claims['azp'] or claims['client_id'] or ''; ngx.req.set_header('X-OUF-Gateway-Verified','true'); ngx.req.set_header('X-OUF-Service-Principal',tostring(sp)); ngx.req.set_header('X-OUF-Principal-ID',tostring(claims['sub'])); ngx.req.set_header('X-OUF-Tenant-ID',tostring(claims['tenant_id'])); ngx.req.set_header('X-OUF-Actor-Type',tostring(actor)); ngx.req.set_header('X-OUF-Authentication-Context-Ref',tostring(claims['acr'])); ngx.req.set_header('X-OUF-Token-Issuer',tostring(claims['iss'])); ngx.req.set_header('X-OUF-Token-Audience',tostring(aud)); ngx.req.set_header('X-OUF-Granted-Scopes',tostring(claims['scope'])); ngx.req.clear_header('Authorization'); end"
+        ],
+        "phase": "access"
+      },
+      "serverless-pre-function": {
+        "functions": [
+          "return function(conf, ctx) local headers={\"X-OUF-Actor-Type\",\"X-OUF-Authentication-Context-Ref\",\"X-OUF-Gateway-Verified\",\"X-OUF-Granted-Scopes\",\"X-OUF-Principal-ID\",\"X-OUF-Service-Principal\",\"X-OUF-Tenant-ID\",\"X-OUF-Token-Audience\",\"X-OUF-Token-Issuer\"}; for _,name in ipairs(headers) do ngx.req.clear_header(name) end end",
+          "return function(conf, ctx) ngx.req.clear_header('X-OUF-Delegation') end"
+        ],
+        "phase": "rewrite"
+      }
+    },
+    "priority": 0,
+    "status": 1,
+    "upstream": {
+      "nodes": {
+        "protocol-backend.invalid:18081": 1
+      },
+      "scheme": "http",
+      "type": "roundrobin"
+    },
+    "uri": "/mcp"
+  },
+  {
+    "id": "public-mcp-oauth-protected-resource",
+    "labels": {
+      "ouf-installation": "fixture",
+      "ouf-installation-revision": "1",
+      "ouf-managed": "true",
+      "ouf-protocol": "OAUTH_PROTECTED_RESOURCE_METADATA"
+    },
+    "methods": [
+      "GET"
+    ],
+    "plugins": {
+      "limit-count": {
+        "count": 120,
+        "rejected_code": 429,
+        "time_window": 60
+      },
+      "mocking": {
+        "content_type": "application/json",
+        "response_example": "{\"authorization_servers\":[\"https://issuer.invalid\"],\"bearer_methods_supported\":[\"header\"],\"resource\":\"https://public.invalid/mcp\",\"resource_name\":\"OUF MCP Server\",\"scopes_supported\":[\"mcp.connect\"]}",
+        "response_headers": {
+          "Cache-Control": "public, max-age=300",
+          "X-Content-Type-Options": "nosniff"
+        },
+        "response_status": 200,
+        "with_mock_header": false
+      },
+      "request-id": {
+        "algorithm": "uuid",
+        "header_name": "X-Correlation-ID",
+        "include_in_response": true
+      }
+    },
+    "priority": 0,
+    "status": 1,
+    "uri": "/.well-known/oauth-protected-resource"
+  }
+]

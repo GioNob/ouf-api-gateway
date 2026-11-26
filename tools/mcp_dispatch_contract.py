@@ -4,9 +4,21 @@ import re
 from functools import cache
 from pathlib import Path
 
+from tools import release_family_semantic_mcp as semantic_mcp
+
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+ONBOARDING_MANIFEST = MANIFEST.with_name('mcp-onboarding_mcp-capabilities.json')
+ONBOARDING_DISPATCH = {
+    'mcp-managed-file-profile': 'ouf.managed-source.file.profile',
+    'mcp-source-revision-read': 'ouf.onboarding.revision.read',
+    'mcp-permissions-read': 'authorization.permissions.read',
+    'mcp-permissions-propose': 'authorization.permissions.propose',
+    'mcp-permissions-status': 'authorization.proposal.read',
+}
+UPLOAD_ID = 'mcp-managed-file-upload'
+POLICY_BUNDLE_ID = 'mcp-authorization-policy-bundle-read'
 SEARCH_SCOPE = 'ouf.semantic.search'
 SEARCH_BATCH = SEARCH_SCOPE + '.batch'
 SEARCH_BINDINGS = {
@@ -21,6 +33,8 @@ DISCOVERY_REVIEW_SCHEMAS = {
     for mode in DISCOVERY_MODES
 }
 DISCOVERY_REVIEW_SCHEMAS['ouf.managed-source.onboarding.review.prepare'] = 'onboarding-review-prepare'
+# Arguments that guide the MCP decision and never reach the owner.
+MCP_LOCAL_CONTEXT = {'ouf.managed-source.onboarding.review.prepare': ('draftAssetRef', 'revisionAssetRef')}
 PICKER_CAPABILITY = 'ouf.managed-source.file.upload'
 PICKER_ISSUE = 'ouf.managed-source.file.handoff-issue'
 PICKER_MANIFEST = MANIFEST.with_name('mcp-picker-capabilities.json')
@@ -73,6 +87,12 @@ def capability_contracts():
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
     by_id.update(updated)
+    rows = json.loads(ONBOARDING_MANIFEST.read_bytes())['capabilities']
+    onboard = {row['capabilityId']: row for row in rows}
+    if len(rows) != len(onboard) or onboard.keys() != set(ONBOARDING_DISPATCH.values()) | {PICKER_CAPABILITY}:
+        raise ValueError('expected six distinct Onboarding MCP declarations')
+    by_id.update(onboard)
+    by_id.update(semantic_mcp.declarations())
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -82,12 +102,27 @@ def capability_contracts():
 
 
 def dispatch_input_schema(capability, schema):
-    """The MCP kernel consumes optional analysisId before dispatch for these tools."""
-    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS) and 'analysisId' in schema.get('properties', {}):
-        if 'analysisId' in schema.get('required', []):
-            raise ValueError(f'{capability}: analysisId must remain optional MCP context')
-        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
-    return schema
+    """The MCP kernel consumes optional local context before dispatch for these tools.
+
+    analysisId accompanies search, discovery, review and Semantic MCP commands. The draft and
+    revision asset references guide the MCP decision for review.prepare and are
+    removed from the owner command (MCP orchestration, withoutDraftContext).
+    commandKey of source.file.profile stays MCP context (kernel removes it before dispatch).
+    """
+    local = set()
+    if capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values():
+        local.add('analysisId')
+    if capability == 'ouf.managed-source.file.profile':
+        local.add('commandKey')
+    local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
+    # A local field is MCP context: it may never be required, even when absent from properties.
+    for field in sorted(local):
+        if field in schema.get('required', []):
+            raise ValueError(f'{capability}: {field} must remain optional MCP context')
+    present = local & schema.get('properties', {}).keys()
+    if not present:
+        return schema
+    return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
 
 
 def picker_contract(route_id):

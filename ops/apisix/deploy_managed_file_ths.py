@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from ops.apisix.deploy_internal_m2m_routes import Admin, route_value, restore, snapshot
+from ops.apisix.deploy_internal_m2m_routes import Admin, reject_bundle_owned, route_value, restore, snapshot
 from tools.materialize_managed_file_ths import ROUTE_ID, URI, LOGIN_ROUTE_ID, LOGIN_URIS
 
 
@@ -45,6 +45,7 @@ def select_login(doc):
 
 
 def main():
+    reject_bundle_owned((ROUTE_ID, LOGIN_ROUTE_ID))
     p = argparse.ArgumentParser(description=__doc__)
     mode = p.add_mutually_exclusive_group(required=True)
     mode.add_argument('--materialization', type=Path)

@@ -81,7 +81,7 @@ def test_installer_rejects_existing_route_drift_without_a_write(monkeypatch, tmp
         def route(self, *args):
             raise AssertionError('no writes permitted')
     def snapshot(ids, admin):
-        assert ids == set(ROUTES)
+        assert ids == {key for key in ROUTES if not key.startswith('semantic-human-')}
         return {key: ({'uri': '/changed'} if key == selected[0]['id'] else None) for key in ids}
     monkeypatch.setattr('ops.apisix.deploy_semantic_human.snapshot', snapshot)
     with pytest.raises(RuntimeError, match='EXISTING_SEMANTIC_ROUTE_DRIFT'):

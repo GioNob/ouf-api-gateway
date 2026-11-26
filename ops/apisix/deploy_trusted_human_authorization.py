@@ -22,6 +22,8 @@ LEGACY_IDS = {
 MANAGED_IDS = CURRENT_IDS | LEGACY_IDS
 
 
+RELEASE_IDS = {"trusted-human-authorization-get", "trusted-human-authorization-post"}
+
 def route_value(doc):
     value = doc.get("value", doc)
     if isinstance(value, dict) and isinstance(value.get("value"), dict):
@@ -73,7 +75,7 @@ class Admin:
 
 def snapshot(admin):
     previous = {}
-    for route_id in sorted(MANAGED_IDS):
+    for route_id in sorted(MANAGED_IDS - RELEASE_IDS):
         code, body = admin.route("GET", route_id)
         if code not in (200, 404):
             raise RuntimeError(f"snapshot HTTP {code} for {route_id}")
@@ -84,7 +86,7 @@ def snapshot(admin):
 
 def restore(previous, admin):
     failures = []
-    for route_id in sorted(MANAGED_IDS):
+    for route_id in sorted(MANAGED_IDS - RELEASE_IDS):
         old = previous.get(route_id)
         try:
             code, _ = admin.route("PUT" if old else "DELETE", route_id, old)
@@ -100,6 +102,8 @@ def apply(routes, admin):
     previous = snapshot(admin)
     try:
         for route in routes:
+            if route["id"] in RELEASE_IDS:
+                continue
             code, _ = admin.route("PUT", route["id"], route)
             if code not in (200, 201):
                 raise RuntimeError(f"write HTTP {code}")
@@ -139,7 +143,7 @@ def main():
     try:
         if args.restore:
             previous = json.loads(args.restore.read_text())
-            if set(previous) != MANAGED_IDS:
+            if set(previous) not in (MANAGED_IDS, MANAGED_IDS - RELEASE_IDS):
                 raise ValueError("snapshot does not contain the full managed route set")
             restore(previous, admin)
             print("TRUSTED_HUMAN_AUTHORIZATION_ROUTES_RESTORED")

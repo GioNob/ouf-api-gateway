@@ -24,6 +24,8 @@ def run(args, **kwargs):
 
 
 def main():
+    # Reject before loading any pinned revision, including a pre-adoption installer.
+    raise SystemExit('Use the governed Gateway release for picker/login deployment and restore.')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--revision', required=True)
     parser.add_argument('--repo', type=Path, default=Path('/opt/ouf/gateway'))

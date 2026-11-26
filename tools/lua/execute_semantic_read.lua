@@ -23,7 +23,7 @@ end
 local roles = role_header(p.roles)
 if roles == nil then return fail(403) end
 local body
-if READ_MODE then
+if USE_CAPTURED_READ_BODY then
     body = ctx.ouf_original_body
 else
     ngx.req.read_body()

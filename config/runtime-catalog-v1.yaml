@@ -38,9 +38,31 @@ entries:
   gateway.rateLimits.r2bPublication.count: *r2bCount
   gateway.rateLimits.r2bPublication.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.r2bPublication.key: *r2bKey
+  gateway.rateLimits.onboardingMcp.count: *r2bCount
+  gateway.rateLimits.onboardingMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.authorizationPolicyRead.count: *r2bCount
+  gateway.rateLimits.authorizationPolicyRead.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearch.count: *r2bCount
   gateway.rateLimits.semanticSearch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearch.key: *r2bKey
   gateway.rateLimits.semanticSearchBatch.count: *r2bCount
   gateway.rateLimits.semanticSearchBatch.timeWindowSeconds: *r2bTimeWindowSeconds
   gateway.rateLimits.semanticSearchBatch.key: *r2bKey
+  gateway.rateLimits.semanticMcp.count: *r2bCount
+  gateway.rateLimits.semanticMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.readOperationsMcp.count: *r2bCount
+  gateway.rateLimits.readOperationsMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.publicMcp.count: *r2bCount
+  gateway.rateLimits.publicMcp.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.publicMcpMetadata.count: *r2bCount
+  gateway.rateLimits.publicMcpMetadata.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsApprovals.count: *r2bCount
+  gateway.rateLimits.thsApprovals.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsAuthorization.count: *r2bCount
+  gateway.rateLimits.thsAuthorization.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsSemantic.count: *r2bCount
+  gateway.rateLimits.thsSemantic.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsIngestionReadiness.count: *r2bCount
+  gateway.rateLimits.thsIngestionReadiness.timeWindowSeconds: *r2bTimeWindowSeconds
+  gateway.rateLimits.thsIdentityPreflight.count: *r2bCount
+  gateway.rateLimits.thsIdentityPreflight.timeWindowSeconds: *r2bTimeWindowSeconds

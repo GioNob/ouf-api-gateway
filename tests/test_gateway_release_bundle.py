@@ -4,14 +4,16 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, ci_profile, load_release_routes
+from tests.release_bundle_fixture import RATE_CLASSES, RELEASE_ROUTE_IDS, THS_QUOTAS, THS_RATE_CLASSES, ci_profile, load_release_routes
 from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 from tools import mcp_dispatch_contract
+from tests.release_bundle_fixture import READ_BACKENDS, READ_KEYS
 
 
 def test_published_terms_release(tmp_path):
+    """GW-60J-05. The CI reader resolves only the routes published as resources."""
     workflow = '.github/workflows/ci.yml'
     commit = '1' * 40
     generate(tmp_path, commit, workflow, '33')
@@ -45,14 +47,29 @@ def test_published_terms_release(tmp_path):
 
     bundle = json.loads((tmp_path / 'bundle.json').read_bytes())
     assert {p['name']: p['type'] for p in bundle['placeholders']} == {
+        'gateway.rateLimits.semanticMcp.count': 'integer', 'gateway.rateLimits.semanticMcp.timeWindowSeconds': 'integer',
+        **dict.fromkeys(READ_KEYS, 'secret'), **{'services.bindings.' + name: 'string' for name in READ_BACKENDS},
+        **{'services.ports.' + name: 'integer' for name in READ_BACKENDS},
+        'gateway.rateLimits.readOperationsMcp.count': 'integer', 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 'integer',
+        'gateway.publicMcpChallenge': 'string', 'gateway.publicMcpMetadataJson': 'string',
+        'services.bindings.ouf-mcp-server': 'string', 'services.ports.ouf-mcp-server': 'integer',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('publicMcp', 'publicMcpMetadata')
+           for field in ('count', 'timeWindowSeconds')},
         'iam.workloadClients.mcpServer': 'string', 'gateway.issuerUrl': 'url',
         'iam.workloadClients.ingestion': 'string', 'iam.workloadClients.udp': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in THS_RATE_CLASSES
+           for field in ('count', 'timeWindowSeconds')},
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
+        'iam.workloadClients.semantic': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('onboardingMcp', 'authorizationPolicyRead')
+           for field in ('count', 'timeWindowSeconds')},
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in THS_QUOTAS for field in ('count', 'timeWindowSeconds')},
         'gateway.sourceRevisionOwnerKeyEnv': 'secret',
         'gateway.semanticReadOwnerKeyEnv': 'secret',
         'gateway.semanticDiscoveryOwnerKeyEnv': 'secret', 'gateway.semanticProposalOwnerKeyEnv': 'secret', 'gateway.delegationKeyEnv': 'secret',
         'installationId': 'string', 'revision': 'string', 'gateway.requiredAudience': 'string',
+        'gateway.publicApiHost': 'string',
         'caddy.oidcDiscoveryUrl': 'url', 'gateway.oidcClientSecretRef': 'secret',
         'services.bindings.ouf-semantic-registry': 'string', 'services.ports.ouf-semantic-registry': 'integer',
         'services.bindings.ouf-onboarding': 'string', 'services.ports.ouf-onboarding': 'integer',
@@ -75,11 +92,14 @@ def test_missing_picker_issue_stops_release(tmp_path, monkeypatch):
 
 RETIREMENT = {'kind': 'routes', 'id': 'legacy', 'supersededBy': 'replacement',
               'vars': [['uri', '~~', '^/legacy$']], 'reason': 'Duplicate route'}
+MATCH = {'uri': '/old', 'uris': None, 'methods': ['POST'], 'host': None, 'hosts': None,
+         'vars': None, 'remote_addrs': None, 'priority': None, 'filter_func': None, 'status': 0, 'labels': {}}
+OBSOLETE = {'kind': 'routes', 'id': 'old', 'supersededBy': None, 'reason': 'Unused route', 'match': MATCH}
 
 
 @pytest.mark.parametrize('entries, error', [
     pytest.param({}, 'expected a list', id='list'),
-    pytest.param([{}], 'expected kind, id, supersededBy, vars and reason', id='fields'),
+    pytest.param([{}], 'must declare supersededBy', id='fields'),
     pytest.param([RETIREMENT | {'vars': []}], 'vars must be a non-empty list', id='empty-vars'),
     pytest.param([RETIREMENT | {'vars': 'uri'}], 'vars must be a non-empty list', id='non-list-vars'),
     pytest.param([RETIREMENT | {'vars': [['uri', 1]]}], 'vars must be a non-empty list', id='non-string-condition'),
@@ -94,14 +114,40 @@ RETIREMENT = {'kind': 'routes', 'id': 'legacy', 'supersededBy': 'replacement',
     pytest.param([RETIREMENT | {'supersededBy': 'service'}], 'supersededBy must identify', id='non-route-replacement'),
     pytest.param([RETIREMENT | {'supersededBy': []}], 'supersededBy must identify', id='non-string-replacement'),
     pytest.param([RETIREMENT | {'reason': ' '}], 'reason must be a non-empty string', id='empty-reason'),
+    pytest.param([RETIREMENT | {'match': MATCH}], 'expected exactly', id='mixed-replacement'),
+    pytest.param([OBSOLETE | {'vars': []}], 'expected exactly', id='mixed-obsolete'),
+    pytest.param([OBSOLETE | {'extra': None}], 'expected exactly', id='extra-field'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'extra': None}}], 'match must contain exactly', id='extra-match'),
+    pytest.param([OBSOLETE | {'match': {k: v for k, v in MATCH.items() if k != 'host'}}],
+                 'match must contain exactly', id='missing-null'),
+    pytest.param([OBSOLETE | {'id': 'replacement'}], 'already in resources', id='obsolete-in-resources'),
+    pytest.param([OBSOLETE | {'id': RETIREMENT['id']}, RETIREMENT], 'duplicate retired route ID', id='mixed-id'),
+    pytest.param([OBSOLETE | {'reason': ''}], 'reason must be a non-empty string', id='obsolete-reason'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'uri': '/current'}}], 'overlaps bundle route', id='same-selector'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'uris': ['/current'], 'uri': None, 'methods': None}}],
+                 'overlaps bundle route', id='plural-uri-all-methods'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'uri': '/curr*'}}], 'overlaps bundle route', id='wildcard'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'remote_addrs': ['192.0.2.1/32']}}],
+                 'installation URL, domain or IP', id='ipv4'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'vars': [['remote_addr', '==', '2001:db8::1']]}}],
+                 'installation IPv6', id='ipv6-vars'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'labels': {'origin': 'https://fixture'}}}],
+                 'installation URL, domain or IP', id='label-url'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'hosts': ['fixture.invalid']}}],
+                 'installation URL, domain or IP', id='domain'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'host': '*.fixture.invalid'}}],
+                 'installation URL, domain or IP', id='wildcard-domain'),
+    pytest.param([OBSOLETE | {'match': MATCH | {'labels': {'revision': {'$installation': 'revision'}}}}],
+                 'match must contain literal values', id='nested-placeholder'),
+    pytest.param([OBSOLETE | {'reason': 'Retire fixture.invalid'}], 'installation URL, domain or IP', id='public-reason'),
 ])
 def test_invalid_retirements_stop_bundle_generation(tmp_path, monkeypatch, entries, error):
-    """GW-51D3-RETIRED-VALIDATION."""
+    """GW-51D3-RETIRED-VALIDATION / GW-60J-04."""
     config = tmp_path / 'retired-routes.json'
     config.write_text(json.dumps(entries), encoding='utf-8')
     monkeypatch.setattr(gateway_release_bundle, 'RETIRED_ROUTES_PATH', config)
     monkeypatch.setattr(gateway_release_bundle, 'release_resources', lambda: [
-        {'kind': 'routes', 'id': 'replacement', 'body': {}},
+        {'kind': 'routes', 'id': 'replacement', 'body': {'uri': '/current', 'methods': ['POST']}},
         {'kind': 'services', 'id': 'service', 'body': {}},
     ])
 
@@ -110,3 +156,15 @@ def test_invalid_retirements_stop_bundle_generation(tmp_path, monkeypatch, entri
         generate(output, '1' * 40, '.github/workflows/ci.yml', '33')
     assert config.name in str(raised.value)
     assert not output.exists()
+
+
+def test_obsolete_match_preserves_literal_json(tmp_path):
+    """GW-60J-06. Empty and absent fields and typed, ordered vars retain their wire values."""
+    match = MATCH | {'vars': [['arg_page', '==', 1], ['arg_query', '==', '']],
+                     'hosts': [], 'filter_func': ''}
+    entry = OBSOLETE | {'match': match}
+    config = tmp_path / 'retired.json'
+    config.write_text(json.dumps([entry]), encoding='utf-8')
+    resources = [{'kind': 'routes', 'id': 'read', 'body': {'uri': match['uri'], 'methods': ['GET']}}]
+    actual = gateway_release_bundle.load_retired_routes(config, resources)
+    assert json.dumps(actual, sort_keys=True) == json.dumps([entry], sort_keys=True)

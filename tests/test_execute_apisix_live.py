@@ -29,7 +29,14 @@ from tests.test_dispatch_schema_contract import (
     THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
-from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
+from tests.test_release_family_onboarding_mcp import check_onboarding_http, reply_onboarding_owner
+from tests.test_release_family_semantic_mcp import check_denied_dispatch, check_owner_receipt
+from tests.release_bundle_fixture import (ONBOARDING_IDS, READ_OPERATIONS_IDS, SEMANTIC_MCP_IDS, R2B_ROUTE_IDS,
+                                          RELEASE_ROUTE_IDS, SEARCH_IDS, THS_OWNER_IDS, THS_RECOVERY_IDS,
+                                          ci_profile, load_release_routes)
+from tests.public_mcp_fixture import LEGACY_METADATA_PROBE, check_public_mcp_http
+from tests.test_release_family_ths_owner_api import HTTP_CASES, check_owner_http
+from tools.release_family_public_mcp import PUBLIC_IDS
 from tools.gateway_release_bundle import generate
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES
 from tools.mcp_dispatch_contract import INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts, picker_contract
@@ -166,6 +173,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     wave2_dispatch = wave2_dispatch_cases()
     search_receipts = {}
+    proposal_receipts = {}
     recovery_page = '/trusted-human/ingestion-run-recovery/'
     recovery_run = '/api/trusted-human/v1/ingestion/runs/11111111-1111-4111-8111-111111111111'
     human_runs = {
@@ -184,6 +192,7 @@ def test_real_apisix_oidc_delegation_and_execute():
     dispatch_bodies = {}
     class Fixture(BaseHTTPRequestHandler):
         def do_GET(self):
+            if reply_onboarding_owner(self, b''): return
             if self.path=='/discovery':
                 self.reply({'issuer':issuer,'jwks_uri':f'http://127.0.0.1:{server.server_port}/jwks','token_endpoint':issuer+'/token','authorization_endpoint':issuer+'/auth','id_token_signing_alg_values_supported':['RS256']})
             elif self.path=='/jwks': self.reply({'keys':[jwk]})
@@ -193,11 +202,14 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'target': self.path})
             elif self.path in human_runs:
                 self.human_run()
+            elif (self.command, self.path) in HTTP_CASES:
+                self.reply([self.command, self.path, '', bool(self.headers.get('Authorization'))])
             elif self.path == recovery_page:
                 self.reply({'sessionRequired': True, 'authorization': self.headers.get('Authorization')}, 401)
             else:self.send_error(404)
         def do_POST(self):
             body=self.rfile.read(int(self.headers.get('Content-Length','0')))
+            if reply_onboarding_owner(self, body): return
             if self.path in R2B_CASES:
                 self.r2b()
             elif self.path.startswith(terms_path):
@@ -205,12 +217,16 @@ def test_real_apisix_oidc_delegation_and_execute():
                 self.reply({'unexpected_method': 'POST'})
             elif self.path in human_runs:
                 self.human_run()
+            elif (self.command, self.path) in HTTP_CASES:
+                self.reply([self.command, self.path, body.decode(), bool(self.headers.get('Authorization'))])
             elif self.path in ({owner for owner, _, _ in wave2_dispatch.values()} |
                                {owner for _, owner in dispatch_paths.values()}):
                 dispatch_calls.append(self.path)
                 dispatch_bodies[self.path] = body
                 if self.path.startswith('/api/internal/v1/semantic/consultation/'):
                     search_receipts[self.path] = self.headers.get('X-OUF-Semantic-Read-Receipt')
+                if self.path.startswith('/api/semantic/v1/proposal-commands/'):
+                    proposal_receipts[self.path] = self.headers.get('X-OUF-Semantic-Proposal-Receipt')
                 if self.path == dispatch_paths['semantic.propose'][1] and len(body) > 65536:
                     self.reply({
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
@@ -222,13 +238,18 @@ def test_real_apisix_oidc_delegation_and_execute():
             elif self.path=='/mcp':
                 # Test-only MCP stub returns opaque proof to the test driver.
                 assert not self.headers.get('Authorization')
-                self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs')})
+                self.reply({'proof':self.headers.get('X-OUF-Delegation'),'roles':self.headers.get('X-OUF-External-Role-Refs'),
+                            'request': json.loads(body), 'principal': self.headers.get('X-OUF-Principal-ID'),
+                            'tokenHeaders': [h for h in ('X-Access-Token', 'X-ID-Token', 'X-Userinfo') if h in self.headers]})
             elif self.path=='/api/internal/v1/mcp/operations/status':
                 calls.append((dict(self.headers),body));self.reply({'module':'MCP','status':'HEALTHY','actionRequired':False,'partial':False,'visibilityClass':'PUBLIC_OPERATIONAL','redacted':True})
             elif self.path in ('/api/internal/v1/mcp/operations/summary', '/api/internal/v1/mcp/operations/incidents',
                                '/api/internal/v1/ingestion/operations/summary', '/api/internal/v1/ingestion/operations/incidents',
                                '/api/internal/v1/gateway/operations/summary', '/api/internal/v1/gateway/operations/incidents'):
                 self.reply({'headers': {k.lower():v for k,v in self.headers.items()}, 'body': json.loads(body)})
+            elif self.path in ('/api/internal/v1/ingestion/operations/status', '/api/internal/v1/ingestion/operations/acquisition',
+                               '/api/udp/v1/operations/acquisition'):
+                self.reply({'headers': {k.lower(): v for k, v in self.headers.items()}, 'wire': body.decode()})
             elif self.path.startswith('/api/internal/v1/authorization/permissions/'):
                 self.reply({'receipt':self.headers.get('X-OUF-Authorization-Receipt'),'body':body.decode(),'authorization':self.headers.get('Authorization')})
             elif self.path=='/api/udp/v1/objects/search':
@@ -249,7 +270,7 @@ def test_real_apisix_oidc_delegation_and_execute():
         now=int(time.time());c=dict(iss=issuer,aud=aud,iat=now,exp=now+300,sub='human-a',tenant_id='tenant-a',acr='1',azp='chatgpt',scope='mcp.connect operations.status.read',ouf_actor_type=actor)
         if actor=='SERVICE':c.update(azp=workload,sub='service',scope='authorization.bundle.read')
         c.update(updates);return jwt.encode(c,key,algorithm='RS256',headers={'kid':'fixture'})
-    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False):
+    def request(method,path,body=None,bearer=None,proof=None,*,with_headers=False,extra_headers=None):
         headers={'Content-Type':'application/json','X-Correlation-ID':'corr','Idempotency-Key':'idem','X-Tool-Attempt-ID':envelope()['AttemptID'],'X-OUF-External-Role-Refs':'ouf:forged-admin', 'X-OUF-Unknown':'forged'}
         if path.endswith('/managed.file/handoff-issue') and body and 'IdempotencyKey' in body:
             headers['Idempotency-Key'] = body['IdempotencyKey']
@@ -257,6 +278,7 @@ def test_real_apisix_oidc_delegation_and_execute():
             headers.update({'X-OUF-Gateway-Verified': 'true', 'X-OUF-Tenant-ID': 'forged-tenant',
                             'X-OUF-Service-Principal': installation['ingestionServiceIdentity']})
         if bearer:headers['Authorization']='Bearer '+bearer
+        headers.update(extra_headers or {})
         if proof:headers['X-OUF-Delegation']=proof
         data = body if isinstance(body, bytes) or body is None else json.dumps(body).encode()
         req=urllib.request.Request(f'http://127.0.0.1:{port}'+path,data=data,headers=headers,method=method)
@@ -349,17 +371,29 @@ def test_real_apisix_oidc_delegation_and_execute():
             bundle_path = Path(folder, 'release')
             commit, run_id = '1' * 40, '50'
             generate(bundle_path, commit, workflow, run_id)
-        release = load_release_routes(bundle_path, commit, workflow, run_id,
-                                      ci_profile(installation, server.server_port))
+        profile = ci_profile(installation, server.server_port)
+        release = load_release_routes(bundle_path, commit, workflow, run_id, profile)
+        reads = [r for r in release if r['id'] in READ_OPERATIONS_IDS]
+        if udp_port:
+            next(r for r in reads if r['id'] == 'execute-urban-object-search')['upstream']['nodes'][0]['port'] = udp_port
+        if owner_port:
+            # Only summary is backed by the Java owner in this test.
+            next(r for r in reads if r['uri'] == summary_uri)['upstream']['nodes'][0]['port'] = owner_port
+        read_uris = {r['uri'] for r in reads}
+        doc['routes'] = [r for r in doc['routes'] if r.get('uri') not in read_uris]
         optional_ids = [r['id'] for r in release if r['id'] in THS_LINK_DISPATCH_CASES]
         assert [route['id'] for route in release] == sorted(RELEASE_ROUTE_IDS + optional_ids)
         wave2_dispatch = wave2_dispatch_cases(release)
+        legacy_metadata, = (r for r in doc['routes'] if r.get('uri') == '/.well-known/oauth-protected-resource')
+        doc['routes'] = [r for r in doc['routes'] if r['id'] not in ONBOARDING_IDS and r['id'] not in PUBLIC_IDS]
+        doc['routes'].append(dict(legacy_metadata, id='fixture-legacy-metadata', uri=LEGACY_METADATA_PROBE))
         if bundle_dir:
             doc['routes'].extend(release)
         else:
-            doc['routes'].extend(route for route in release if route.get('uri') in wave2_dispatch
+            doc['routes'].extend(route for route in release if route['id'] in READ_OPERATIONS_IDS or route.get('uri') in wave2_dispatch
                                  or route['id'] == RECOVERY_PAGE_ID or route['id'] in RUN_ROUTES
-                                 or route['id'] in R2B_ROUTE_IDS)
+                                 or route['id'] in R2B_ROUTE_IDS or route['id'] in ONBOARDING_IDS
+                                 or route['id'] in PUBLIC_IDS or route['id'] in THS_OWNER_IDS + THS_RECOVERY_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
         for uri, (_, accepted, _) in wave2_dispatch.items():
@@ -379,9 +413,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                 probes['/internal/capabilities/v1/execute/' + suffix] = dispatch(tool_name)
         config = {
             'apisix': {'node_listen': port, 'enable_admin': False},
+            'plugins': sorted({plugin for route in doc['routes'] for plugin in route.get('plugins', {})}),
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
             'nginx_config': {'envs': ['OIDC_SECRET', 'DELEGATION_KEY', 'OWNER_KEY', 'UDP_KEY',
-                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY']},
+                                      'DISCOVERY_KEY', 'READ_KEY', 'GATEWAY_SUMMARY_RECEIPT_KEY', 'INGESTION_SUMMARY_RECEIPT_KEY']},
         }
         if bundle_dir:
             # Route readiness and the bundle assertions must observe the same worker.
@@ -389,18 +424,24 @@ def test_real_apisix_oidc_delegation_and_execute():
             # Keep route-load errors visible in the failure log during readiness.
             config['nginx_config']['http'] = {'enable_access_log': False}
         Path(folder,'config.yaml').write_text(yaml.safe_dump(config))
+        retired = json.loads((bundle_path / 'bundle.json').read_bytes())['retired']
+        assert {e['id'] for e in retired}.isdisjoint(r.get('id') for r in doc['routes'])
         Path(folder,'apisix.yaml').write_text(yaml.safe_dump({'routes':doc['routes']})+'\n#END\n')
         container_id = subprocess.check_output([
             'docker', 'run', '-d', '--network', 'host', '-e', 'OIDC_SECRET=fixture-only',
             '-e', 'DELEGATION_KEY=' + 'ab' * 32, '-e', 'OWNER_KEY=' + 'cd' * 32,
             '-e', 'READ_KEY=' + '56' * 32,
             '-e', 'DISCOVERY_KEY=' + '45' * 32, '-e', 'UDP_KEY=' + '34' * 32, '-e', 'GATEWAY_SUMMARY_RECEIPT_KEY=' + '12' * 32,
+            '-e', 'INGESTION_SUMMARY_RECEIPT_KEY=' + 'ef' * 32,
             '-v', folder + '/config.yaml:/usr/local/apisix/conf/config.yaml:ro',
             '-v', folder + '/apisix.yaml:/usr/local/apisix/conf/apisix.yaml:ro',
             'apache/apisix:3.18.0-debian',
         ], text=True).strip()
         try:
             wait_for_protected_routes(post, probes)
+            check_onboarding_http(release, request, token, installation)
+            check_public_mcp_http(request, token, installation)
+            check_owner_http(request, token)
             check_r2b_mixed_window(request, token, installation)
             for uri, (owner, accepted, rejected) in wave2_dispatch.items():
                 schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
@@ -409,6 +450,8 @@ def test_real_apisix_oidc_delegation_and_execute():
                             else capability_contracts()[bound_capability(schema)])
                 scope = ('ouf.semantic.discovery' if route_id == 'mcp-semantic-discovery-candidates'
                          else contract['requiredAuthorizationCapability'])
+                if route_id == 'mcp-semantic-get':
+                    scope = 'ouf.semantic.read'
                 status, result = post('/mcp', {}, token(scope='mcp.connect ' + scope))
                 assert status == 200
                 delegation = json.loads(result)['proof']
@@ -422,6 +465,10 @@ def test_real_apisix_oidc_delegation_and_execute():
                     assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
                     if route_id == 'mcp-semantic-discovery-candidates' or route_id in SEARCH_IDS:
                         assert dispatch_bodies[owner] == json.dumps(body).encode()
+                    if route_id in SEMANTIC_MCP_IDS:
+                        receipts = search_receipts if route_id == 'mcp-semantic-get' else proposal_receipts
+                        check_owner_receipt(route_id, receipts[owner], dispatch_bodies[owner], body)
+                        check_denied_dispatch(route_id, uri, body, post, token, delegation)
                     if route_id in SEARCH_IDS:
                         encoded, signed = search_receipts[owner].encode().split(b'.')
                         expected = hmac.digest(b'56' * 32, b'ouf-semantic-read-owner-v1.' + encoded, 'sha256')
@@ -456,7 +503,7 @@ def test_real_apisix_oidc_delegation_and_execute():
 
             if bundle_dir:
                 for route in doc['routes']:
-                    if not is_dispatch(route):
+                    if not is_dispatch(route) or route['id'] == 'mcp-managed-file-upload':
                         continue
                     schema = route['plugins']['request-validation']['body_schema']
                     invalid = dispatch_body(schema, ['private-source-value'])
@@ -580,6 +627,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             assert code==200, (code,raw)
             proof=json.loads(raw)['proof'];assert proof and proof!='forged'
             assert json.loads(raw)['roles']=='ouf:viewer'
+            from tests.test_release_family_read_operations_mcp import check_read_owner_http
+            check_read_owner_http(reads, post, token, dispatch_body)
             path='/internal/capabilities/v1/execute'
             code,raw=post(path,envelope(),token('SERVICE'),proof)
             assert code==200,(code,raw)

@@ -7,6 +7,7 @@ from pathlib import Path
 from tools.apisix_request_schema import dispatch_validation
 from tools.delegation_functions import capture_original_body, function
 from tools.materialize_operational_execute import materialize as operational_runtime
+from tools.mcp_dispatch_contract import capability_contracts, dispatch_input_schema, envelope_refs
 
 ROOT = Path(__file__).resolve().parents[1]
 PROPOSAL_REQUEST_BYTES = 65536
@@ -69,6 +70,10 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             raise ValueError('semantic proposal route already exists; reconcile before materialization')
         route['labels']['ouf-mediation'] = 'semantic-proposal-v1'
         body_schema = next(s for s in schemas if s['properties']['CapabilityID']['const'] == cap)
+        if mode in ('validate', 'review'):
+            body_schema['properties']['Arguments'] = envelope_refs(dispatch_input_schema(cap, capability_contracts()[cap]['inputSchema']))
+            if use_route_labels:
+                route['plugins']['serverless-pre-function']['functions'].append(capture_original_body(PROPOSAL_REQUEST_BYTES, reject_empty=False))
         request_limit = VALUE_MAP_REQUEST_BYTES if mode == 'create' else PROPOSAL_REQUEST_BYTES
         route['plugins']['request-validation'] = dispatch_validation(body_schema, request_limit)
         if mode == 'create':
@@ -76,7 +81,7 @@ def add_to_existing(existing, runtime, delegation_key_env, semantic_owner_key_en
             route['plugins']['serverless-pre-function']['functions'].append(capture_original_body(VALUE_MAP_REQUEST_BYTES))
         route['plugins']['serverless-post-function']['functions'] = [function('execute_semantic_proposals', installation,
             delegation_key_env, semantic_owner_key_env, operational_binding={'capability': cap, 'owner': 'semantic', 'scope': scope},
-            use_route_labels=use_route_labels and mode in ('create', 'read'))]
+            use_route_labels=use_route_labels)]
         route['plugins']['proxy-rewrite']['uri'] = path
         route['upstream'] = {'type': 'roundrobin', 'scheme': 'http', 'nodes': {'ouf-semantic-registry:8080': 1},
                              'retries': 0, 'timeout': {'connect': 3, 'send': 3, 'read': 3}}

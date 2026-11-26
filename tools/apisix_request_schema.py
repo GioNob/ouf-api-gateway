@@ -4,20 +4,39 @@ import json
 
 from tools.mcp_dispatch_contract import (
     EXECUTE_PATH, INVALID_TOOL_ARGUMENTS, PICKER_ROUTES, bound_capability, capability_contracts,
-    dispatch_input_schema, envelope_refs, picker_contract,
+    dispatch_input_schema, envelope_refs, picker_contract, ONBOARDING_DISPATCH, UPLOAD_ID,
 )
 
 
 def verify_dispatch_arguments(resources):
     """Check every released execute route against its declaration, including nested constraints."""
+    from tools.release_family_read_operations_mcp import ROUTES, arguments as read_arguments
     for item in resources:
         route = item['body']
         uri = route.get('uri', '')
-        if item['kind'] != 'routes' or not (uri == EXECUTE_PATH or uri.startswith(EXECUTE_PATH + '/')):
+        if item['kind'] != 'routes':
             continue
         route_id = item['id']
+        if route_id == UPLOAD_ID:
+            if (uri != EXECUTE_PATH + '/managed.file/upload' or route['methods'] != ['POST']
+                    or 'request-validation' in route['plugins']
+                    or route['plugins'].get('proxy-control') != {'request_buffering': False}
+                    or route['plugins'].get('client-control') != {'max_body_size': 10485760}):
+                raise ValueError(f'{route_id}: expected bounded streaming dispatch')
+            continue
+        if uri != EXECUTE_PATH and not uri.startswith(EXECUTE_PATH + '/'):
+            if route_id in ONBOARDING_DISPATCH:
+                raise ValueError(f'{route_id}: expected Onboarding dispatch URI')
+            continue
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
+        if route_id in ONBOARDING_DISPATCH and capability != ONBOARDING_DISPATCH[route_id]:
+            raise ValueError(f'{route_id}: unexpected Onboarding dispatch capability')
+        if route_id in ROUTES:
+            expected = apisix_dialect(read_arguments(ROUTES[route_id]))
+            if capability != ROUTES[route_id] or json.dumps(schema['properties']['Arguments'], sort_keys=True) != json.dumps(expected, sort_keys=True):
+                raise ValueError(f'{route_id}: read operation differs from its dispatch contract')
+            continue
         if route_id in PICKER_ROUTES:
             target, field, _ = PICKER_ROUTES[route_id]
             if capability != target:
