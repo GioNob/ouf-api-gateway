@@ -100,7 +100,7 @@
       "maxArgumentsBytes": 2097152,
       "maxResultBytes": 65536
     },
-    "resultSemantics": "Bounded version state, configuration hash and owner-issued review link; never human approval or source activation",
+    "resultSemantics": "Bounded version state, configuration hash and owner-issued review link; never human approval or source activation. A REPLACE_DRAFT resolution directs the agent to correct the reported readers on the original asset with a fresh create command key.",
     "securityNotes": [
       "Gateway signed HUMAN delegation and owner source access are checked",
       "Keep the commandKey across interruptions and reconcile current owner state before retrying",
@@ -140,6 +140,27 @@
         ]
       },
       "properties": {
+        "draftAssetRef": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "assetId",
+            "profileId"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid",
+              "maxLength": 36
+            },
+            "profileId": {
+              "type": "string",
+              "format": "uuid",
+              "maxLength": 36
+            }
+          },
+          "description": "Original managed asset and profile for a draft correction, consumed locally."
+        },
         "analysisId": {
           "type": "string",
           "pattern": "^[a-f0-9]{64}$",
@@ -178,8 +199,7 @@
           "required": [
             "semanticBindings",
             "semanticPublicationSetRef",
-            "udp",
-            "limits"
+            "udp"
           ],
           "properties": {
             "semanticBindings": {
@@ -487,11 +507,7 @@
             "limits": {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "maxRows",
-                "maxColumns",
-                "maxCellChars"
-              ],
+              "description": "Onboarding derives ceilings from the file profile. Supply only tighter limits at or above the observed file values.",
               "properties": {
                 "maxRows": {
                   "type": "integer",

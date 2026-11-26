@@ -33,6 +33,8 @@ DISCOVERY_REVIEW_SCHEMAS = {
     for mode in DISCOVERY_MODES
 }
 DISCOVERY_REVIEW_SCHEMAS['ouf.managed-source.onboarding.review.prepare'] = 'onboarding-review-prepare'
+# Arguments that guide the MCP decision and never reach the owner.
+MCP_LOCAL_CONTEXT = {'ouf.managed-source.onboarding.review.prepare': ('draftAssetRef', 'revisionAssetRef')}
 PICKER_CAPABILITY = 'ouf.managed-source.file.upload'
 PICKER_ISSUE = 'ouf.managed-source.file.handoff-issue'
 PICKER_MANIFEST = MANIFEST.with_name('mcp-picker-capabilities.json')
@@ -100,18 +102,26 @@ def capability_contracts():
 
 
 def dispatch_input_schema(capability, schema):
-    """Project local MCP context out of the Arguments sent to the Gateway."""
+    """The MCP kernel consumes optional local context before dispatch for these tools.
+
+    analysisId accompanies search, discovery, review and Semantic MCP commands. The draft and
+    revision asset references guide the MCP decision for review.prepare and are
+    removed from the owner command (MCP orchestration, withoutDraftContext).
+    commandKey of source.file.profile stays MCP context (kernel removes it before dispatch).
+    """
+    local = set()
+    if capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values():
+        local.add('analysisId')
     if capability == 'ouf.managed-source.file.profile':
-        if 'commandKey' in schema.get('required', []):
-            raise ValueError('source.file.profile commandKey must remain optional MCP context')
-        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'commandKey'}}
-    # The MCP kernel consumes optional analysisId before dispatch for these tools.
-    local_analysis = capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values()
-    if local_analysis and 'analysisId' in schema.get('properties', {}):
-        if 'analysisId' in schema.get('required', []):
-            raise ValueError(f'{capability}: analysisId must remain optional MCP context')
-        return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k != 'analysisId'}}
-    return schema
+        local.add('commandKey')
+    local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
+    present = local & schema.get('properties', {}).keys()
+    if not present:
+        return schema
+    for field in sorted(present):
+        if field in schema.get('required', []):
+            raise ValueError(f'{capability}: {field} must remain optional MCP context')
+    return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
 
 
 def picker_contract(route_id):
