@@ -115,12 +115,13 @@ def dispatch_input_schema(capability, schema):
     if capability == 'ouf.managed-source.file.profile':
         local.add('commandKey')
     local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
+    # A local field is MCP context: it may never be required, even when absent from properties.
+    for field in sorted(local):
+        if field in schema.get('required', []):
+            raise ValueError(f'{capability}: {field} must remain optional MCP context')
     present = local & schema.get('properties', {}).keys()
     if not present:
         return schema
-    for field in sorted(present):
-        if field in schema.get('required', []):
-            raise ValueError(f'{capability}: {field} must remain optional MCP context')
     return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
 
 
