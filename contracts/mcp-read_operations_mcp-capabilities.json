@@ -1,0 +1,881 @@
+{
+  "provenance": {
+    "repository": "GioNob/ouf-mcp-server",
+    "commit": "4b395686ab1dccb80e37e63d26a8228b472d05ac",
+    "version": "1.17.0-published-batch-v1",
+    "sha256": "ec67c43add39551d561a1ffa142dbaf1d6437b584d85b3892f07c29e0aff3acc"
+  },
+  "capabilities": [
+    {
+      "toolName": "urban.object.related_search",
+      "nextPolicy": "urban.object.related_search",
+      "capabilityId": "urban.object.related_search",
+      "purpose": "Find objects connected to a known anchor through governed relationship rules",
+      "useWhen": [
+        "the anchor and bounded relationship pattern are known"
+      ],
+      "doNotUseWhen": [
+        "recursive traversal or arbitrary query execution is required"
+      ],
+      "preferredAlternatives": [
+        "urban.graph.neighbors",
+        "urban.spatial.intersection_search"
+      ],
+      "operationalLimits": {
+        "maxLimit": 200,
+        "maxRelationshipTypes": 10
+      },
+      "resultSemantics": "Authorized related objects returned by the UDP server-side fixed relationship plan",
+      "securityNotes": [
+        "Gateway mediation and backend authorization are mandatory",
+        "No arbitrary query language or network destination input"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "udp",
+      "operationClass": "SEARCH",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "urban.object.related_search",
+      "gatewayBindingRef": "capability://urban.object.related_search",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 200,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 1,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "anchorObjectId",
+          "anchorTypeCode",
+          "relationIri",
+          "direction",
+          "targetTypeCodes",
+          "limit"
+        ],
+        "properties": {
+          "anchorObjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "anchorTypeCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "relationIri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "OUTBOUND",
+              "INBOUND"
+            ]
+          },
+          "targetTypeCodes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "applicationSessionRef": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.system.status",
+      "nextPolicy": "ouf.system.status",
+      "capabilityId": "ouf.system.status",
+      "purpose": "Read bounded current OUF MCP operational health from authoritative persisted recovery, debt, evidence and security state",
+      "useWhen": [
+        "the user asks whether the MCP layer is healthy or whether OUF itself has unresolved orchestration problems"
+      ],
+      "doNotUseWhen": [
+        "raw logs, credentials, SQL or protected evidence payloads are requested"
+      ],
+      "preferredAlternatives": [
+        "ouf.operations.summary",
+        "ouf.operations.incidents"
+      ],
+      "operationalLimits": {
+        "maxModules": 1
+      },
+      "resultSemantics": "Fixed PUBLIC_OPERATIONAL MCP snapshot: module, status, actionRequired, partial, visibilityClass and redacted; no incident references or counters",
+      "securityNotes": [
+        "Authorization, admission, reconciliation and audit remain mandatory",
+        "Human-facing access is Gateway-mediated and channel-neutral; the private owner API never exposes the MCP protocol endpoint"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "mcp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "operations.status.read",
+      "gatewayBindingRef": "capability://ouf.system.status",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 20,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    },
+    {
+      "toolName": "ouf.ingestion.status",
+      "nextPolicy": "ingestion",
+      "capabilityId": "ouf.ingestion.status",
+      "purpose": "Read the current authorized ingestion/source operational state without raw logs",
+      "useWhen": [
+        "the user asks whether ingestion or a source is healthy now"
+      ],
+      "doNotUseWhen": [
+        "raw telemetry or protected evidence is requested"
+      ],
+      "preferredAlternatives": [
+        "ouf.operations.summary",
+        "ouf.ingestion.history"
+      ],
+      "operationalLimits": {
+        "maxLimit": 100
+      },
+      "resultSemantics": "Bounded current source health and latest run state",
+      "securityNotes": [
+        "Tenant/source scope and redaction are enforced server-side",
+        "Gateway mediation is mandatory"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "ingestion",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ingestion.operations.read",
+      "gatewayBindingRef": "capability://ouf.ingestion.status",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.ingestion.history",
+      "nextPolicy": "ouf.ingestion.history",
+      "capabilityId": "ouf.ingestion.history",
+      "purpose": "Read bounded historical ingestion runs including failures, retries and recovery context",
+      "useWhen": [
+        "the user asks what happened to an ingestion/source in a past time window"
+      ],
+      "doNotUseWhen": [
+        "an unbounded audit export is requested"
+      ],
+      "preferredAlternatives": [
+        "ouf.ingestion.status",
+        "ouf.operations.incidents"
+      ],
+      "operationalLimits": {
+        "maxLimit": 200
+      },
+      "resultSemantics": "Bounded persisted run history for authorized sources",
+      "securityNotes": [
+        "No secrets or raw stack traces",
+        "Gateway mediation is mandatory"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "ingestion",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ingestion.operations.read",
+      "gatewayBindingRef": "capability://ouf.ingestion.history",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 200,
+        "hardMaxResultBytes": 524288,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.operations.incidents",
+      "nextPolicy": "ouf.operations.incidents",
+      "capabilityId": "ouf.operations.incidents",
+      "purpose": "List authorized persisted operational incidents, including incidents that occurred while the chatbot was offline",
+      "useWhen": [
+        "the user asks which problems are open, recovering or recently resolved"
+      ],
+      "doNotUseWhen": [
+        "security-sensitive protected evidence is requested without privileged authorization"
+      ],
+      "preferredAlternatives": [
+        "ouf.operations.summary",
+        "ouf.ingestion.status"
+      ],
+      "operationalLimits": {
+        "maxLimit": 100,
+        "budgetProfile": "ouf.operational-control-budget.v1",
+        "windowSeconds": 60,
+        "maxWindowToolCalls": 24,
+        "maxWindowResultBytes": 12582912,
+        "maxWindowDistinctObjects": 2400,
+        "equivalentStallThreshold": 3,
+        "cursorProfile": "ouf.operational-owner-vector.v1",
+        "cursorLifetimeSeconds": 1800
+      },
+      "resultSemantics": "Bounded cross-producer incident aggregates with lifecycle, severity and safe impact summaries; opt-in snapshot=true or cursor-only yields stable independently authorized owner-vector pages, consultationRecorded=false Publication coverage is opt-in and covers GATEWAY and INGESTION only; historical MCP self incidents are not covered. Read current urgent owner state separately. Publication positions do not prove client delivery, consultation, acknowledgement or resolution.",
+      "securityNotes": [
+        "MCP aggregates only owner-provided governed projections",
+        "Unavailable producer evidence yields partial output and is never mapped to no incidents",
+        "A cursor is no authority, delivery receipt or operator checkpoint; each page freshly authorizes the root and both owners. Unavailable/redacted/changed snapshot pages fail without advancing."
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "mcp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "operations.incident.read",
+      "gatewayBindingRef": "capability://ouf.operations.incidents",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 524288,
+        "hardMaxElapsedMs": 5000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "RECOVERING",
+              "RESOLVED"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "snapshot": {
+            "type": "boolean",
+            "const": true
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "coverage": {
+            "type": "boolean",
+            "const": true
+          },
+          "resumeFrom": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "RECOVERING",
+                  "RESOLVED"
+                ]
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "snapshot": {
+                "type": "boolean",
+                "const": true
+              },
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "RECOVERING",
+                  "RESOLVED"
+                ]
+              },
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "snapshot"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              }
+            },
+            "required": [
+              "cursor"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "snapshot": {
+                "type": "boolean",
+                "const": true
+              },
+              "coverage": {
+                "type": "boolean",
+                "const": true
+              },
+              "sourceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "RECOVERING",
+                  "RESOLVED"
+                ]
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "snapshot",
+              "coverage"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
+              "coverage": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": [
+              "cursor",
+              "coverage"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "resumeFrom": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "not": {
+                  "const": "00000000-0000-0000-0000-000000000000"
+                }
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "resumeFrom"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "toolName": "ouf.operations.explain",
+      "nextPolicy": "ouf.operations.explain",
+      "capabilityId": "ouf.operations.explain",
+      "purpose": "Explain one authorized operational incident using safe owner-provided classification and evidence references",
+      "useWhen": [
+        "the user asks why a specific incident happened or what action is recommended"
+      ],
+      "doNotUseWhen": [
+        "no incident reference is known or raw protected evidence is requested"
+      ],
+      "preferredAlternatives": [
+        "ouf.operations.incidents",
+        "ouf.operations.summary"
+      ],
+      "operationalLimits": {
+        "maxIncidents": 1
+      },
+      "resultSemantics": "Owner-specific safe explanation with classification, severity, lifecycle, evidence reference and recommended action",
+      "securityNotes": [
+        "The owner rechecks tenant scope and explain authorization",
+        "No raw stack traces, tokens or protected evidence payloads"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "ingestion",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "operations.incident.explain",
+      "gatewayBindingRef": "capability://ouf.operations.explain",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 1,
+        "hardMaxResultBytes": 131072,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "incidentId"
+        ],
+        "properties": {
+          "incidentId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.operations.summary",
+      "nextPolicy": "ouf.operations.summary",
+      "capabilityId": "ouf.operations.summary",
+      "purpose": "Summarize significant authorized operational events in a bounded time window for chatbot catch-up",
+      "useWhen": [
+        "the user asks what happened while they were away or whether OUF had problems"
+      ],
+      "doNotUseWhen": [
+        "the user needs protected raw evidence"
+      ],
+      "preferredAlternatives": [
+        "ouf.operations.incidents",
+        "ouf.ingestion.history"
+      ],
+      "operationalLimits": {
+        "maxLimit": 100,
+        "budgetProfile": "ouf.operational-control-budget.v1",
+        "windowSeconds": 60,
+        "maxWindowToolCalls": 24,
+        "maxWindowResultBytes": 12582912,
+        "maxWindowDistinctObjects": 2400,
+        "equivalentStallThreshold": 3
+      },
+      "resultSemantics": "Safe cross-producer catch-up summary preserving DEGRADED, RECOVERING and partial semantics",
+      "securityNotes": [
+        "Missing producer evidence must never be manufactured as HEALTHY",
+        "Producer calls remain independently Authorization- and Gateway-governed"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "mcp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "operations.status.read",
+      "gatewayBindingRef": "capability://ouf.operations.summary",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 524288,
+        "hardMaxElapsedMs": 5000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      }
+    },
+    {
+      "toolName": "urban.object.search",
+      "nextPolicy": "udp",
+      "capabilityId": "urban.object.search",
+      "purpose": "Search urban objects of one exact canonical type with bounded owner-authorized pagination",
+      "useWhen": [
+        "the exact object type is known and a bounded object search is needed"
+      ],
+      "doNotUseWhen": [
+        "relationship traversal, arbitrary predicates or an unbounded query is needed"
+      ],
+      "preferredAlternatives": [
+        "urban.object.related_search"
+      ],
+      "operationalLimits": {
+        "maxPageSize": 100,
+        "maxResultBytes": 262144
+      },
+      "resultSemantics": "Only UDP-authorized objects and properties, with an opaque cursor or a partial result when applicable",
+      "securityNotes": [
+        "Gateway workload identity and signed HUMAN delegation are mandatory",
+        "UDP checks the owner authorization bundle per object and property",
+        "No arbitrary predicates or backend selection"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "udp",
+      "operationClass": "SEARCH",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "urban.object.search",
+      "gatewayBindingRef": "capability://urban.object.search",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 262144,
+        "hardMaxElapsedMs": 3000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 1,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "pageSize": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "ouf.ingestion.acquisition.read",
+      "nextPolicy": "ouf.ingestion.acquisition.read",
+      "capabilityId": "ouf.ingestion.acquisition.read",
+      "purpose": "Read minimized acquisition evidence for one exact existing source and run",
+      "useWhen": [
+        "verify pinned contracts, ACK and watermark"
+      ],
+      "doNotUseWhen": [
+        "raw payloads, credentials, unbounded history or execution of an acquisition are requested"
+      ],
+      "preferredAlternatives": [
+        "ouf.ingestion.status",
+        "ouf.ingestion.history"
+      ],
+      "operationalLimits": {
+        "maxLimit": 100,
+        "maxPropertiesPerHandoff": 200
+      },
+      "resultSemantics": "Bounded owner snapshot with explicit redaction/truncation; not E2E acceptance",
+      "securityNotes": [
+        "Exact tenant/source/run policy checks; every contributing read permission is required by owner",
+        "No raw CSV, raw paths, credentials or source-object keys; permanent denial is not automatically retried",
+        "ACK, durable intake and materialization are separate facts"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "ingestion",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "ingestion.lineage.read",
+      "gatewayBindingRef": "capability://ouf.ingestion.acquisition.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 12000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "runId"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "afterLineageId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    },
+    {
+      "toolName": "urban.acquisition.read",
+      "nextPolicy": "urban.acquisition.read",
+      "capabilityId": "urban.acquisition.read",
+      "purpose": "Read minimized acquisition evidence for one exact existing source and run",
+      "useWhen": [
+        "verify retained intake, materialization and property provenance"
+      ],
+      "doNotUseWhen": [
+        "raw payloads, credentials, unbounded history or execution of an acquisition are requested"
+      ],
+      "preferredAlternatives": [
+        "urban.object.search"
+      ],
+      "operationalLimits": {
+        "maxLimit": 100,
+        "maxPropertiesPerHandoff": 200
+      },
+      "resultSemantics": "Bounded owner snapshot with explicit redaction/truncation; not E2E acceptance",
+      "securityNotes": [
+        "Exact tenant/source/run policy checks; every contributing read permission is required by owner",
+        "No raw CSV, raw paths, credentials or source-object keys; permanent denial is not automatically retried",
+        "ACK, durable intake and materialization are separate facts"
+      ],
+      "mcpClass": "MCP_TOOL",
+      "owner": "udp",
+      "operationClass": "READ",
+      "publicationState": "ACTIVE",
+      "requiredAuthorizationCapability": "lineage.object.read",
+      "gatewayBindingRef": "capability://urban.acquisition.read",
+      "baseCostEnvelope": {
+        "hardMaxToolCalls": 1,
+        "hardMaxGraphCalls": 0,
+        "hardMaxDistinctObjects": 100,
+        "hardMaxResultBytes": 1048576,
+        "hardMaxElapsedMs": 12000
+      },
+      "conditionalOutcomeCost": {
+        "mismatchCalls": 0,
+        "equivalentRetryCalls": 1
+      },
+      "toolEligible": true,
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sourceId",
+          "runId"
+        ],
+        "properties": {
+          "sourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "afterHandoffId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    }
+  ]
+}

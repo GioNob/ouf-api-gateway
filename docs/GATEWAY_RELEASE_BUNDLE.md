@@ -40,6 +40,18 @@ I PET `GW-51J-MANIFEST`, `GW-51J-SCHEMA`, `GW-51J-FORWARD`, `GW-51J-SCOPE`,
 `GW-51J-PARITY` verifica il digest delle precedenti 24 risorse in
 [`test_r2b_release.py`](../tests/test_r2b_release.py).
 
+## Pagine THS, approvazioni e autorizzazione (D-087, 60f)
+
+Onboarding gestisce sessione e CSRF per le pagine e i callback. Le API di approvazione
+e le operazioni amministrative GET e POST conservano il bearer per la verifica dell’owner.
+Prima del rilascio, il profilo dell’esecutore deve fornire `count` e `timeWindowSeconds`
+per `gateway.rateLimits.thsApprovals` e `gateway.rateLimits.thsAuthorization`.
+I quattro valori sono interi e provengono da `limit-count.count` e `limit-count.time_window`
+delle rispettive rotte installate. PUT e DELETE amministrativi restano da valutare con l’owner.
+
+I PET da `GW-60f-01` a `GW-60f-08` verificano il sottoinsieme di base, i corpi APISIX,
+i conflitti, il ritorno, i deployer legacy e gli header inoltrati. La prova sull’inventario
+richiede i due export sanificati del task. [Test della famiglia](../tests/test_release_family_ths_pages.py)
 ### Limiti dell'acquisizione derivati da Onboarding (59f)
 
 Lo snapshot delle cinque righe viene ora dal manifest MCP `cefa37c`
@@ -60,22 +72,26 @@ Il rilascio di questo Gateway precede quello del MCP del task-59c.
 
 ### Lotto di revisione semantica (DN-L2-2, 59j)
 
-Il compilatore sovrappone allo snapshot 1.15.2 le due dichiarazioni di
+Il compilatore applica per ultime le due dichiarazioni di
 `contracts/mcp-semantic-review-batch-capabilities.json`, estratte in ordine
 dal manifest MCP 59i `1.19.0-semantic-review-batch-v1`. Il materializzatore
-usa la stessa proiezione in `schemas/mcp-gateway-semantic-proposals-v1.json`.
+usa gli stessi `Arguments` del catalogo `schemas/mcp-gateway-semantic-proposals-v1.json`.
 Il kernel MCP consuma `analysisId` prima del dispatch. Il Gateway lo esclude
-dalle proprietà comuni e da ciascun ramo chiuso di `oneOf`.
+dalle proprietà comuni e da ciascun ramo chiuso di `oneOf`. Un campo locale
+in `required` fa fallire la compilazione anche se manca da `properties`.
+`reviewContextRef` e `expectedVersion` richiedono esattamente 64 cifre
+esadecimali minuscole. I pattern di `commandKey` e degli UUID richiedono
+la fine effettiva della stringa anche nel validatore PCRE di APISIX.
 
 | Capability | Forme accettate dal dispatch |
 | --- | --- |
 | `ouf.semantic.approval.request` | Singola con `revisionId`, oppure `ADD`, `REMOVE`, `SUBMIT`, `RESUBMIT` con `reviewContextRef`. Ogni comando richiede `commandKey`. |
 | `ouf.semantic.proposal.read` | Un solo selettore fra `commandKey`, `reviewContextRef` e `reviewBatchId`. Ogni forma ammette `expectedVersion`. Solo la lettura per lotto ammette `itemsOffset` intero da 0 a 4095. |
 
-Il diff rispetto a `da4c8bf` riguarda gli `Arguments` di `request-validation`
-su `mcp-semantic-review` e `mcp-semantic-read` nella configurazione compilata,
-su `semantic-proposal-review` e `semantic-proposal-read` nel materializzatore.
-Il bundle D-081 include solo la lettura di questa coppia. Il dispatch mantiene
+Rispetto a `ead98dd` cambiano gli `Arguments` di `request-validation` su
+`semantic-proposal-review` e `mcp-semantic-read` nella configurazione compilata.
+Il bundle D-081 v3 adotta le due rotte materializzate con gli ID
+`semantic-proposal-review` e `semantic-proposal-read`. Il dispatch mantiene
 3 s e 64 KiB per la richiesta. La THS mantiene 10 s e 64 KiB. La forma
 singola e la lettura per comando restano valide durante il rilascio,
 senza migrazione (D-080). Il registro della configurazione conserva gli
@@ -84,7 +100,7 @@ archivi esistenti (D-065). L'installazione usa i valori già previsti.
 | PET | Riscontro |
 | --- | --- |
 | `GW-59J-MANIFEST`, `GW-59J-LOCAL`, `GW-59J-SCHEMA`, `GW-59J-FORMS` | Impronta delle due righe, errore su contesto locale obbligatorio, parità dei due produttori e verdetti sulle forme e sui limiti. [Test degli schemi](../tests/test_semantic_review_batch_schemas.py) |
-| `GW-59J-PREDECESSOR`, `GW-59J-BUNDLE` | Parità della forma singola e della lettura per comando. Ripristinando i soli `Arguments` precedenti si ritrovano le impronte della configurazione compilata e del bundle 59f. [Configurazione compilata](../tests/test_semantic_review_batch_schemas.py) e [bundle D-081](../tests/test_r2b_release.py) |
+| `GW-59J-PREDECESSOR`, `GW-59J-BUNDLE` | I primi rami 59i coincidono, prima della proiezione, con gli schemi MCP di `16c5228` e `cefa37c`. Ripristinando i soli `Arguments` precedenti si ritrovano le impronte della configurazione compilata e del bundle v3 a `ead98dd`. [Configurazione compilata](../tests/test_semantic_review_batch_schemas.py) e [bundle D-081](../tests/test_r2b_release.py) |
 | `GW-59J-LUA` | Il gate CI valuta lo stesso corpus, comprese le forme miste, i discriminanti `const`, la paginazione e le richieste del predecessore, con il validatore dell'immagine APISIX 3.18.0. [Gate Lua](../tests/test_apisix_lua_schema_parity.py) |
 | `GW-59J-PAGE` | Il gate HTTP verifica gli offset ricevuti dall'owner, il rifiuto prima dell'inoltro e l'integrità byte per byte di una risposta JSON da 100 KiB. [Gate HTTP](../tests/test_execute_apisix_live.py) |
 
@@ -112,13 +128,13 @@ la validazione del corpo. [Schema della conferma](../schemas/ths-resolution-pack
 
 Il bundle incrementale contiene le risorse APISIX in tabella e quelle del
 secondo giro D-085 riportate più avanti.
-Il contratto `ouf.gateway-release-bundle.v2` usa i segnaposto D-058 per host,
+Il contratto `ouf.gateway-release-bundle.v3` usa i segnaposto D-058 per host,
 porta intera, discovery OIDC, audience, riferimento al segreto client e label
-d’installazione. Il manifest `ouf.gateway-release-manifest.v2` riporta commit,
+d’installazione. Il manifest `ouf.gateway-release-manifest.v3` riporta commit,
 workflow, ID del run e digest.
 
-L’elenco `retired` dichiara due rotte create a mano che duplicano percorso,
-metodo e `vars` delle rotte Ingestion governate. Ogni voce riporta i `vars` letterali
+Nell’elenco `retired` le due rotte sostituite duplicano percorso, metodo e
+`vars` delle rotte Ingestion governate. Le due voci riportano i `vars` letterali
 della rotta legacy: le classi di caratteri sono scritte in un altro ordine, con la stessa
 semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle e manifest riportano
 `retiredSha256`, lo SHA-256 del JSON canonico di `retired`.
@@ -129,9 +145,17 @@ semantica, e l’esecutore rimuove solo una rotta con quei `vars` esatti. Bundle
 | `r4a-ingestion-human-run-read` | `trusted-human-ingestion-run-read` |
 | `r4a-ingestion-human-run-resume` | `trusted-human-ingestion-run-resume` |
 
-L’esecutore di task-51h2 mostra le rimozioni nel plan sottoposto all’operatore
-HUMAN e verifica la corrispondenza di selettori e `vars` prima di rimuovere
-ciascuna rotta. Ritorno e compensazione ricreano le rotte rimosse.
+Le due copie disattivate della ricerca correlata hanno `supersededBy: null`.
+Per ciascun ID il digest copre anche il motivo pubblico e il `match` letterale
+di selettori, stato ed etichette. Un campo assente nell’export vale `null`.
+Prima del rilascio v3 va attivato l’esecutore aggiornato di `ouf-deploy` (task-60k).
+Il plan HUMAN mostra l’ID e «da rimuovere (obsoleta: motivo)» oppure «già assente».
+L’apply verifica il corpo approvato e conferma ogni assenza. Al ritorno l’esecutore
+ripristina e rilegge il corpo del primo snapshot se l’ID è libero. Un corpo diverso
+richiede riconciliazione. Un ID già assente al primo plan resta assente.
+I PET `GW-60J-01`–`03` verificano i 31 ID di `3d69cb4` con gli schemi aggiornati e le quattro identità
+in `tests/test_r2b_release.py`. I PET `GW-60J-04`–`06` coprono gli errori statici,
+il caricamento in CI e i valori JSON letterali in `tests/test_gateway_release_bundle.py`.
 
 Il job `config-contract` genera il bundle dal commit testato sia su `push` sia
 su `pull_request` e risolve i segnaposto con un profilo di test. Il gate esegue

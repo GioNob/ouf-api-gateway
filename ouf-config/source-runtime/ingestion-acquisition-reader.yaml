@@ -1,0 +1,7 @@
+apiVersion: ouf.trieste.it/v1
+kind: SourceRuntimeProfile
+metadata: {id: ingestion-acquisition-reader, version: 1.0.0, status: ACTIVE}
+spec:
+  protocol: HTTP
+  endpointRef: service://ingestion-acquisition-reader
+  sourceSchemaRef: capability-contract://ouf.ingestion.acquisition.read/v1

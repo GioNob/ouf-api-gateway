@@ -2,6 +2,7 @@
 import argparse
 import copy
 import hashlib
+import ipaddress
 import json
 import re
 import subprocess
@@ -14,6 +15,10 @@ from tools.compile_config import compile_config
 from tools.delegation_functions import INSTALLATION_LABELS
 from tools.materialize_apisix_internal_m2m_routes import materialize_route as internal_m2m
 from tools.r2b_limits import ROUTE_CLASSES
+from tools.release_family_onboarding_mcp import family_routes as onboarding_mcp
+from tools.release_family_read_operations_mcp import materialize as read_operations
+from tools.release_family_public_mcp import public_mcp_resources
+from tools.release_family_ths_pages import materialize as ths_pages
 from tools.materialize_managed_file_mcp import materialize as managed_file
 from tools.materialize_onboarding_review import RECOVERY_PAGE_ID, RUN_ROUTES, materialize as onboarding_review
 from tools.materialize_semantic_discovery import materialize_governed as discovery_routes
@@ -22,14 +27,18 @@ from tools.materialize_semantic_proposals import add_to_existing as semantic_pro
 from tools.materialize_source_revision import materialize as revision_prepare
 from tools.materialize_resolution_ths import UDP, materialize as resolution
 from tools.materialize_semantic_human_runtime import materialize
+from tools.release_family_ths_owner_api import owner_routes, recovery_resources
 from tools.apisix_request_schema import verify_dispatch_arguments
+from tools import release_family_semantic_mcp as semantic_mcp
 from tools.mcp_dispatch_contract import SEARCH_BINDINGS, THS_LINK_ROUTE_KEYS
 
 ROOT = Path(__file__).resolve().parents[1]
-BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v2'
-MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v2'
+BUNDLE_SCHEMA = 'ouf.gateway-release-bundle.v3'
+MANIFEST_SCHEMA = 'ouf.gateway-release-manifest.v3'
 SOURCE_REPOSITORY = 'GioNob/ouf-api-gateway'
 RETIRED_ROUTES_PATH = ROOT / 'ouf-config/release/retired-routes.json'
+MATCH_FIELDS = {'uri', 'uris', 'methods', 'host', 'hosts', 'vars', 'remote_addrs',
+                'priority', 'filter_func', 'status', 'labels'}
 RESOURCE_KINDS = ('upstreams', 'services', 'plugin_configs', 'plugin_metadata', 'global_rules', 'routes')
 RESOURCE_ID = re.compile(r'[A-Za-z0-9._-]{1,64}')
 PLACEHOLDER_NAME = re.compile(r'[A-Za-z][A-Za-z0-9_.-]{0,127}')
@@ -110,6 +119,11 @@ def release_resources():
     onboarding = 'BUNDLE_INPUT_ONBOARDING'
     managed = managed_file(runtime, secret_ref, delegation, onboarding, use_route_labels=True)
     reviewed = onboarding_review(managed, runtime, delegation, onboarding, use_route_labels=True)
+    for route in ths_pages(reviewed, runtime, bindings, secret_ref):
+        resources.append(route_resource(route, 'ouf-onboarding', optional_labels='uris' in route))
+    for route, service in owner_routes(runtime, secret_ref, routes, reviewed['routes']):
+        resources.append(route_resource(route, service))
+    resources.extend(recovery_resources(installation))
     for route in reviewed['routes']:
         if route['id'] == RECOVERY_PAGE_ID:
             resources.append(route_resource(route, 'ouf-onboarding'))
@@ -120,7 +134,9 @@ def release_resources():
     discovery = discovery_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_DISCOVERY', 'BUNDLE_INPUT_SEMANTIC')
     mediated['routes'].extend(discovery)
     mediated['routes'].extend(search_routes(mediated, runtime, delegation, 'BUNDLE_INPUT_READ'))
+    semantic_mcp.materialize(mediated, runtime, delegation, 'BUNDLE_INPUT_READ')
     dispatch_bindings = {
+        **semantic_mcp.DISPATCH_BINDINGS,
         **{key: ('ouf-semantic-registry', 'gateway.semanticReadOwnerKeyEnv') for key in SEARCH_BINDINGS},
         'mcp-semantic-discovery-request': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
         'mcp-semantic-discovery-status': ('ouf-semantic-registry', 'gateway.semanticDiscoveryOwnerKeyEnv'),
@@ -150,10 +166,15 @@ def release_resources():
                     'DELEGATION_KEY_ENV': 'gateway.delegationKeyEnv', 'OWNER_KEY_ENV': owner_env}
         route['labels'].update({label: installation(settings[key]) for key, label in INSTALLATION_LABELS.items()})
         resources.append(route_resource(route, service))
+    resources.extend(route_resource(route, 'ouf-onboarding') for route in
+                     onboarding_mcp(runtime, managed, secret_ref, delegation, onboarding, installation))
+    generic, = (r for r in managed['routes'] if r['id'] == 'mcp-generic-execution')
+    resources.extend(read_operations(runtime, generic, route_resource, installation))
+    resources.extend(public_mcp_resources(managed, runtime['x-ouf-installation'], installation, route_resource))
     return resources
 
 
-def route_resource(route, service):
+def route_resource(route, service, *, optional_labels=False):
     route = copy.deepcopy(route)
     route_id = route.pop('id')
     nodes = route['upstream']['nodes']
@@ -169,10 +190,11 @@ def route_resource(route, service):
         route['plugins']['openid-connect'].update(client_id=installation('gateway.requiredAudience'),
                                                   client_secret=installation('gateway.oidcClientSecretRef'),
                                                   discovery=installation('caddy.oidcDiscoveryUrl'))
-    labels = route['labels']
-    labels['ouf-installation'] = installation('installationId')
-    if 'ouf-installation-revision' in labels:
-        labels['ouf-installation-revision'] = installation('revision')
+    if not optional_labels or 'labels' in route:
+        labels = route['labels']
+        labels['ouf-installation'] = installation('installationId')
+        if 'ouf-installation-revision' in labels:
+            labels['ouf-installation-revision'] = installation('revision')
     return {'kind': 'routes', 'id': route_id, 'body': route}
 
 
@@ -190,6 +212,67 @@ def ordered_resources(resources):
     return sorted(resources, key=lambda item: (RESOURCE_KINDS.index(item['kind']), item['id']))
 
 
+def check_public_retirement_value(value, location):
+    # Scan keys as well as values, including nested labels and literal vars.
+    literal = json.dumps(value, ensure_ascii=False)
+    dns = r'(?<![\w-])(?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*(?![\w-]|\.[\w-])'
+    ipv4 = r'(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])'
+    if '//' in literal or re.search(dns, literal, re.IGNORECASE) or re.search(ipv4, literal):
+        raise ValueError(f'{location}: installation URL, domain or IP is not public retirement metadata')
+    for token in re.findall(r'[a-fA-F0-9:]+', literal):
+        if token.count(':') >= 2:
+            try:
+                ipaddress.IPv6Address(token)
+            except ValueError:
+                continue
+            raise ValueError(f'{location}: installation IPv6 address is not public retirement metadata')
+
+
+def retirement_selector(body):
+    uris = set(body.get('uris') or [])
+    if body.get('uri'):
+        uris.add(body['uri'])
+    host_values = list(body.get('hosts') or [])
+    if body.get('host'):
+        host_values.append(body['host'])
+    # A projected or wildcard host cannot prove two public selectors disjoint.
+    hosts = {host.lower() for host in host_values} if all(
+        isinstance(host, str) and '*' not in host for host in host_values) else set()
+    return uris, set(body.get('methods') or []), hosts
+
+
+def check_obsolete_route(match, resources, location):
+    if not isinstance(match, dict) or set(match) != MATCH_FIELDS:
+        raise ValueError(f'{location}: match must contain exactly {", ".join(sorted(MATCH_FIELDS))}')
+    if any(placeholder_names(match)):
+        raise ValueError(f'{location}: match must contain literal values, not installation placeholders')
+    check_public_retirement_value(match, f'{location}.match')
+    for field in ('uri', 'host', 'filter_func'):
+        if match[field] is not None and not isinstance(match[field], str):
+            raise ValueError(f'{location}: match.{field} must be a string or null')
+    for field in ('uris', 'methods', 'hosts', 'remote_addrs'):
+        values = match[field]
+        if values is not None and not (isinstance(values, list) and all(isinstance(v, str) for v in values)):
+            raise ValueError(f'{location}: match.{field} must be a string array or null')
+    for field, kind in (('status', int), ('priority', int), ('labels', dict), ('vars', list)):
+        if match[field] is not None and type(match[field]) is not kind:
+            raise ValueError(f'{location}: invalid type for match.{field}')
+
+    uris, methods, hosts = retirement_selector(match)
+    for resource in resources:
+        if resource['kind'] != 'routes':
+            continue
+        other_uris, other_methods, other_hosts = retirement_selector(resource['body'])
+        if methods and other_methods and methods.isdisjoint(other_methods):
+            continue
+        if hosts and other_hosts and hosts.isdisjoint(other_hosts):
+            continue
+        # An APISIX trailing wildcard can cover the same request as a literal URI.
+        if any(a == b or (a.endswith('*') and b.startswith(a[:-1])) or (b.endswith('*') and a.startswith(b[:-1]))
+               for a in uris for b in other_uris):
+            raise ValueError(f'{location}: obsolete selector overlaps bundle route {resource["id"]}')
+
+
 def load_retired_routes(path, resources):
     try:
         entries = json.loads(path.read_text(encoding='utf-8'))
@@ -204,8 +287,12 @@ def load_retired_routes(path, resources):
     seen = set()
     for index, entry in enumerate(entries):
         location = f'{path}: retired[{index}]'
-        if not isinstance(entry, dict) or set(entry) != {'kind', 'id', 'supersededBy', 'vars', 'reason'}:
-            raise ValueError(f'{location}: expected kind, id, supersededBy, vars and reason')
+        if not isinstance(entry, dict) or 'supersededBy' not in entry:
+            raise ValueError(f'{location}: retired route must declare supersededBy (route ID or null)')
+        replacement = entry['supersededBy']
+        field = 'match' if replacement is None else 'vars'
+        if set(entry) != {'kind', 'id', 'supersededBy', field, 'reason'}:
+            raise ValueError(f'{location}: expected exactly kind, id, supersededBy, {field} and reason')
         if entry['kind'] != 'routes':
             raise ValueError(f'{location}: kind must be routes')
         resource_id = entry['id']
@@ -217,17 +304,21 @@ def load_retired_routes(path, resources):
             raise ValueError(f'{location}: retired routes must be sorted by ID')
         if resource_id in resource_ids:
             raise ValueError(f'{location}: retired route ID already in resources: {resource_id}')
-        replacement = entry['supersededBy']
-        if not isinstance(replacement, str) or replacement not in route_ids:
-            raise ValueError(f'{location}: supersededBy must identify a routes resource in the bundle')
         if not isinstance(entry['reason'], str) or not entry['reason'].strip():
             raise ValueError(f'{location}: reason must be a non-empty string')
+        seen.add(resource_id)
+        if replacement is None:
+            check_public_retirement_value(entry['reason'], f'{location}.reason')
+            check_obsolete_route(entry['match'], resources, location)
+            retired.append(entry)
+            continue
+        if not isinstance(replacement, str) or replacement not in route_ids:
+            raise ValueError(f'{location}: supersededBy must identify a routes resource in the bundle')
         route_vars = entry['vars']
         # The executor deletes only a live route whose vars equal these literal APISIX conditions.
         if (not isinstance(route_vars, list) or not route_vars
                 or not all(isinstance(c, list) and c and all(isinstance(x, str) for x in c) for c in route_vars)):
             raise ValueError(f'{location}: vars must be a non-empty list of APISIX string conditions')
-        seen.add(resource_id)
         retired.append({'kind': 'routes', 'id': resource_id, 'supersededBy': replacement, 'vars': route_vars})
     return retired
 

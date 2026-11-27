@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ops.apisix.deploy_internal_m2m_routes import Admin, apply, restore, validate_routes
 
-IDS={'mcp-managed-file-profile','mcp-managed-file-preview','mcp-managed-file-create'}
+IDS={'mcp-managed-file-preview','mcp-managed-file-create'}
 PROBE_ID='00000000-0000-4000-8000-000000000001'
 
 def anonymous_probe(route):
@@ -72,12 +72,10 @@ def main():
     previous=None
     if args.restore:
         previous=json.loads(args.restore.read_text())
-        if not isinstance(previous,dict) or set(previous) not in (IDS, IDS | {'mcp-managed-file-handoff'}):
+        governed = {'mcp-managed-file-profile', 'mcp-managed-file-handoff'}
+        if not isinstance(previous, dict) or set(previous) - governed != IDS:
             raise ValueError('snapshot must contain the exact managed-file route set')
-        # Old four-route backups still restore the three legacy routes.
-        if 'mcp-managed-file-handoff' in previous:
-            del previous['mcp-managed-file-handoff']
-            print('mcp-managed-file-handoff is owned by the governed Gateway release; restoring legacy routes only')
+        previous = {key: previous[key] for key in IDS}
     else:
         routes=select(json.loads(args.materialization.read_text()))
     admin=Admin(args,'managed-file-mcp-')

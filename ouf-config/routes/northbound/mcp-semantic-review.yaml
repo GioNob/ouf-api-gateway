@@ -1,7 +1,7 @@
 apiVersion: ouf.trieste.it/v1
 kind: RouteBinding
 metadata:
-  id: mcp-semantic-review
+  id: semantic-proposal-review
   version: 1.0.0
   status: ACTIVE
 spec:
@@ -11,7 +11,7 @@ spec:
   sourceRef: r2b-semantic@1.0.0
   match:
     method: POST
-    path: /internal/capabilities/v1/execute/ouf.semantic.approval.request
+    path: /internal/capabilities/v1/execute/semantic/review
   backendBinding:
     service: ouf-semantic-registry
     port: 8080

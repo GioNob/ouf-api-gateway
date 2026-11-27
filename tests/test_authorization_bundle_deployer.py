@@ -1,19 +1,14 @@
+import subprocess
+import sys
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[1]
+import pytest
 
+ROOT = Path(__file__).resolve().parents[1]
 
-def test_authorization_bundle_deployer_has_persistent_snapshot_and_rollback():
-    raw=(ROOT/"ops/apisix/deploy_authorization_bundle_route.py").read_text()
-    assert 'ROUTE_ID="mcp-authorization-policy-bundle-read"' in raw
-    assert 'BACKUP=' in raw
-    assert 'previous.json' in raw
-    assert 'restore(previous,admin)' in raw
-    assert 'AUTHORIZATION_BUNDLE_ROUTE_ACTIVE' in raw
-    assert 'AUTHORIZATION_BUNDLE_ROUTE_RESTORED' in raw
-
-
-def test_authorization_bundle_deployer_requires_all_four_service_identities():
-    raw=(ROOT/"ops/apisix/deploy_authorization_bundle_route.py").read_text()
-    assert '("ouf-mcp-server","ouf-ingestion","ouf-udp","ouf-semantic")' in raw
-    assert 'required service identity missing' in raw
+@pytest.mark.parametrize('script', ['deploy_authorization_bundle_route.py', 'deploy_managed_file_upload.py'])
+@pytest.mark.parametrize('action', ['--materialization', '--restore'])
+def test_standalone_installer_retired(script, action):
+    result = subprocess.run([sys.executable, ROOT / 'ops/apisix' / script, action, 'absent'],
+                            capture_output=True, text=True)
+    assert result.returncode and 'governed Gateway release' in result.stderr

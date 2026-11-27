@@ -973,7 +973,7 @@
             },
             "commandKey": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+              "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
             },
             "validationRunId": {
               "type": "string",
@@ -993,7 +993,8 @@
             "reviewContextRef": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$",
-              "description": "Review batch context of one file: the analysisId of the analysis."
+              "description": "Review batch context of one file: the analysisId of the analysis.",
+              "maxLength": 64
             },
             "reviewBatchId": {
               "type": "string",
@@ -1048,7 +1049,7 @@
                 },
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "validationRunId": {
                   "type": "string",
@@ -1069,7 +1070,7 @@
               "properties": {
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "batchAction": {
                   "type": "string",
@@ -1084,7 +1085,8 @@
                 "reviewContextRef": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$",
-                  "description": "Review batch context of one file: the analysisId of the analysis."
+                  "description": "Review batch context of one file: the analysisId of the analysis.",
+                  "maxLength": 64
                 },
                 "item": {
                   "type": "object",
@@ -1126,7 +1128,7 @@
               "properties": {
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "batchAction": {
                   "type": "string",
@@ -1141,7 +1143,8 @@
                 "reviewContextRef": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$",
-                  "description": "Review batch context of one file: the analysisId of the analysis."
+                  "description": "Review batch context of one file: the analysisId of the analysis.",
+                  "maxLength": 64
                 },
                 "item": {
                   "type": "object",
@@ -1171,7 +1174,7 @@
               "properties": {
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "batchAction": {
                   "type": "string",
@@ -1186,7 +1189,8 @@
                 "reviewContextRef": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$",
-                  "description": "Review batch context of one file: the analysisId of the analysis."
+                  "description": "Review batch context of one file: the analysisId of the analysis.",
+                  "maxLength": 64
                 },
                 "reviewBatchId": {
                   "type": "string",
@@ -1207,7 +1211,7 @@
               "properties": {
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "batchAction": {
                   "type": "string",
@@ -1222,7 +1226,8 @@
                 "reviewContextRef": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$",
-                  "description": "Review batch context of one file: the analysisId of the analysis."
+                  "description": "Review batch context of one file: the analysisId of the analysis.",
+                  "maxLength": 64
                 },
                 "reviewBatchId": {
                   "type": "string",
@@ -1345,11 +1350,12 @@
           "properties": {
             "commandKey": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+              "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
             },
             "expectedVersion": {
               "type": "string",
-              "pattern": "^[a-f0-9]{64}$"
+              "pattern": "^[a-f0-9]{64}$",
+              "maxLength": 64
             },
             "includeState": {
               "type": "boolean"
@@ -1357,7 +1363,8 @@
             "reviewContextRef": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$",
-              "description": "Review batch context of one file: the analysisId of the analysis."
+              "description": "Review batch context of one file: the analysisId of the analysis.",
+              "maxLength": 64
             },
             "reviewBatchId": {
               "type": "string",
@@ -1380,11 +1387,12 @@
               "properties": {
                 "commandKey": {
                   "type": "string",
-                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}(?![\\s\\S])"
                 },
                 "expectedVersion": {
                   "type": "string",
-                  "pattern": "^[a-f0-9]{64}$"
+                  "pattern": "^[a-f0-9]{64}$",
+                  "maxLength": 64
                 },
                 "includeState": {
                   "type": "boolean"
@@ -1401,11 +1409,13 @@
                 "reviewContextRef": {
                   "type": "string",
                   "pattern": "^[a-f0-9]{64}$",
-                  "description": "Review batch context of one file: the analysisId of the analysis."
+                  "description": "Review batch context of one file: the analysisId of the analysis.",
+                  "maxLength": 64
                 },
                 "expectedVersion": {
                   "type": "string",
-                  "pattern": "^[a-f0-9]{64}$"
+                  "pattern": "^[a-f0-9]{64}$",
+                  "maxLength": 64
                 }
               }
             },
@@ -1423,7 +1433,8 @@
                 },
                 "expectedVersion": {
                   "type": "string",
-                  "pattern": "^[a-f0-9]{64}$"
+                  "pattern": "^[a-f0-9]{64}$",
+                  "maxLength": 64
                 },
                 "itemsOffset": {
                   "type": "integer",

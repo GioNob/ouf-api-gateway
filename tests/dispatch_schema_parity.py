@@ -11,16 +11,19 @@ from pathlib import Path
 from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.release_bundle_fixture import ci_profile, load_release_routes
+from tools.release_family_read_operations_mcp import ROUTES as READ_IDS, arguments as read_arguments
 from tests.schema_corpus import corpus
 from tests.test_dispatch_schema_contract import dispatch_body, dispatch_profiles, semantic_review_batch_cases
 from tests.test_execute_delegation import runtime
 from tests.test_onboarding_review import request as review_request
 from tests.test_permission_role_contract import cases as permission_cases
 from tools.gateway_release_bundle import generate
+from tools.release_family_semantic_mcp import declarations as semantic_declarations
 from tools.materialize_object_search import materialize as object_search
 from tools.materialize_permission_proposals import materialize as permission_proposals
 from tools.mcp_dispatch_contract import (
-    DATE_TIME_WIRE_PATTERN, UUID_WIRE_PATTERN, PICKER_ROUTES, bound_capability, capability_contracts, dispatch_input_schema, picker_contract,
+    DATE_TIME_WIRE_PATTERN, INVALID_TOOL_ARGUMENTS, MANIFEST, PICKER_ROUTES, UUID_WIRE_PATTERN,
+    bound_capability, capability_contracts, dispatch_input_schema, envelope_refs, picker_contract,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,21 +114,38 @@ for _name, _pattern in WIRE_FORMAT_PATTERNS.items():
     WIRE_FORMATS.checks(_name)(_wire_check(_pattern))
 
 
-def predecessor_contracts():
+def review_predecessor_schemas():
+    """Versioned copies of the 16c5228 input schemas, before Gateway projection."""
+    read, = (r for r in json.loads(MANIFEST.read_bytes())['capabilities']
+             if r['capabilityId'] == 'ouf.semantic.proposal.read')
+    approval = semantic_declarations()['ouf.semantic.approval.request']
+    return {row['capabilityId']: row['inputSchema'] for row in (approval, read)}
+
+
+def predecessor_arguments():
+    """Arguments emitted at ead98dd. At that point only approval consumed analysisId."""
+    arguments = review_predecessor_schemas()
+    del arguments['ouf.semantic.approval.request']['properties']['analysisId']
+    return {cap: envelope_refs(schema) for cap, schema in arguments.items()}
+
+
+def predecessor_schemas():
     rows = json.loads(PREDECESSOR_MANIFEST.read_bytes())['capabilities']
-    return {row['capabilityId']: row for row in rows}
+    return {row['capabilityId']: row['inputSchema'] for row in rows} | review_predecessor_schemas()
 
 
 def cases(routes):
     """(uri, body, expected, kind): expected is the verdict of the pinned MCP schema."""
-    contracts, previous = capability_contracts(), predecessor_contracts()
+    contracts, previous = capability_contracts(), predecessor_schemas()
     review_batch = semantic_review_batch_cases()
     result = []
     for uri, route in sorted(routes.items()):
         schema = route['plugins']['request-validation']['body_schema']
         capability = bound_capability(schema)
         route_id = route['id']
-        if route_id in PICKER_ROUTES:
+        if route_id in READ_IDS:
+            source = read_arguments(capability)
+        elif route_id in PICKER_ROUTES:
             _, field, _ = PICKER_ROUTES[route_id]
             source = picker_contract(route_id)[field]
         elif capability in contracts:
@@ -136,6 +156,7 @@ def cases(routes):
         for arguments in corpus(source, fixtures(capability)):
             result.append((uri, dispatch_body(schema, copy.deepcopy(arguments)), check.is_valid(arguments), 'current'))
         if capability in review_batch:
+            assert route['plugins']['request-validation']['rejected_msg'] == INVALID_TOOL_ARGUMENTS
             accepted, rejected = review_batch[capability]
             for expected, arguments_list in ((True, accepted), (False, rejected)):
                 for arguments in arguments_list:
@@ -145,7 +166,7 @@ def cases(routes):
             arguments = {'handoffId': '00000000-0000-4000-8000-000000000001'}
             result.append((uri, dispatch_body(schema, arguments), True, 'predecessor'))
         elif capability in previous:
-            old = dispatch_input_schema(capability, previous[capability]['inputSchema'])
+            old = dispatch_input_schema(capability, previous[capability])
             old_check = Draft202012Validator(old, format_checker=WIRE_FORMATS)
             for arguments in corpus(old, fixtures(capability)):
                 if old_check.is_valid(arguments):

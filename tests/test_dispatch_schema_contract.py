@@ -4,6 +4,8 @@ import json
 
 from jsonschema import Draft7Validator, FormatChecker
 
+from tests.test_release_family_semantic_mcp import dispatch_case as semantic_mcp_case
+from tests.release_bundle_fixture import SEMANTIC_MCP_IDS
 from tests.test_execute_delegation import envelope
 from tests.test_file_loop_coherence import retained_installation
 from tests.test_onboarding_review import request as review_request
@@ -116,13 +118,17 @@ def test_dispatch_profiles_match_pinned_manifest():
         assert fields['Arguments'] == expected['properties']['Arguments'], (uri, capability)
         budget = max(contract.get('operationalLimits', {}).get('maxResultBytes', 0),
                      contract['baseCostEnvelope']['hardMaxResultBytes'])
-        assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
+        if route['id'] == 'mcp-semantic-get':
+            assert fields['MaxResultBytes']['maximum'] == contract['operationalLimits']['maxResultBytes']
+        else:
+            assert fields['MaxResultBytes']['maximum'] >= budget + NEXT_RESULT_HEADROOM_BYTES, uri
         (declared if compiled else materialized).add(capability)
 
     # The legacy materializer set omits these bindings. The release test covers discovery/adopt.
     assert declared - materialized == {
         'urban.object.related_search', 'ouf.ingestion.status', 'ouf.ingestion.history',
-        'ouf.operations.explain', 'ouf.semantic.discovery.adopt', 'ouf.semantic.search.batch',
+        'urban.acquisition.read', 'ouf.ingestion.acquisition.read',
+        'ouf.operations.explain', 'ouf.onboarding.revision.read', 'ouf.semantic.discovery.adopt', 'ouf.semantic.search.batch',
     }
 
 
@@ -167,6 +173,8 @@ def semantic_review_batch_cases():
             add | revision, submit | revision, {k: v for k, v in submit.items() if k != 'reviewBatchId'},
             dict(remove, item=dict(revision, expectedRowVersion=0)), dict(add, batchAction='SUBMIT'),
             dict(submit, reviewBatchId='bad'), dict(add, item=dict(item, validationRunId='bad')),
+            dict(add, reviewContextRef='a' * 64 + '\n'), dict(single, commandKey='idem\n'),
+            dict(add, item=dict(item, revisionId=item['revisionId'] + '\n')),
             dict(single, revisionId='bad'), dict(add, reviewContextRef='g' * 64),
             dict(add, reviewContextRef='a' * 63), dict(submit, expectedVersion='b' * 64),
             *[dict(a, analysisId='c' * 64) for a in approval],
@@ -175,9 +183,11 @@ def semantic_review_batch_cases():
             dict(key, includeState=True), dict(batch, itemsOffset=0), dict(batch, itemsOffset=4095),
             dict(batch, expectedVersion='b' * 64, itemsOffset=10),
         ], [
+            dict(key, expectedVersion='b' * 64 + '\n'), {'commandKey': 'idem\n'},
+            {'reviewBatchId': batch['reviewBatchId'] + '\n'},
             key | context, batch | context, batch | key, dict(batch, includeState=True),
             dict(key, expectedVersion='private-source-value'), dict(batch, reviewBatchId='bad'),
-            *[{'reviewContextRef': ref} for ref in ('g' * 64, 'a' * 63, 'a' * 65)],
+            *[{'reviewContextRef': ref} for ref in ('g' * 64, 'a' * 63, 'a' * 65, 'a' * 64 + '\n')],
             *[dict(batch, itemsOffset=value) for value in (-1, 4096, 1.5, '0')],
             dict(key, itemsOffset=0), dict(context, itemsOffset=0),
             *[dict(s, analysisId='c' * 64) for s in selectors],
@@ -233,6 +243,11 @@ def wave2_dispatch_cases(routes=()):
             _, accepted, rejected = cases[uri]
             rejected.append(dict(accepted[0], **{argument: 'private-source-value'}))
     for route in routes:
+        if route['id'] == 'semantic-proposal-review':
+            cases[route['uri']] = ('/api/semantic/v1/proposal-commands/review',
+                                   *semantic_review_batch_cases()['ouf.semantic.approval.request'])
+        elif route['id'] in SEMANTIC_MCP_IDS:
+            cases[route['uri']] = semantic_mcp_case(route['id'])
         if route['id'] in THS_LINK_DISPATCH_CASES:
             cases[route['uri']] = THS_LINK_DISPATCH_CASES[route['id']]
         if route['id'] == 'mcp-semantic-search':

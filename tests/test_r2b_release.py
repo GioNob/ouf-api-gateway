@@ -6,13 +6,13 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
-from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources
+from tests.dispatch_schema_parity import predecessor_arguments
+from tests.release_bundle_fixture import BASELINE_3D69CB4_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
-from tools.mcp_dispatch_contract import MANIFEST, envelope_refs
 
 
 ADOPTED_ROUTE_IDS = {
@@ -57,43 +57,51 @@ def resources(bundle):
 
 
 @pytest.fixture(scope='module')
-def bundle_59f(bundle):
-    """GW-59J-BUNDLE. Restore only the predecessor Arguments and its derived checksum."""
+def bundle_60u(bundle):
+    """GW-59J-BUNDLE. Restore the two installed Arguments and their derived checksum."""
     restored = copy.deepcopy(bundle)
-    read, = (r for r in restored['resources'] if r['id'] == 'semantic-proposal-read')
-    old, = (r for r in json.loads(MANIFEST.read_bytes())['capabilities']
-            if r['capabilityId'] == 'ouf.semantic.proposal.read')
-    fields = read['body']['plugins']['request-validation']['body_schema']['properties']
-    fields['Arguments'] = envelope_refs(old['inputSchema'])
+    old = predecessor_arguments()
+    for row in restored['resources']:
+        if row['id'] in ('semantic-proposal-read', 'semantic-proposal-review'):
+            fields = row['body']['plugins']['request-validation']['body_schema']['properties']
+            fields['Arguments'] = old[fields['CapabilityID']['const']]
     restored['resourcesSha256'] = digest(canonical(restored['resources']))
-    # Complete bundle.json generated at da4c8bf with the same fixture identity.
-    assert digest(canonical(restored)) == '58bdfee0e0b4fa61860ac17a497b6acd7604ab4c2009c4bf044d7ef894da3062'
+    # Complete ead98dd artifact generated with the same fixture identity.
+    assert digest(canonical(restored)) == '7cfa4cdd33aaf9b26c416f6285574bd175624e49e441a6224f550185743e3a75'
     return restored
 
 
-def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle_59f):
-    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY / GW-59F-PARITY."""
-    assert len(bundle_59f['resources']) == 31
-    task_51j = [row for row in bundle_59f['resources'] if row['id'] not in SEARCH_IDS]
-    # 59f changes only request-validation of mcp-managed-file-review-prepare (optional limits);
-    # the 24 predecessor resources and the placeholders keep their digests below.
+def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle_60u):
+    """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
+    task_51j = [row for row in bundle_60u['resources'] if row['id'] in BASELINE_3D69CB4_IDS - set(SEARCH_IDS)]
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
         'f7754f3b385b7b94eab360b0b3dcf1fe164aa1cf25df4e89c1650f70256593f3')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
     assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
-    assert sha256(canonical_json([p for p in bundle_59f['placeholders']
-                                  if p['name'] not in ('gateway.semanticDiscoveryOwnerKeyEnv',
-                                                       'gateway.semanticReadOwnerKeyEnv')
-                                  and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
+    retained_names = set(placeholder_names(retained))
+    assert sha256(canonical_json([p for p in bundle_60u['placeholders']
+                                  if p['name'] in retained_names])) == TASK_51D2_PLACEHOLDERS_SHA256
+
+
+def test_v3_preserves_baseline_resources_and_placeholders(bundle):
+    """GW-60J-01. Pin the updated schemas on the 31 IDs of 3d69cb4 independently of subsequent families."""
+    baseline = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS]
+    assert {row['id'] for row in baseline} == BASELINE_3D69CB4_IDS
+    assert sha256(canonical_json(baseline)) == '100e003c9aefeb9f943b4e056ec43ce69289262c8a81b9d2e6d6abe337055359'
+    assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources']))
+    names = set(placeholder_names(baseline))
+    placeholders = [p for p in bundle['placeholders'] if p['name'] in names]
+    assert sha256(canonical_json(placeholders)) == '7970011c8370f3286cabcbf07b87de750391be60c8760c708b7de9e9946b214c'
 
 
 def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
-    """GW-51D3-RETIRED-METADATA."""
+    """GW-51D3-RETIRED-METADATA / GW-60J-02. Replacements retain the v2 wire format."""
     legacy_run = '^/api/trusted-human/v1/ingestion/runs/' + '-'.join(
         '[0-9A-Fa-f]{%d}' % size for size in (8, 4, 4, 4, 12))
-    assert bundle['retired'] == [
+    replacements = [entry for entry in bundle['retired'] if entry['supersededBy'] is not None]
+    assert replacements == [
         {'kind': 'routes', 'id': 'r4a-ingestion-human-run-read',
          'supersededBy': 'trusted-human-ingestion-run-read',
          'vars': [['uri', '~~', legacy_run + '$']]},
@@ -102,7 +110,31 @@ def test_retired_routes_are_declared_as_v2_metadata(bundle, resources):
          'vars': [['uri', '~~', legacy_run + '/resume$']]},
     ]
     assert {entry['id'] for entry in bundle['retired']}.isdisjoint(resources)
-    assert {entry['supersededBy'] for entry in bundle['retired']} <= resources.keys()
+    assert {entry['supersededBy'] for entry in replacements} <= resources.keys()
+
+
+def test_obsolete_routes_pin_the_sanitized_export(bundle):
+    """GW-60J-03. Each historical ID has its own provenance and exact public match."""
+    obsolete = [entry for entry in bundle['retired'] if entry['supersededBy'] is None]
+    revisions = {
+        'ouf-5708b3900d0f-001': '5708b3900d0f43d89801926d3f9554e110f4481f2a1cb08897cd2ec613dfa570',
+        'ouf-6f5155e48422-001': '6f5155e484228d958fd36b2c21b3538608cddc4d8ad2bb16fcacab860f86b01b',
+    }
+    assert [e['id'] for e in obsolete] == list(revisions)
+    assert [e['id'] for e in bundle['retired']] == sorted({e['id'] for e in bundle['retired']})
+    for entry in obsolete:
+        expected = {
+            'kind': 'routes', 'id': entry['id'], 'supersededBy': None,
+            'reason': 'Rotta disattivata, duplicata e senza consumatori. Il MCP non chiama questa URI.',
+            'match': {
+                'uri': '/internal/capabilities/v1/execute/urban.object.related_search', 'methods': ['POST'],
+                'uris': None, 'host': None, 'hosts': None, 'vars': None, 'priority': None,
+                'remote_addrs': None, 'filter_func': None, 'status': 0,
+                'labels': {'ouf_index': '001', 'ouf_managed': 'true', 'ouf_revision': revisions[entry['id']]},
+            },
+        }
+        assert canonical_json(entry) == canonical_json(expected)
+    assert bundle['retiredSha256'] == sha256(canonical_json(bundle['retired']))
 
 
 def test_adopted_route_ids_and_unique_selectors(resources):
@@ -122,7 +154,8 @@ def test_adopted_route_ids_and_unique_selectors(resources):
     for route_id, body in resources.items():
         methods = set(body.get('methods', []))
         hosts = {host.lower() for host in body.get('hosts', [])}
-        if 'host' in body:
+        # A template host may resolve to any literal host in this static check.
+        if isinstance(body.get('host'), str):
             hosts.add(body['host'].lower())
         uris = body['uris'] if 'uris' in body else [body['uri']]
         for uri in sorted(set(uris)):
@@ -132,6 +165,12 @@ def test_adopted_route_ids_and_unique_selectors(resources):
                 if hosts and other_hosts and hosts.isdisjoint(other_hosts):
                     continue
                 # These THS routes share a wildcard namespace and match distinct action paths.
+                if {route_id, other_id} == {'semantic-human-decision', 'semantic-human-publish'}:
+                    assert uri == '/api/trusted-human/v1/semantic-approval-challenges/*'
+                    for action in ('decision', 'publish'):
+                        assert resources['semantic-human-' + action]['vars'] == [
+                            ['uri', '~~', '^' + uri[:-1] + '[0-9a-fA-F-]{36}/' + action + '$']]
+                    continue
                 assert uri == run_root + '*' and {route_id, other_id} == run_actions.keys(), (
                     f'Overlapping method, URI and host selectors for {route_id} and {other_id}: {uri}')
                 for action_id, action in run_actions.items():
@@ -139,11 +178,12 @@ def test_adopted_route_ids_and_unique_selectors(resources):
             selectors[uri].append((route_id, methods, hosts))
 
 
-def test_release_resources_match_6ae4886_with_original_ids(bundle_59f):
+def test_release_resources_match_6ae4886_with_original_ids(bundle_60u):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
+    retained_ids = BASELINE_3D69CB4_IDS.difference(PICKER_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS)
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle_59f['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle_60u['resources'] if item['id'] in retained_ids]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 
