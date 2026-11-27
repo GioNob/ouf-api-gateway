@@ -70,6 +70,40 @@ resta chiusa. I PET `GW-59F-ACCEPT`, `GW-59F-BOUNDS`, `GW-59F-LOCAL` e
 [`test_review_prepare_limits_optional.py`](../tests/test_review_prepare_limits_optional.py).
 Il rilascio di questo Gateway precede quello del MCP del task-59c.
 
+### Lotto di revisione semantica (DN-L2-2, 59j)
+
+Il compilatore applica per ultime le due dichiarazioni di
+`contracts/mcp-semantic-review-batch-capabilities.json`, estratte in ordine
+dal manifest MCP 59i `1.19.0-semantic-review-batch-v1`. Il materializzatore
+usa gli stessi `Arguments` del catalogo `schemas/mcp-gateway-semantic-proposals-v1.json`.
+Il kernel MCP consuma `analysisId` prima del dispatch. Il Gateway lo esclude
+dalle proprietà comuni e da ciascun ramo chiuso di `oneOf`. Un campo locale
+in `required` fa fallire la compilazione anche se manca da `properties`.
+`reviewContextRef` e `expectedVersion` richiedono esattamente 64 cifre
+esadecimali minuscole. I pattern di `commandKey` e degli UUID richiedono
+la fine effettiva della stringa anche nel validatore PCRE di APISIX.
+
+| Capability | Forme accettate dal dispatch |
+| --- | --- |
+| `ouf.semantic.approval.request` | Singola con `revisionId`, oppure `ADD`, `REMOVE`, `SUBMIT`, `RESUBMIT` con `reviewContextRef`. Ogni comando richiede `commandKey`. |
+| `ouf.semantic.proposal.read` | Un solo selettore fra `commandKey`, `reviewContextRef` e `reviewBatchId`. Ogni forma ammette `expectedVersion`. Solo la lettura per lotto ammette `itemsOffset` intero da 0 a 4095. |
+
+Rispetto a `ead98dd` cambiano gli `Arguments` di `request-validation` su
+`semantic-proposal-review` e `mcp-semantic-read` nella configurazione compilata.
+Il bundle D-081 v3 adotta le due rotte materializzate con gli ID
+`semantic-proposal-review` e `semantic-proposal-read`. Il dispatch mantiene
+3 s e 64 KiB per la richiesta. La THS mantiene 10 s e 64 KiB. La forma
+singola e la lettura per comando restano valide durante il rilascio,
+senza migrazione (D-080). Il registro della configurazione conserva gli
+archivi esistenti (D-065). L'installazione usa i valori già previsti.
+
+| PET | Riscontro |
+| --- | --- |
+| `GW-59J-MANIFEST`, `GW-59J-LOCAL`, `GW-59J-SCHEMA`, `GW-59J-FORMS` | Impronta delle due righe, errore su contesto locale obbligatorio, parità dei due produttori e verdetti sulle forme e sui limiti. [Test degli schemi](../tests/test_semantic_review_batch_schemas.py) |
+| `GW-59J-PREDECESSOR`, `GW-59J-BUNDLE` | I primi rami 59i coincidono, prima della proiezione, con gli schemi MCP di `16c5228` e `cefa37c`. Ripristinando i soli `Arguments` precedenti si ritrovano le impronte della configurazione compilata e del bundle v3 a `ead98dd`. [Configurazione compilata](../tests/test_semantic_review_batch_schemas.py) e [bundle D-081](../tests/test_r2b_release.py) |
+| `GW-59J-LUA` | Il gate CI valuta lo stesso corpus, comprese le forme miste, i discriminanti `const`, la paginazione e le richieste del predecessore, con il validatore dell'immagine APISIX 3.18.0. [Gate Lua](../tests/test_apisix_lua_schema_parity.py) |
+| `GW-59J-PAGE` | Il gate HTTP verifica gli offset ricevuti dall'owner, il rifiuto prima dell'inoltro e l'integrità byte per byte di una risposta JSON da 100 KiB. [Gate HTTP](../tests/test_execute_apisix_live.py) |
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |
@@ -119,7 +153,7 @@ Il plan HUMAN mostra l’ID e «da rimuovere (obsoleta: motivo)» oppure «già 
 L’apply verifica il corpo approvato e conferma ogni assenza. Al ritorno l’esecutore
 ripristina e rilegge il corpo del primo snapshot se l’ID è libero. Un corpo diverso
 richiede riconciliazione. Un ID già assente al primo plan resta assente.
-I PET `GW-60J-01`–`03` verificano la parità con `3d69cb4` e le quattro identità
+I PET `GW-60J-01`–`03` verificano i 31 ID di `3d69cb4` con gli schemi aggiornati e le quattro identità
 in `tests/test_r2b_release.py`. I PET `GW-60J-04`–`06` coprono gli errori statici,
 il caricamento in CI e i valori JSON letterali in `tests/test_gateway_release_bundle.py`.
 

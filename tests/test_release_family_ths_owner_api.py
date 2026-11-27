@@ -71,10 +71,10 @@ def test_predecessor_and_adopted_ids(release):
     """GW-60h-01 / GW-60h-08. Freeze both explicit predecessors independently of other families."""
     resources = json.loads((release / 'bundle.json').read_bytes())['resources']
     old = [r for r in resources if r['id'] in BASE_3D69CB4_IDS]
-    assert sha256(canonical_json(old)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
+    assert sha256(canonical_json(old)) == '100e003c9aefeb9f943b4e056ec43ce69289262c8a81b9d2e6d6abe337055359'
     first_pass = BASE_3D69CB4_IDS.union(THS_OWNER_IDS)
     previous = [r for r in resources if r['id'] in first_pass]
-    assert sha256(canonical_json(previous)) == 'd23523057a28383f678b09bc262fcda058742ef5ef2c96724c72c3f3fce3bb0f'
+    assert sha256(canonical_json(previous)) == '9f04606e929d019a71073ff0c582b98ba2db38533db6c3f829892a688fc8ff0c'
     ids = {r['id'] for r in resources}
     assert first_pass.union(THS_RECOVERY_IDS) <= ids
 

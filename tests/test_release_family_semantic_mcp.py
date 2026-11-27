@@ -116,7 +116,7 @@ class ReleaseTests(unittest.TestCase):
         rows = [r for r in self.bundle['resources'] if r['id'] in BASE_3D69CB4]
         self.assertEqual({r['id'] for r in rows}, BASE_3D69CB4)
         self.assertEqual(hashlib.sha256(canonical_json(rows)).hexdigest(),
-                         'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc')
+                         '100e003c9aefeb9f943b4e056ec43ce69289262c8a81b9d2e6d6abe337055359')
 
     @unittest.skipUnless(MANIFEST.is_file(), 'private source manifest unavailable')
     def test_snapshot_source(self):

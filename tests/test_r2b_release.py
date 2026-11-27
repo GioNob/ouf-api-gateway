@@ -6,7 +6,8 @@ from collections import defaultdict
 import pytest
 import yaml
 
-from tests.release_bundle_fixture import BASE_3D69CB4, BASELINE_3D69CB4_IDS, BASELINE_51M_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
+from tests.dispatch_schema_parity import predecessor_arguments
+from tests.release_bundle_fixture import BASELINE_3D69CB4_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS, canonical_json, sha256
 from tools.gateway_release_bundle import ROOT, canonical, digest, generate, ordered_resources, placeholder_names
 from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
@@ -55,9 +56,24 @@ def resources(bundle):
     return {item['id']: item['body'] for item in bundle['resources']}
 
 
-def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
+@pytest.fixture(scope='module')
+def bundle_60u(bundle):
+    """GW-59J-BUNDLE. Restore the two installed Arguments and their derived checksum."""
+    restored = copy.deepcopy(bundle)
+    old = predecessor_arguments()
+    for row in restored['resources']:
+        if row['id'] in ('semantic-proposal-read', 'semantic-proposal-review'):
+            fields = row['body']['plugins']['request-validation']['body_schema']['properties']
+            fields['Arguments'] = old[fields['CapabilityID']['const']]
+    restored['resourcesSha256'] = digest(canonical(restored['resources']))
+    # Complete ead98dd artifact generated with the same fixture identity.
+    assert digest(canonical(restored)) == '7cfa4cdd33aaf9b26c416f6285574bd175624e49e441a6224f550185743e3a75'
+    return restored
+
+
+def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle_60u):
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY."""
-    task_51j = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS - set(SEARCH_IDS)]
+    task_51j = [row for row in bundle_60u['resources'] if row['id'] in BASELINE_3D69CB4_IDS - set(SEARCH_IDS)]
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
         'f7754f3b385b7b94eab360b0b3dcf1fe164aa1cf25df4e89c1650f70256593f3')
     predecessor = [row for row in task_51j if row['id'] not in DISCOVERY_REVIEW_IDS]
@@ -65,15 +81,15 @@ def test_release_additions_preserve_predecessor_resources_and_placeholders(bundl
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
     retained_names = set(placeholder_names(retained))
-    assert sha256(canonical_json([p for p in bundle['placeholders']
+    assert sha256(canonical_json([p for p in bundle_60u['placeholders']
                                   if p['name'] in retained_names])) == TASK_51D2_PLACEHOLDERS_SHA256
 
 
 def test_v3_preserves_baseline_resources_and_placeholders(bundle):
-    """GW-60J-01. Pin the 3d69cb4 projection independently of subsequent route families."""
+    """GW-60J-01. Pin the updated schemas on the 31 IDs of 3d69cb4 independently of subsequent families."""
     baseline = [row for row in bundle['resources'] if row['id'] in BASELINE_3D69CB4_IDS]
     assert {row['id'] for row in baseline} == BASELINE_3D69CB4_IDS
-    assert sha256(canonical_json(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
+    assert sha256(canonical_json(baseline)) == '100e003c9aefeb9f943b4e056ec43ce69289262c8a81b9d2e6d6abe337055359'
     assert bundle['resourcesSha256'] == sha256(canonical_json(bundle['resources']))
     names = set(placeholder_names(baseline))
     placeholders = [p for p in bundle['placeholders'] if p['name'] in names]
@@ -162,13 +178,12 @@ def test_adopted_route_ids_and_unique_selectors(resources):
             selectors[uri].append((route_id, methods, hosts))
 
 
-def test_release_resources_match_6ae4886_with_original_ids(bundle):
+def test_release_resources_match_6ae4886_with_original_ids(bundle_60u):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
     retained_ids = BASELINE_3D69CB4_IDS.difference(PICKER_IDS, DISCOVERY_REVIEW_IDS, SEARCH_IDS)
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] in BASELINE_3D69CB4_IDS
-                and item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle_60u['resources'] if item['id'] in retained_ids]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

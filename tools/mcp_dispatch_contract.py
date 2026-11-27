@@ -9,6 +9,8 @@ from tools import release_family_semantic_mcp as semantic_mcp
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+REVIEW_BATCH_MANIFEST = MANIFEST.with_name('mcp-semantic-review-batch-capabilities.json')
+REVIEW_BATCH_CAPABILITIES = {'ouf.semantic.approval.request', 'ouf.semantic.proposal.read'}
 ONBOARDING_MANIFEST = MANIFEST.with_name('mcp-onboarding_mcp-capabilities.json')
 ONBOARDING_DISPATCH = {
     'mcp-managed-file-profile': 'ouf.managed-source.file.profile',
@@ -93,6 +95,11 @@ def capability_contracts():
         raise ValueError('expected six distinct Onboarding MCP declarations')
     by_id.update(onboard)
     by_id.update(semantic_mcp.declarations())
+    batch_rows = json.loads(REVIEW_BATCH_MANIFEST.read_bytes())
+    batch_updates = {row['capabilityId']: row for row in batch_rows}
+    if len(batch_rows) != len(batch_updates) or batch_updates.keys() != REVIEW_BATCH_CAPABILITIES:
+        raise ValueError('expected the two distinct semantic review batch MCP declarations')
+    by_id.update(batch_updates)
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -110,19 +117,34 @@ def dispatch_input_schema(capability, schema):
     commandKey of source.file.profile stays MCP context (kernel removes it before dispatch).
     """
     local = set()
-    if capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS or capability in semantic_mcp.CAPABILITIES.values():
+    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS
+            or capability in semantic_mcp.CAPABILITIES.values() or capability in REVIEW_BATCH_CAPABILITIES):
         local.add('analysisId')
     if capability == 'ouf.managed-source.file.profile':
         local.add('commandKey')
     local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
-    # A local field is MCP context: it may never be required, even when absent from properties.
+    if not local:
+        return schema
+    # Check required independently of properties, including in each alternative.
     for field in sorted(local):
         if field in schema.get('required', []):
             raise ValueError(f'{capability}: {field} must remain optional MCP context')
-    present = local & schema.get('properties', {}).keys()
-    if not present:
-        return schema
-    return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
+    projected = schema.copy()
+    if 'properties' in schema:
+        properties = {k: v for k, v in schema['properties'].items() if k not in local}
+        if capability in REVIEW_BATCH_CAPABILITIES:
+            # PCRE's $ also matches before a final LF. Bind hashes to their exact
+            # width and require absolute end-of-string for variable-length keys.
+            for name in ('reviewContextRef', 'expectedVersion'):
+                if name in properties:
+                    properties[name] = {**properties[name], 'maxLength': 64}
+            key = properties.get('commandKey', {})
+            if key.get('pattern', '').endswith('$'):
+                properties['commandKey'] = {**key, 'pattern': key['pattern'][:-1] + r'(?![\s\S])'}
+        projected['properties'] = properties
+    if 'oneOf' in schema:
+        projected['oneOf'] = [dispatch_input_schema(capability, branch) for branch in schema['oneOf']]
+    return projected
 
 
 def picker_contract(route_id):

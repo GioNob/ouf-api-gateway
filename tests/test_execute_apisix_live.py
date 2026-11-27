@@ -26,7 +26,8 @@ import yaml
 
 from tools.materialize_object_search import materialize
 from tests.test_dispatch_schema_contract import (
-    THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
+    THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch,
+    wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
 from tests.test_release_family_onboarding_mcp import check_onboarding_http, reply_onboarding_owner
@@ -172,6 +173,15 @@ def test_real_apisix_oidc_delegation_and_execute():
     calls=[]
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     wave2_dispatch = wave2_dispatch_cases()
+    # GW-59J-PAGE: exercise the response boundary with an exactly 100 KiB JSON page.
+    page = {'itemsOffset': 0, 'items': [
+        {'semanticId': f'https://example.org/{i}?' + '&' * 990,
+         'reviewFeedback': {'decision': 'REJECTED', 'comment': '&' * 500}} for i in range(10)
+    ]}
+    # Go JSON escapes ampersands on the wire. Pad the JSON whitespace to the upper boundary.
+    page_bytes = json.dumps(page).replace('&', r'\u0026').encode()
+    assert 64 * 1024 < len(page_bytes) <= 100 * 1024
+    page_bytes = page_bytes.ljust(100 * 1024)
     search_receipts = {}
     proposal_receipts = {}
     recovery_page = '/trusted-human/ingestion-run-recovery/'
@@ -232,6 +242,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
                         'receipt': self.headers.get('X-OUF-Semantic-Proposal-Receipt'),
                     })
+                elif (self.path == '/api/semantic/v1/proposal-commands/read'
+                      and json.loads(body)['Arguments'].get('itemsOffset') == 0):
+                    self.reply(page_bytes)
                 else:
                     self.reply({'body': json.loads(body), 'authorization': self.headers.get('Authorization'),
                                 'delegation': self.headers.get('X-OUF-Delegation')})
@@ -259,7 +272,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             self.reply({'path': self.path, 'bearerPresent': bool(self.headers.get('Authorization')),
                         'headers': {k.lower(): v for k, v in self.headers.items() if k.lower().startswith('x-ouf-')}})
         def reply(self,value,status=200):
-            data=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+            data = value if isinstance(value, bytes) else json.dumps(value).encode()
+            self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def human_run(self):
             human_run_calls.append((self.command, self.path))
             self.reply({'authorization': self.headers.get('Authorization'),
@@ -396,9 +410,6 @@ def test_real_apisix_oidc_delegation_and_execute():
                                  or route['id'] in PUBLIC_IDS or route['id'] in THS_OWNER_IDS + THS_RECOVERY_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
-        for uri, (_, accepted, _) in wave2_dispatch.items():
-            schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
-            probes[uri] = dispatch_body(schema, accepted[0])
         if bundle_dir:
             # Qualify the rest of the JSON dispatch materializers alongside the release artifact.
             loaded = {r.get('uri') for r in doc['routes']}
@@ -411,6 +422,9 @@ def test_real_apisix_oidc_delegation_and_execute():
             from tests.test_value_type_schemas import dispatch
             for tool_name, (suffix, _) in dispatch_paths.items():
                 probes['/internal/capabilities/v1/execute/' + suffix] = dispatch(tool_name)
+        for uri, (_, accepted, _) in wave2_dispatch.items():
+            schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
+            probes[uri] = dispatch_body(schema, accepted[0])
         config = {
             'apisix': {'node_listen': port, 'enable_admin': False},
             'plugins': sorted({plugin for route in doc['routes'] for plugin in route.get('plugins', {})}),
@@ -462,7 +476,11 @@ def test_real_apisix_oidc_delegation_and_execute():
                     status, result = post(uri, body, token('SERVICE'), delegation)
                     assert status == 200, (uri, status, result)
                     forwarded = arguments if is_ths_link else body
-                    assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
+                    if route_id == 'semantic-proposal-read' and arguments.get('itemsOffset') == 0:
+                        assert json.loads(dispatch_bodies[owner]) == body
+                        assert len(result) == 100 * 1024 and result == page_bytes
+                    else:
+                        assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
                     if route_id == 'mcp-semantic-discovery-candidates' or route_id in SEARCH_IDS:
                         assert dispatch_bodies[owner] == json.dumps(body).encode()
                     if route_id in SEMANTIC_MCP_IDS:
