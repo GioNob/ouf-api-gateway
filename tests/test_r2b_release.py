@@ -12,6 +12,7 @@ from tools.r2b_limits import limit_count
 from tools.materialize_apisix_internal_m2m_routes import MaterializationError, materialize
 from tools.apply_installation_projection import apply_projection
 from tools.compile_config import compile_config
+from tools.mcp_dispatch_contract import MANIFEST, envelope_refs
 
 
 ADOPTED_ROUTE_IDS = {
@@ -55,10 +56,25 @@ def resources(bundle):
     return {item['id']: item['body'] for item in bundle['resources']}
 
 
-def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle):
+@pytest.fixture(scope='module')
+def bundle_59f(bundle):
+    """GW-59J-BUNDLE. Restore only the predecessor Arguments and its derived checksum."""
+    restored = copy.deepcopy(bundle)
+    read, = (r for r in restored['resources'] if r['id'] == 'semantic-proposal-read')
+    old, = (r for r in json.loads(MANIFEST.read_bytes())['capabilities']
+            if r['capabilityId'] == 'ouf.semantic.proposal.read')
+    fields = read['body']['plugins']['request-validation']['body_schema']['properties']
+    fields['Arguments'] = envelope_refs(old['inputSchema'])
+    restored['resourcesSha256'] = digest(canonical(restored['resources']))
+    # Complete bundle.json generated at da4c8bf with the same fixture identity.
+    assert digest(canonical(restored)) == '58bdfee0e0b4fa61860ac17a497b6acd7604ab4c2009c4bf044d7ef894da3062'
+    return restored
+
+
+def test_release_additions_preserve_predecessor_resources_and_placeholders(bundle_59f):
     """GW-51J-PARITY / GW-51I-BUNDLE-PARITY / GW-51D3-BASELINE-PARITY / GW-59F-PARITY."""
-    assert len(bundle['resources']) == 31
-    task_51j = [row for row in bundle['resources'] if row['id'] not in SEARCH_IDS]
+    assert len(bundle_59f['resources']) == 31
+    task_51j = [row for row in bundle_59f['resources'] if row['id'] not in SEARCH_IDS]
     # 59f changes only request-validation of mcp-managed-file-review-prepare (optional limits);
     # the 24 predecessor resources and the placeholders keep their digests below.
     assert len(task_51j) == 29 and sha256(canonical_json(task_51j)) == (
@@ -67,7 +83,7 @@ def test_release_additions_preserve_predecessor_resources_and_placeholders(bundl
     assert len(predecessor) == 24 and sha256(canonical_json(predecessor)) == TASK_51I_RESOURCES_SHA256
     retained = [item for item in predecessor if item['id'] not in PICKER_IDS]
     assert sha256(canonical_json(retained)) == TASK_51D2_RESOURCES_SHA256
-    assert sha256(canonical_json([p for p in bundle['placeholders']
+    assert sha256(canonical_json([p for p in bundle_59f['placeholders']
                                   if p['name'] not in ('gateway.semanticDiscoveryOwnerKeyEnv',
                                                        'gateway.semanticReadOwnerKeyEnv')
                                   and not p['name'].startswith('gateway.rateLimits.semanticSearch')])) == TASK_51D2_PLACEHOLDERS_SHA256
@@ -123,11 +139,11 @@ def test_adopted_route_ids_and_unique_selectors(resources):
             selectors[uri].append((route_id, methods, hosts))
 
 
-def test_release_resources_match_6ae4886_with_original_ids(bundle):
+def test_release_resources_match_6ae4886_with_original_ids(bundle_59f):
     """GW-51D2-RESOURCE-PARITY."""
     original_ids = {adopted: original for original, adopted in ADOPTED_ROUTE_IDS.items()}
     restored = [dict(item, id=original_ids.get(item['id'], item['id']))
-                for item in bundle['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
+                for item in bundle_59f['resources'] if item['id'] not in PICKER_IDS | set(DISCOVERY_REVIEW_IDS) | set(SEARCH_IDS)]
     assert digest(canonical(ordered_resources(restored))) == BASELINE_RESOURCES_SHA256
 
 

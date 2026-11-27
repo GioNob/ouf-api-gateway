@@ -58,6 +58,36 @@ resta chiusa. I PET `GW-59F-ACCEPT`, `GW-59F-BOUNDS`, `GW-59F-LOCAL` e
 [`test_review_prepare_limits_optional.py`](../tests/test_review_prepare_limits_optional.py).
 Il rilascio di questo Gateway precede quello del MCP del task-59c.
 
+### Lotto di revisione semantica (DN-L2-2, 59j)
+
+Il compilatore sovrappone allo snapshot 1.15.2 le due dichiarazioni di
+`contracts/mcp-semantic-review-batch-capabilities.json`, estratte in ordine
+dal manifest MCP 59i `1.19.0-semantic-review-batch-v1`. Il materializzatore
+usa la stessa proiezione in `schemas/mcp-gateway-semantic-proposals-v1.json`.
+Il kernel MCP consuma `analysisId` prima del dispatch. Il Gateway lo esclude
+dalle proprietà comuni e da ciascun ramo chiuso di `oneOf`.
+
+| Capability | Forme accettate dal dispatch |
+| --- | --- |
+| `ouf.semantic.approval.request` | Singola con `revisionId`, oppure `ADD`, `REMOVE`, `SUBMIT`, `RESUBMIT` con `reviewContextRef`. Ogni comando richiede `commandKey`. |
+| `ouf.semantic.proposal.read` | Un solo selettore fra `commandKey`, `reviewContextRef` e `reviewBatchId`. Ogni forma ammette `expectedVersion`. Solo la lettura per lotto ammette `itemsOffset` intero da 0 a 4095. |
+
+Il diff rispetto a `da4c8bf` riguarda gli `Arguments` di `request-validation`
+su `mcp-semantic-review` e `mcp-semantic-read` nella configurazione compilata,
+su `semantic-proposal-review` e `semantic-proposal-read` nel materializzatore.
+Il bundle D-081 include solo la lettura di questa coppia. Il dispatch mantiene
+3 s e 64 KiB per la richiesta. La THS mantiene 10 s e 64 KiB. La forma
+singola e la lettura per comando restano valide durante il rilascio,
+senza migrazione (D-080). Il registro della configurazione conserva gli
+archivi esistenti (D-065). L'installazione usa i valori già previsti.
+
+| PET | Riscontro |
+| --- | --- |
+| `GW-59J-MANIFEST`, `GW-59J-LOCAL`, `GW-59J-SCHEMA`, `GW-59J-FORMS` | Impronta delle due righe, errore su contesto locale obbligatorio, parità dei due produttori e verdetti sulle forme e sui limiti. [Test degli schemi](../tests/test_semantic_review_batch_schemas.py) |
+| `GW-59J-PREDECESSOR`, `GW-59J-BUNDLE` | Parità della forma singola e della lettura per comando. Ripristinando i soli `Arguments` precedenti si ritrovano le impronte della configurazione compilata e del bundle 59f. [Configurazione compilata](../tests/test_semantic_review_batch_schemas.py) e [bundle D-081](../tests/test_r2b_release.py) |
+| `GW-59J-LUA` | Il gate CI valuta lo stesso corpus, comprese le forme miste, i discriminanti `const`, la paginazione e le richieste del predecessore, con il validatore dell'immagine APISIX 3.18.0. [Gate Lua](../tests/test_apisix_lua_schema_parity.py) |
+| `GW-59J-PAGE` | Il gate HTTP verifica gli offset ricevuti dall'owner, il rifiuto prima dell'inoltro e l'integrità byte per byte di una risposta JSON da 100 KiB. [Gate HTTP](../tests/test_execute_apisix_live.py) |
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |

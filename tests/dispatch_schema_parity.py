@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from tests.release_bundle_fixture import ci_profile, load_release_routes
 from tests.schema_corpus import corpus
-from tests.test_dispatch_schema_contract import dispatch_body, dispatch_profiles
+from tests.test_dispatch_schema_contract import dispatch_body, dispatch_profiles, semantic_review_batch_cases
 from tests.test_execute_delegation import runtime
 from tests.test_onboarding_review import request as review_request
 from tests.test_permission_role_contract import cases as permission_cases
@@ -119,6 +119,7 @@ def predecessor_contracts():
 def cases(routes):
     """(uri, body, expected, kind): expected is the verdict of the pinned MCP schema."""
     contracts, previous = capability_contracts(), predecessor_contracts()
+    review_batch = semantic_review_batch_cases()
     result = []
     for uri, route in sorted(routes.items()):
         schema = route['plugins']['request-validation']['body_schema']
@@ -134,6 +135,12 @@ def cases(routes):
         check = Draft202012Validator(source, format_checker=WIRE_FORMATS)
         for arguments in corpus(source, fixtures(capability)):
             result.append((uri, dispatch_body(schema, copy.deepcopy(arguments)), check.is_valid(arguments), 'current'))
+        if capability in review_batch:
+            accepted, rejected = review_batch[capability]
+            for expected, arguments_list in ((True, accepted), (False, rejected)):
+                for arguments in arguments_list:
+                    assert check.is_valid(arguments) == expected, (capability, arguments)
+                    result.append((uri, dispatch_body(schema, arguments), expected, 'current'))
         if route_id == 'mcp-managed-file-handoff':
             arguments = {'handoffId': '00000000-0000-4000-8000-000000000001'}
             result.append((uri, dispatch_body(schema, arguments), True, 'predecessor'))

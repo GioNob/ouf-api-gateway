@@ -147,6 +147,44 @@ def test_review_read_forms_in_manifest_and_inline():
         assert gateway.is_valid(dict(body, Arguments=args)) == tool.is_valid(args) == allowed
 
 
+def semantic_review_batch_cases():
+    """59j wire arguments shared by the contract, Lua and HTTP gates."""
+    key = {'commandKey': 'idem'}
+    context = {'reviewContextRef': 'a' * 64}
+    batch = {'reviewBatchId': '11111111-1111-4111-8111-111111111111'}
+    revision = {'revisionId': '22222222-2222-4222-8222-222222222222'}
+    item = dict(revision, expectedRowVersion=0, validationRunId='33333333-3333-4333-8333-333333333333')
+    single = key | item
+    add = dict(key | context, batchAction='ADD', item=item)
+    remove = dict(key | context, batchAction='REMOVE', item=revision)
+    submit = dict(key | context | batch, batchAction='SUBMIT')
+    approval = [single, add, remove, submit, dict(submit, batchAction='RESUBMIT')]
+    selectors = [key, context, batch]
+    read = selectors + [dict(s, expectedVersion='b' * 64) for s in selectors]
+    return {
+        'ouf.semantic.approval.request': (approval, [
+            dict(submit, batchAction='UNKNOWN'), dict(add, item=dict(revision, expectedRowVersion=0)),
+            add | revision, submit | revision, {k: v for k, v in submit.items() if k != 'reviewBatchId'},
+            dict(remove, item=dict(revision, expectedRowVersion=0)), dict(add, batchAction='SUBMIT'),
+            dict(submit, reviewBatchId='bad'), dict(add, item=dict(item, validationRunId='bad')),
+            dict(single, revisionId='bad'), dict(add, reviewContextRef='g' * 64),
+            dict(add, reviewContextRef='a' * 63), dict(submit, expectedVersion='b' * 64),
+            *[dict(a, analysisId='c' * 64) for a in approval],
+        ]),
+        'ouf.semantic.proposal.read': (read + [
+            dict(key, includeState=True), dict(batch, itemsOffset=0), dict(batch, itemsOffset=4095),
+            dict(batch, expectedVersion='b' * 64, itemsOffset=10),
+        ], [
+            key | context, batch | context, batch | key, dict(batch, includeState=True),
+            dict(key, expectedVersion='private-source-value'), dict(batch, reviewBatchId='bad'),
+            *[{'reviewContextRef': ref} for ref in ('g' * 64, 'a' * 63, 'a' * 65)],
+            *[dict(batch, itemsOffset=value) for value in (-1, 4096, 1.5, '0')],
+            dict(key, itemsOffset=0), dict(context, itemsOffset=0),
+            *[dict(s, analysisId='c' * 64) for s in selectors],
+        ]),
+    }
+
+
 def wave2_dispatch_cases(routes=()):
     exact = review_request('review-read')['Arguments']
     latest = {'sourceId': exact['sourceId'], 'view': 'LATEST'}
@@ -183,8 +221,7 @@ def wave2_dispatch_cases(routes=()):
         ),
         SEMANTIC_READ_URI: (
             '/api/semantic/v1/proposal-commands/read',
-            [{'commandKey': 'idem'}, {'commandKey': 'idem', 'expectedVersion': checksum}],
-            [{'commandKey': 'idem', 'expectedVersion': 'private-source-value'}],
+            *semantic_review_batch_cases()['ouf.semantic.proposal.read'],
         ),
     }
     contracts = capability_contracts()

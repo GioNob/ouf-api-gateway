@@ -7,6 +7,8 @@ from pathlib import Path
 
 MANIFEST = Path(__file__).resolve().parents[1] / 'contracts/mcp-capabilities.json'
 DISCOVERY_REVIEW_MANIFEST = MANIFEST.with_name('mcp-discovery-review-capabilities.json')
+REVIEW_BATCH_MANIFEST = MANIFEST.with_name('mcp-semantic-review-batch-capabilities.json')
+REVIEW_BATCH_CAPABILITIES = {'ouf.semantic.approval.request', 'ouf.semantic.proposal.read'}
 SEARCH_SCOPE = 'ouf.semantic.search'
 SEARCH_BATCH = SEARCH_SCOPE + '.batch'
 SEARCH_BINDINGS = {
@@ -75,6 +77,11 @@ def capability_contracts():
     if len(updated) != len(subset) or updated.keys() != DISCOVERY_REVIEW_SCHEMAS.keys():
         raise ValueError('expected the five distinct discovery and review MCP declarations')
     by_id.update(updated)
+    batch_rows = json.loads(REVIEW_BATCH_MANIFEST.read_bytes())
+    batch_updates = {row['capabilityId']: row for row in batch_rows}
+    if len(batch_rows) != len(batch_updates) or batch_updates.keys() != REVIEW_BATCH_CAPABILITIES:
+        raise ValueError('expected the two distinct semantic review batch MCP declarations')
+    by_id.update(batch_updates)
     if SEARCH_BATCH not in by_id:
         batch = json.loads(SEARCH_BATCH_CONTRACT.read_bytes())
         if batch['capabilityId'] != SEARCH_BATCH or batch['provenance']['kind'] != 'contract-derived':
@@ -91,16 +98,21 @@ def dispatch_input_schema(capability, schema):
     removed from the owner command (MCP orchestration, withoutDraftContext).
     """
     local = set()
-    if capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS:
+    if (capability == SEARCH_SCOPE or capability in DISCOVERY_REVIEW_SCHEMAS
+            or capability in REVIEW_BATCH_CAPABILITIES):
         local.add('analysisId')
     local.update(MCP_LOCAL_CONTEXT.get(capability, ()))
-    present = local & schema.get('properties', {}).keys()
-    if not present:
+    if not local:
         return schema
-    for field in sorted(present):
-        if field in schema.get('required', []):
+    for field in schema.get('required', []):
+        if field in local:
             raise ValueError(f'{capability}: {field} must remain optional MCP context')
-    return {**schema, 'properties': {k: v for k, v in schema['properties'].items() if k not in present}}
+    projected = schema.copy()
+    if 'properties' in schema:
+        projected['properties'] = {k: v for k, v in schema['properties'].items() if k not in local}
+    if 'oneOf' in schema:
+        projected['oneOf'] = [dispatch_input_schema(capability, branch) for branch in schema['oneOf']]
+    return projected
 
 
 def picker_contract(route_id):

@@ -960,12 +960,6 @@
         "Arguments": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "revisionId",
-            "expectedRowVersion",
-            "commandKey",
-            "validationRunId"
-          ],
           "properties": {
             "revisionId": {
               "type": "string",
@@ -985,8 +979,259 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+            },
+            "batchAction": {
+              "type": "string",
+              "enum": [
+                "ADD",
+                "REMOVE",
+                "SUBMIT",
+                "RESUBMIT"
+              ],
+              "description": "Review batch form of one file, HUMAN only. Omit it for the single-term review."
+            },
+            "reviewContextRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Review batch context of one file: the analysisId of the analysis."
+            },
+            "reviewBatchId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+            },
+            "item": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "revisionId"
+              ],
+              "properties": {
+                "revisionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                },
+                "expectedRowVersion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "validationRunId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                }
+              }
             }
-          }
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "revisionId",
+                "expectedRowVersion",
+                "commandKey",
+                "validationRunId"
+              ],
+              "properties": {
+                "revisionId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                },
+                "expectedRowVersion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "validationRunId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commandKey",
+                "batchAction",
+                "reviewContextRef",
+                "item"
+              ],
+              "properties": {
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "batchAction": {
+                  "type": "string",
+                  "enum": [
+                    "ADD",
+                    "REMOVE",
+                    "SUBMIT",
+                    "RESUBMIT"
+                  ],
+                  "const": "ADD"
+                },
+                "reviewContextRef": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "Review batch context of one file: the analysisId of the analysis."
+                },
+                "item": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "revisionId",
+                    "expectedRowVersion",
+                    "validationRunId"
+                  ],
+                  "properties": {
+                    "revisionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                    },
+                    "expectedRowVersion": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "validationRunId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commandKey",
+                "batchAction",
+                "reviewContextRef",
+                "item"
+              ],
+              "properties": {
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "batchAction": {
+                  "type": "string",
+                  "enum": [
+                    "ADD",
+                    "REMOVE",
+                    "SUBMIT",
+                    "RESUBMIT"
+                  ],
+                  "const": "REMOVE"
+                },
+                "reviewContextRef": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "Review batch context of one file: the analysisId of the analysis."
+                },
+                "item": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "revisionId"
+                  ],
+                  "properties": {
+                    "revisionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commandKey",
+                "batchAction",
+                "reviewContextRef",
+                "reviewBatchId"
+              ],
+              "properties": {
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "batchAction": {
+                  "type": "string",
+                  "enum": [
+                    "ADD",
+                    "REMOVE",
+                    "SUBMIT",
+                    "RESUBMIT"
+                  ],
+                  "const": "SUBMIT"
+                },
+                "reviewContextRef": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "Review batch context of one file: the analysisId of the analysis."
+                },
+                "reviewBatchId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commandKey",
+                "batchAction",
+                "reviewContextRef",
+                "reviewBatchId"
+              ],
+              "properties": {
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "batchAction": {
+                  "type": "string",
+                  "enum": [
+                    "ADD",
+                    "REMOVE",
+                    "SUBMIT",
+                    "RESUBMIT"
+                  ],
+                  "const": "RESUBMIT"
+                },
+                "reviewContextRef": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "Review batch context of one file: the analysisId of the analysis."
+                },
+                "reviewBatchId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                }
+              }
+            }
+          ]
         },
         "Identity": {
           "type": "object",
@@ -1097,15 +1342,7 @@
         "Arguments": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "commandKey"
-          ],
           "properties": {
-            "analysisId": {
-              "type": "string",
-              "pattern": "^[a-f0-9]{64}$",
-              "description": "Optional MCP analysis context, consumed locally."
-            },
             "commandKey": {
               "type": "string",
               "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
@@ -1116,8 +1353,86 @@
             },
             "includeState": {
               "type": "boolean"
+            },
+            "reviewContextRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "Review batch context of one file: the analysisId of the analysis."
+            },
+            "reviewBatchId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+            },
+            "itemsOffset": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4095
             }
-          }
+          },
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "commandKey"
+              ],
+              "properties": {
+                "commandKey": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_:.-]{1,128}$"
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "includeState": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reviewContextRef"
+              ],
+              "properties": {
+                "reviewContextRef": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$",
+                  "description": "Review batch context of one file: the analysisId of the analysis."
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reviewBatchId"
+              ],
+              "properties": {
+                "reviewBatchId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![\\s\\S])"
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "itemsOffset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4095
+                }
+              }
+            }
+          ]
         },
         "Identity": {
           "type": "object",

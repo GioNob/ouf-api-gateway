@@ -26,7 +26,8 @@ import yaml
 
 from tools.materialize_object_search import materialize
 from tests.test_dispatch_schema_contract import (
-    THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, wave2_dispatch_cases,
+    THS_LINK_DISPATCH_CASES, dispatch_body, dispatch_profiles, is_dispatch, semantic_review_batch_cases,
+    wave2_dispatch_cases,
 )
 from tests.test_execute_delegation import runtime, envelope
 from tests.release_bundle_fixture import R2B_ROUTE_IDS, RELEASE_ROUTE_IDS, SEARCH_IDS, ci_profile, load_release_routes
@@ -165,6 +166,15 @@ def test_real_apisix_oidc_delegation_and_execute():
     calls=[]
     terms_path = '/api/trusted-human/v1/semantic-published-terms'
     wave2_dispatch = wave2_dispatch_cases()
+    # GW-59J-PAGE: exercise the response boundary with an exactly 100 KiB JSON page.
+    page = {'itemsOffset': 0, 'items': [
+        {'semanticId': f'https://example.org/{i}?' + '&' * 990,
+         'reviewFeedback': {'decision': 'REJECTED', 'comment': '&' * 500}} for i in range(10)
+    ]}
+    # Go JSON escapes ampersands on the wire. Pad the JSON whitespace to the upper boundary.
+    page_bytes = json.dumps(page).replace('&', r'\u0026').encode()
+    assert 64 * 1024 < len(page_bytes) <= 100 * 1024
+    page_bytes = page_bytes.ljust(100 * 1024)
     search_receipts = {}
     recovery_page = '/trusted-human/ingestion-run-recovery/'
     recovery_run = '/api/trusted-human/v1/ingestion/runs/11111111-1111-4111-8111-111111111111'
@@ -216,6 +226,9 @@ def test_real_apisix_oidc_delegation_and_execute():
                         'bodyBytes': len(body), 'bodyHash': hashlib.sha256(body).hexdigest(),
                         'receipt': self.headers.get('X-OUF-Semantic-Proposal-Receipt'),
                     })
+                elif (self.path == '/api/semantic/v1/proposal-commands/read'
+                      and json.loads(body)['Arguments'].get('itemsOffset') == 0):
+                    self.reply(page_bytes)
                 else:
                     self.reply({'body': json.loads(body), 'authorization': self.headers.get('Authorization'),
                                 'delegation': self.headers.get('X-OUF-Delegation')})
@@ -238,7 +251,8 @@ def test_real_apisix_oidc_delegation_and_execute():
             self.reply({'path': self.path, 'bearerPresent': bool(self.headers.get('Authorization')),
                         'headers': {k.lower(): v for k, v in self.headers.items() if k.lower().startswith('x-ouf-')}})
         def reply(self,value,status=200):
-            data=json.dumps(value).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+            data = value if isinstance(value, bytes) else json.dumps(value).encode()
+            self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
         def human_run(self):
             human_run_calls.append((self.command, self.path))
             self.reply({'authorization': self.headers.get('Authorization'),
@@ -362,9 +376,6 @@ def test_real_apisix_oidc_delegation_and_execute():
                                  or route['id'] in R2B_ROUTE_IDS)
         changed_routes = {route['uri']: route for route in release if route.get('uri') in wave2_dispatch}
         assert changed_routes.keys() == wave2_dispatch.keys()
-        for uri, (_, accepted, _) in wave2_dispatch.items():
-            schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
-            probes[uri] = dispatch_body(schema, accepted[0])
         if bundle_dir:
             # Qualify the rest of the JSON dispatch materializers alongside the release artifact.
             loaded = {r.get('uri') for r in doc['routes']}
@@ -374,9 +385,17 @@ def test_real_apisix_oidc_delegation_and_execute():
                     route['plugins']['openid-connect']['discovery'] = f'http://127.0.0.1:{server.server_port}/discovery'
                     route['upstream']['nodes'] = {f'127.0.0.1:{server.server_port}': 1}
                     doc['routes'].append(route)
+            # Approval uses the existing materializer route outside the D-081 archive.
+            review, = (r for r in doc['routes'] if r.get('id') == 'semantic-proposal-review')
+            changed_routes[review['uri']] = review
+            wave2_dispatch[review['uri']] = ('/api/semantic/v1/proposal-commands/review',
+                                             *semantic_review_batch_cases()['ouf.semantic.approval.request'])
             from tests.test_value_type_schemas import dispatch
             for tool_name, (suffix, _) in dispatch_paths.items():
                 probes['/internal/capabilities/v1/execute/' + suffix] = dispatch(tool_name)
+        for uri, (_, accepted, _) in wave2_dispatch.items():
+            schema = changed_routes[uri]['plugins']['request-validation']['body_schema']
+            probes[uri] = dispatch_body(schema, accepted[0])
         config = {
             'apisix': {'node_listen': port, 'enable_admin': False},
             'deployment': {'role': 'data_plane', 'role_data_plane': {'config_provider': 'yaml'}},
@@ -419,7 +438,11 @@ def test_real_apisix_oidc_delegation_and_execute():
                     status, result = post(uri, body, token('SERVICE'), delegation)
                     assert status == 200, (uri, status, result)
                     forwarded = arguments if is_ths_link else body
-                    assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
+                    if route_id == 'semantic-proposal-read' and arguments.get('itemsOffset') == 0:
+                        assert json.loads(dispatch_bodies[owner]) == body
+                        assert len(result) == 100 * 1024 and result == page_bytes
+                    else:
+                        assert json.loads(result) == {'body': forwarded, 'authorization': None, 'delegation': None}
                     if route_id == 'mcp-semantic-discovery-candidates' or route_id in SEARCH_IDS:
                         assert dispatch_bodies[owner] == json.dumps(body).encode()
                     if route_id in SEARCH_IDS:
