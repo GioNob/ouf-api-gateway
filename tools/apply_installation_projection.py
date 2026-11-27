@@ -68,6 +68,9 @@ def apply_projection(compiled, projection):
                     resolved_allowed.append(udp_client)
                 elif value == INSTALLATION_SEMANTIC_REF:
                     resolved_allowed.append(semantic_client)
+                elif value in ("installation://iam.workloadClients.onboarding",
+                                "installation://iam.workloadClients.sourceOnboarding"):
+                    resolved_allowed.append(_require(projection, value.removeprefix("installation://")))
                 else:
                     resolved_allowed.append(value)
             if any(isinstance(value, str) and value.startswith("installation://") for value in resolved_allowed):

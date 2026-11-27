@@ -21,6 +21,12 @@ ROUTE_IDS={
 }
 
 RELEASE_IDS = {"trusted-human-onboarding-approvals-get", "trusted-human-onboarding-approvals-post"}
+RELEASE_IDS.update({
+    "trusted-human-onboarding-sources-get", "trusted-human-onboarding-sources-post",
+    "trusted-human-onboarding-lifecycle-get", "trusted-human-onboarding-lifecycle-post",
+    "trusted-human-onboarding-lifecycle-put", "trusted-human-managed-file-upload",
+    "trusted-human-managed-file-actions-post", "trusted-human-managed-file-preview-get",
+})
 
 def route_value(doc):
     value=doc.get("value",doc)
@@ -94,6 +100,8 @@ def apply(routes,admin):
     code,_=admin.curl("/apisix/admin/plugins/proxy-control?subsystem=http",admin=True)
     if code!=200:
         raise RuntimeError("APISIX proxy-control plugin schema is unavailable; upload route not installed")
+    if not ROUTE_IDS - RELEASE_IDS:
+        return
     previous=snapshot(admin)
     try:
         for route in routes:
@@ -132,6 +140,8 @@ def main():
     p.add_argument("--curl-image",default="curlimages/curl:8.16.0")
     p.add_argument("--backup-dir",type=Path,default=Path("/opt/ouf/backup"))
     a=p.parse_args()
+    if not ROUTE_IDS - RELEASE_IDS:
+        raise SystemExit("all onboarding lifecycle routes are owned by the governed Gateway release")
     os.umask(0o077)
     admin=Admin(a)
     try:

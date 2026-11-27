@@ -7,6 +7,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 
+try:
+    from ops.apisix.deploy_internal_m2m_routes import reject_bundle_owned
+except ImportError:  # direct script entry point
+    from deploy_internal_m2m_routes import reject_bundle_owned
+
 NAMESPACE="/api/trusted-human/v1/installations/*"
 METHODS=("GET","POST")
 CURRENT_IDS={f"trusted-human-installation-{m.lower()}" for m in METHODS}
@@ -68,6 +73,7 @@ def snapshot(admin):
 
 
 def restore(previous,admin):
+    reject_bundle_owned(CURRENT_IDS)
     failures=[]
     for route_id in sorted(CURRENT_IDS):
         old=previous.get(route_id)
@@ -82,6 +88,7 @@ def restore(previous,admin):
 
 
 def apply(routes,admin):
+    reject_bundle_owned(CURRENT_IDS)
     previous=snapshot(admin)
     try:
         for route in routes:
@@ -111,6 +118,7 @@ def main():
     p.add_argument("--curl-image",default="curlimages/curl:8.16.0")
     p.add_argument("--backup-dir",type=Path,default=Path("/opt/ouf/backup"))
     a=p.parse_args()
+    reject_bundle_owned(CURRENT_IDS)
     os.umask(0o077)
     admin=Admin(a)
     try:

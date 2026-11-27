@@ -9,7 +9,7 @@ from tools import gateway_release_bundle
 from tools.gateway_release_bundle import generate
 from tools.mcp_dispatch_contract import THS_LINK_ROUTE_KEYS
 from tools import mcp_dispatch_contract
-from tests.release_bundle_fixture import READ_BACKENDS, READ_KEYS
+from tests.release_bundle_fixture import MODULE_API_QUOTAS, READ_BACKENDS, READ_KEYS
 
 
 def test_published_terms_release(tmp_path):
@@ -61,6 +61,9 @@ def test_published_terms_release(tmp_path):
            for field in ('count', 'timeWindowSeconds')},
         **{f'gateway.rateLimits.{group}.{field}': kind for group in RATE_CLASSES
            for field, kind in [('count', 'integer'), ('timeWindowSeconds', 'integer'), ('key', 'string')]},
+        'iam.workloadClients.onboarding': 'string', 'iam.workloadClients.sourceOnboarding': 'string',
+        **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in MODULE_API_QUOTAS
+           for field in ('count', 'timeWindowSeconds')},
         'iam.workloadClients.semantic': 'string',
         **{f'gateway.rateLimits.{group}.{field}': 'integer' for group in ('onboardingMcp', 'authorizationPolicyRead')
            for field in ('count', 'timeWindowSeconds')},

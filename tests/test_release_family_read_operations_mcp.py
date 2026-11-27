@@ -18,7 +18,8 @@ from tools.plan_semantic_search import changed_paths
 from tools.release_family_read_operations_mcp import ACQUISITIONS, PRODUCERS, ROUTES, declarations
 
 EXPORT = ROOT / '.codex-input/live-routes-60d.json'
-MANIFEST = ROOT / '.codex-input/mcp-manifest-4b39568.json'
+# DN-L3-3: the snapshot follows the MCP manifest with ouf.ingestion.history aligned to the owner (task-60d-b).
+MANIFEST = ROOT / '.codex-input/mcp-manifest-60d-b.json'
 GENERIC = 'mcp-generic-execution'
 PREVIEW = 'mcp-managed-file-preview'
 INCIDENTS = 'execute-ouf.operations.incidents'
@@ -52,8 +53,11 @@ def test_predecessor_and_adopted_ids(artifact):
     assert digest(canonical(baseline)) == 'fd8252656d638689551ccecedc1d91a2fe46e3013b9ac12da931781b2f977cdc'
     assert {r['id'] for r in rows}.issuperset(READ_OPERATIONS_IDS)
     assert set(READ_OPERATIONS_IDS) == ROUTES.keys()
-    assert 'mcp-ingestion-history' not in {r['id'] for r in rows}
-    assert declarations()['ouf.ingestion.history']['inputSchema']['properties']['limit']['maximum'] == 200
+    # GW-60d-c-01. DN-L3-3: one contract, the owner limit, adopted on the live ID.
+    assert 'mcp-ingestion-history' in {r['id'] for r in rows}
+    history = declarations()['ouf.ingestion.history']
+    assert history['inputSchema']['properties']['limit']['maximum'] == 100
+    assert history['operationalLimits']['maxLimit'] == 100
 
 
 @pytest.mark.skipif(not MANIFEST.exists(), reason='private handoff manifest required')
@@ -252,7 +256,7 @@ def test_export_plan_recursive_review_and_exact_restore(artifact):
     desired = resolved(artifact, profile)
     rows = [normalize_export(r, profile) for r in raw]
     changes = adoption_plan(desired, inventory(rows))
-    assert Counter(c.action for c in changes) == {'update': 11}
+    assert Counter(c.action for c in changes) == {'update': 12}
     for change in changes:
         review_change(change)
     state = {r['id']: copy.deepcopy(r) for r in rows}
@@ -280,6 +284,8 @@ def check_read_owner_http(reads, post, token, dispatch_body):
     for key, scopes, args, header, domain, secret in [
         ('mcp-ingestion-status', 'ingestion.operations.read', {'limit': 7}, 'x-ouf-ingestion-read-receipt',
          'ouf-ingestion-read-owner-v1.', 'cd'),
+        ('mcp-ingestion-history', 'ingestion.operations.read', {'sourceId': 'source-a', 'limit': 7},
+         'x-ouf-ingestion-read-receipt', 'ouf-ingestion-read-owner-v1.', 'cd'),
         ('execute-ouf-ingestion-acquisition-read', 'ingestion.contract.read ingestion.lineage.read ingestion.run.read',
          {'sourceId': 'source-a', 'runId': UUID, 'afterLineageId': UUID}, 'x-ouf-ingestion-read-receipt',
          'ouf-ingestion-read-owner-v1.', 'cd'),

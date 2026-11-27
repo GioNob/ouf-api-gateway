@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from ops.apisix.deploy_internal_m2m_routes import apply, restore
-from ops.apisix.deploy_semantic_human import LEGACY_IDS, ROUTES, install, validate_snapshot
+from ops.apisix.deploy_semantic_human import ROUTES, install, validate_snapshot
 from ops.apisix.deploy_status_execute import apply_routes
 from tests.test_execute_delegation import Denied, Engine
 from tests.release_bundle_fixture import (
@@ -120,30 +120,18 @@ def test_recovery_lua_preserves_owner_request(release):
                 assert engine.headers[b'idempotency-key'] == b'request-1'
 
 
-def test_legacy_snapshot_and_bulk_writes(monkeypatch):
+def test_legacy_snapshot_and_bulk_writes():
     """GW-60h-04 / GW-60h-09. Historical snapshots and bulk writes respect release ownership."""
-    for ids in (set(ROUTES), set(ROUTES) - {'semantic-human-terms'}, LEGACY_IDS):
-        assert set(validate_snapshot(dict.fromkeys(ids))) == LEGACY_IDS
+    for ids in (set(ROUTES), set(ROUTES) - {'semantic-human-terms'}):
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            validate_snapshot(dict.fromkeys(ids))
     for route_id in THS_OWNER_IDS + THS_RECOVERY_IDS:
         with pytest.raises(ValueError, match='governed Gateway release'):
             apply([{'id': route_id}], None)
         with pytest.raises(ValueError, match='governed Gateway release'):
             restore({route_id: None}, None)
-    writes = {}
-
-    class Admin:
-        def route(self, method, key, body=None):
-            assert key in LEGACY_IDS
-            if method == 'PUT':
-                writes[key] = body
-            return 200, writes[key]
-
-        def curl(self, path, method):
-            return 401, {}
-
-    monkeypatch.setattr('ops.apisix.deploy_semantic_human.snapshot', lambda ids, admin: dict.fromkeys(ids))
-    install([{'id': key, 'methods': [method], 'uri': uri} for key, (method, uri, _) in ROUTES.items()], Admin())
-    assert writes.keys() == LEGACY_IDS
+    with pytest.raises(ValueError, match='governed Gateway release'):
+        install([{'id': key} for key in ROUTES], None)
 
 
 @pytest.mark.parametrize('route_id', THS_RECOVERY_IDS)

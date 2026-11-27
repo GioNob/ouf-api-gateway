@@ -41,6 +41,84 @@ BASE_3D69CB4 = frozenset({
     'trusted-human-resolution-review',
 })
 
+# Closed inventory of the 60u release (5ed88c8, PR #119), independent of later families.
+BASE_5ED88C8 = frozenset({
+    'authorization-ths-api',
+    'authorization-ths-login',
+    'authorization-ths-page',
+    'execute-ouf-ingestion-acquisition-read',
+    'execute-ouf.gateway.operations.incidents',
+    'execute-ouf.gateway.operations.summary',
+    'execute-ouf.ingestion.operations.incidents',
+    'execute-ouf.ingestion.operations.summary',
+    'execute-ouf.operations.incidents',
+    'execute-ouf.operations.summary',
+    'execute-urban-acquisition-read',
+    'execute-urban-object-search',
+    'mcp-authorization-policy-bundle-read',
+    'mcp-generic-execution',
+    'mcp-ingestion-run-recovery-link',
+    'mcp-ingestion-status',
+    'mcp-managed-file-create',
+    'mcp-managed-file-handoff',
+    'mcp-managed-file-handoff-issue',
+    'mcp-managed-file-preview',
+    'mcp-managed-file-profile',
+    'mcp-managed-file-review-prepare',
+    'mcp-managed-file-review-read',
+    'mcp-managed-file-upload',
+    'mcp-permissions-propose',
+    'mcp-permissions-read',
+    'mcp-permissions-status',
+    'mcp-semantic-discovery-adopt',
+    'mcp-semantic-discovery-candidates',
+    'mcp-semantic-discovery-request',
+    'mcp-semantic-discovery-status',
+    'mcp-semantic-get',
+    'mcp-semantic-review-link',
+    'mcp-semantic-search',
+    'mcp-semantic-search-batch',
+    'mcp-source-revision-prepare',
+    'mcp-source-revision-read',
+    'public-mcp-endpoint',
+    'public-mcp-oauth-protected-resource',
+    'r2b-publication-resolution',
+    'r2b-semantic-reference',
+    'r2b-semantic-reference-batch',
+    'r4a-ingestion-human-quarantine-read',
+    'r4a-ingestion-human-quarantine-retry',
+    'r4a-onboarding-runtime-publications-list',
+    'r4a-udp-human-materialization-retry',
+    'r4a-udp-human-materialization-review',
+    'r4a-udp-runtime-handoff-write',
+    'r4a-udp-runtime-lake-write',
+    'semantic-human-card',
+    'semantic-human-decision',
+    'semantic-human-publish',
+    'semantic-human-terms',
+    'semantic-proposal-create',
+    'semantic-proposal-read',
+    'semantic-proposal-review',
+    'semantic-proposal-validate',
+    'ths-identity-preflight-create',
+    'ths-identity-preflight-read',
+    'ths-resolution-package-confirm',
+    'ths-resolution-package-read',
+    'trusted-human-authorization-get',
+    'trusted-human-authorization-post',
+    'trusted-human-ingestion-onboarding-readiness',
+    'trusted-human-ingestion-run-abort',
+    'trusted-human-ingestion-run-read',
+    'trusted-human-ingestion-run-recovery',
+    'trusted-human-ingestion-run-resume',
+    'trusted-human-managed-file-picker',
+    'trusted-human-onboarding-approvals-get',
+    'trusted-human-onboarding-approvals-post',
+    'trusted-human-onboarding-review',
+    'trusted-human-resolution-review',
+    'trusted-human-semantic-review',
+})
+
 R2B_ROUTE_IDS = (
     'r2b-publication-resolution', 'r2b-semantic-reference', 'r2b-semantic-reference-batch',
     'r4a-onboarding-runtime-publications-list', 'r4a-udp-runtime-handoff-write', 'r4a-udp-runtime-lake-write',
@@ -63,7 +141,7 @@ ONBOARDING_IDS = ('mcp-managed-file-upload', 'mcp-managed-file-profile', 'mcp-so
 BASELINE_51M_IDS = BASE_3D69CB4  # alias kept for the 60d family tests
 
 READ_OPERATIONS_IDS = (
-    'mcp-generic-execution', 'mcp-ingestion-status', 'execute-ouf-ingestion-acquisition-read',
+    'mcp-generic-execution', 'mcp-ingestion-status', 'mcp-ingestion-history', 'execute-ouf-ingestion-acquisition-read',
     'execute-urban-acquisition-read', 'execute-urban-object-search', 'execute-ouf.operations.incidents',
     'execute-ouf.operations.summary', 'execute-ouf.gateway.operations.incidents', 'execute-ouf.gateway.operations.summary',
     'execute-ouf.ingestion.operations.incidents', 'execute-ouf.ingestion.operations.summary',
@@ -79,9 +157,29 @@ THS_PAGES_IDS = (
     'trusted-human-onboarding-approvals-get', 'trusted-human-onboarding-approvals-post',
     'authorization-ths-login', 'authorization-ths-page', 'authorization-ths-api',
     'trusted-human-authorization-get', 'trusted-human-authorization-post',
+    'trusted-human-authorization-put', 'trusted-human-authorization-delete',
+)
+
+ONBOARDING_REST_IDS = (
+    'trusted-human-managed-file-actions-post', 'trusted-human-managed-file-preview-get',
+    'trusted-human-managed-file-upload', 'trusted-human-installation-get', 'trusted-human-installation-post',
+    'trusted-human-onboarding-lifecycle-get', 'trusted-human-onboarding-lifecycle-post',
+    'trusted-human-onboarding-lifecycle-put', 'trusted-human-onboarding-sources-get',
+    'trusted-human-onboarding-sources-post',
+)
+
+MODULE_API_QUOTAS = ('moduleApiOnboarding', 'moduleApiPreflight', 'semanticRestApi')
+
+MODULE_API_IDS = (
+    'onboarding-managed-file-read', 'onboarding-identity-preflight-read',
+    'r4a-onboarding-ingestion-compatibility', 'r4a-onboarding-ingestion-compatibility-read',
+    'r4a-onboarding-ingestion-configuration-read', 'semantic-approval-request', 'semantic-artifact-propose',
+    'semantic-artifact-search', 'semantic-rdf-import', 'semantic-revision-validate',
 )
 
 RELEASE_ROUTE_IDS = sorted([
+    *ONBOARDING_REST_IDS,
+    *MODULE_API_IDS,
     *ONBOARDING_IDS,
     'mcp-managed-file-create', 'mcp-managed-file-handoff', 'mcp-managed-file-handoff-issue',
     'mcp-managed-file-preview', 'mcp-managed-file-review-read',
@@ -94,7 +192,7 @@ RELEASE_ROUTE_IDS = sorted([
     'trusted-human-resolution-review', *DISCOVERY_REVIEW_IDS, *SEARCH_IDS, *SEMANTIC_MCP_IDS, *READ_OPERATIONS_IDS,
     *THS_PAGES_IDS,
 ])
-THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization')
+THS_RATE_CLASSES = ('thsApprovals', 'thsAuthorization', 'thsOnboardingRest', 'thsInstallation')
 
 BASE_3D69CB4_IDS = BASE_3D69CB4  # alias kept for the 60h family tests
 
@@ -196,6 +294,10 @@ def ci_profile(installation, port):
         'gateway.rateLimits.readOperationsMcp.count': 60, 'gateway.rateLimits.readOperationsMcp.timeWindowSeconds': 60,
         **public_mcp_profile(installation, port),
         'installationId': installation['installationId'], 'revision': str(installation['revision']),
+        'iam.workloadClients.onboarding': 'test-managed-file-consumer',
+        **{f'gateway.rateLimits.{group}.{field}': value for group in MODULE_API_QUOTAS
+           for field, value in [('count', 60), ('timeWindowSeconds', 60)]},
+        'iam.workloadClients.sourceOnboarding': 'test-preflight-consumer',
         'iam.workloadClients.semantic': installation.get('semanticServiceIdentity', 'test-semantic'),
         **{f'gateway.rateLimits.{group}.{field}': value for group in ('onboardingMcp', 'authorizationPolicyRead')
            for field, value in [('count', 60), ('timeWindowSeconds', 60)]},

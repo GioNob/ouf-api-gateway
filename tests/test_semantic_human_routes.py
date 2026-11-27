@@ -65,27 +65,14 @@ def test_published_terms_compiled_contract():
         'service': 'ouf-semantic-registry', 'port': 8080, 'path': '/api/trusted-human/v1/semantic-published-terms'}
 
 
-def test_restore_accepts_only_complete_current_or_historical_snapshots():
-    old_ids = set(ROUTES) - {'semantic-human-terms'}
-    for ids in (set(ROUTES), old_ids, old_ids - {'semantic-rdf-import'}):
-        validate_snapshot(dict.fromkeys(ids))
-    for ids in (set(ROUTES) - {'semantic-rdf-import'}, old_ids - {'semantic-human-card'}):
-        with pytest.raises(ValueError, match='SEMANTIC_SNAPSHOT_INVALID'):
-            validate_snapshot(dict.fromkeys(ids))
-
-
-def test_installer_rejects_existing_route_drift_without_a_write(monkeypatch, tmp_path):
-    selected = routes()
-    class Admin:
-        work = tmp_path
-        def route(self, *args):
-            raise AssertionError('no writes permitted')
-    def snapshot(ids, admin):
-        assert ids == {key for key in ROUTES if not key.startswith('semantic-human-')}
-        return {key: ({'uri': '/changed'} if key == selected[0]['id'] else None) for key in ids}
-    monkeypatch.setattr('ops.apisix.deploy_semantic_human.snapshot', snapshot)
-    with pytest.raises(RuntimeError, match='EXISTING_SEMANTIC_ROUTE_DRIFT'):
-        install(selected, Admin())
+def test_installer_and_historical_snapshots_are_release_owned():
+    ids = set(ROUTES)
+    for snapshot in (ids, ids - {'semantic-human-terms'}, ids - {'semantic-human-terms', 'semantic-rdf-import'},
+                     {key for key in ids if not key.startswith('semantic-human-')}):
+        with pytest.raises(ValueError, match='governed Gateway release'):
+            validate_snapshot(dict.fromkeys(snapshot))
+    with pytest.raises(ValueError, match='governed Gateway release'):
+        install(routes(), None)
 
 
 def test_duplicate_selected_uri_is_rejected_before_publication(tmp_path):

@@ -30,6 +30,8 @@
   },
   "iam": {
     "workloadClients": {
+      "onboarding": "test-managed-file-consumer",
+      "sourceOnboarding": "test-preflight-consumer",
       "mcpServer": "ouf-mcp-server",
       "ingestion": "ouf-ingestion",
       "udp": "ouf-udp",

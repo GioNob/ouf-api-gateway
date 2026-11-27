@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""Install the exact HUMAN Semantic route set with a bounded rollback snapshot."""
-import argparse
-import json
-import os
-from pathlib import Path
-import re
+"""Validate the Semantic materialization for the governed Gateway release."""
+OWNED = 'Semantic routes are owned by the governed Gateway release'
 
-from ops.apisix.deploy_internal_m2m_routes import Admin, route_value, restore, snapshot
+if __name__ == '__main__':
+    raise SystemExit(OWNED)
+
 from tools.materialize_semantic_human_runtime import REGEX, ROUTES
-from tools.release_family_ths_owner_api import SEMANTIC_IDS
 
 SAMPLE_ID = '00000000-0000-0000-0000-000000000000'
-LEGACY_IDS = set(ROUTES) - SEMANTIC_IDS - {'semantic-human-terms'}
 
 
 def validate(doc):
@@ -51,67 +47,8 @@ def sample_uri(route):
 
 
 def install(routes, admin):
-    routes = [route for route in routes if route['id'] in LEGACY_IDS]
-    previous = snapshot(LEGACY_IDS, admin)
-    for route in routes:
-        old = previous[route['id']]
-        if old is not None and any(old.get(k) != v for k, v in route.items()):
-            raise RuntimeError('EXISTING_SEMANTIC_ROUTE_DRIFT:' + route['id'])
-    try:
-        for route in routes:
-            route_id = route['id']
-            if previous[route_id] is None:
-                code, _ = admin.route('PUT', route_id, route)
-                if code not in (200, 201):
-                    raise RuntimeError('SEMANTIC_ROUTE_WRITE_FAILED:' + route_id)
-            code, body = admin.route('GET', route_id)
-            if code != 200 or any(route_value(body).get(k) != v for k, v in route.items()):
-                raise RuntimeError('SEMANTIC_ROUTE_READBACK_FAILED:' + route_id)
-        for route in routes:
-            code, _ = admin.curl(sample_uri(route), route['methods'][0])
-            if code not in (401, 403):
-                raise RuntimeError('SEMANTIC_ANONYMOUS_NOT_DENIED:' + route['id'] + ':' + str(code))
-    except BaseException:
-        restore(previous, admin)
-        raise
-    print('SEMANTIC_HUMAN_ROUTES_ACTIVE=true COUNT=' + str(len(routes)))
+    raise ValueError(OWNED)
 
 
 def validate_snapshot(previous):
-    # Older snapshots cover only the routes owned by their installer.
-    previous_ids = set(ROUTES) - {'semantic-human-terms'}
-    if not isinstance(previous, dict) or set(previous) not in (
-            LEGACY_IDS, set(ROUTES), previous_ids, previous_ids - {'semantic-rdf-import'}):
-        raise ValueError('SEMANTIC_SNAPSHOT_INVALID')
-    return {key: value for key, value in previous.items() if key in LEGACY_IDS}
-
-
-def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    mode = p.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--materialization', type=Path)
-    mode.add_argument('--restore', type=Path)
-    p.add_argument('--admin-key', type=Path, required=True)
-    p.add_argument('--container', default='ouf-apisix')
-    p.add_argument('--curl-image', default='curlimages/curl:8.16.0')
-    p.add_argument('--backup-dir', type=Path, default=Path('/opt/ouf/backup'))
-    args = p.parse_args()
-    os.umask(0o077)
-    if args.restore:
-        previous = json.loads(args.restore.read_text())
-        previous = validate_snapshot(previous)
-    else:
-        routes = validate(json.loads(args.materialization.read_text()))
-    admin = Admin(args, 'semantic-human-')
-    try:
-        if args.restore:
-            restore(previous, admin)
-            print('SEMANTIC_HUMAN_ROUTES_RESTORED=true')
-        else:
-            install(routes, admin)
-    finally:
-        admin.close()
-
-
-if __name__ == '__main__':
-    main()
+    raise ValueError(OWNED)

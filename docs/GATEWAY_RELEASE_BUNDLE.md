@@ -70,6 +70,14 @@ resta chiusa. I PET `GW-59F-ACCEPT`, `GW-59F-BOUNDS`, `GW-59F-LOCAL` e
 [`test_review_prepare_limits_optional.py`](../tests/test_review_prepare_limits_optional.py).
 Il rilascio di questo Gateway precede quello del MCP del task-59c.
 
+### Adozione di PUT e DELETE (60f-b)
+
+La decisione DN-L3-2 chiude la valutazione lasciata aperta dal 60f. Il bundle governa
+`trusted-human-authorization-put` e `trusted-human-authorization-delete` con il
+materializzatore, il bearer verso Onboarding e la quota `thsAuthorization` di GET e POST.
+I PET `GW-60f-b-01`, `GW-60f-b-02` e `GW-60f-b-03` verificano rispettivamente i corpi
+generati, la parità e il ritorno sull’inventario completo, e il rifiuto delle scritture legacy.
+
 ## Rotte del rilascio
 
 | ID rotta | Metodo e percorso | Capability | Backend logico |
