@@ -204,7 +204,7 @@ def test_analysis_start_is_opt_in_and_only_a_human_batch_plan_gets_a_proof():
     assert access[:1] + access[2:] == before['plugins']['serverless-post-function']['functions']
     hook = access[1].encode()
     strip = ingress['plugins']['serverless-pre-function']['functions'][-1].encode()
-    claims = dict(human(), iss=installation['issuerUrl'], aud=installation['gatewayAudience'])
+    claims = dict(human(), iss=installation['issuerUrl'], aud=installation['gatewayAudience'], auth_time=977)
     plan = dict(mode='BATCH_V1', assetId=str(uuid4()), profileId=str(uuid4()),
                 schemaHash=hashlib.sha256(b'profile').hexdigest(), commandKey=str(uuid4()))
     header = b'x-ouf-analysis-batch-start'
@@ -224,8 +224,14 @@ def test_analysis_start_is_opt_in_and_only_a_human_batch_plan_gets_a_proof():
     result = verify_start(engine.headers[header].decode(), settings, 1_000_000)
     assert result['plan'] == plan
     assert result['subject'] == claims['sub']
+    assert result['authTime'] == claims['auth_time']
     assert result['exp'] == 1060
     service = Engine(dict(claims, ouf_actor_type='SERVICE'), body=rpc)
     with pytest.raises(Denied) as denied:
         service.lua.execute(hook)(None, None)
     assert denied.value.args == (403,)
+    for invalid in (None, '977', 1001):
+        unavailable = Engine(dict(claims, auth_time=invalid), body=rpc)
+        with pytest.raises(Denied) as denied:
+            unavailable.lua.execute(hook)(None, None)
+        assert denied.value.args == (403,)

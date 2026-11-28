@@ -3,6 +3,7 @@ import concurrent.futures
 import http.client
 import secrets
 import socket
+import sqlite3
 import ssl
 import tempfile
 import threading
@@ -10,6 +11,8 @@ import time
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
+from contextlib import closing
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,12 +22,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.x509.oid import NameOID
 
-from tools.analysis_batch_mandate import BatchMandates, Clock
+from tools.analysis_batch_mandate import DISCOVERY_BINDING_HEADER, BatchMandates, Clock
 from tools.analysis_batch_protocol import (
-    Denied, OPERATIONS, START_DOMAIN, TTL_MS, b64, digest, mac, parse, wire,
+    Denied, OPERATIONS, START_DOMAIN, TTL_MS, arguments, digest, mac, parse, sign_binding, wire,
 )
-from tools.analysis_batch_service import BASE, Listener, tls_context
-from tools.analysis_batch_store import BatchMandateStore
+from tools.analysis_batch_service import AUTHORIZATION_PATH, BASE, Authorization, Listener, tls_context
+from tools.analysis_batch_store import BatchMandateAudit
 from tools.operational_incidents import SQLiteOperationalIncidentStore
 
 
@@ -61,60 +64,152 @@ class Time:
         return Clock(1000, lambda: self.utc + self.offset, lambda: self.tick)
 
 
-class Authorities:
+class WorkEvidence:
     def __init__(self, clock):
         self.clock = clock
         self.epoch = hash_text('policy')
         self.plans = {}
-        self.active = True
-        self.allowed = True
-        self.scope = SCOPE
-        self.grant = hash_text('grant')
-        self.phase = 'FIRST_ROUND'
-        self.rights_hook = None
-        self.revoke_as = None
-        self.dispatched_rights = []
+        self.discovery = {}
         self.stale = False
-        self.stale_attempt = None
-        self.unavailable = False
-        self.time_error = 0
 
-    def envelope(self, raw, value):
-        when = self.clock.utc + self.time_error
+    def envelope(self, raw, **value):
+        now = self.clock.utc
         return dict(requestHash=digest(raw) if not self.stale else hash_text('previous request'),
-                    clockSynchronized=True, observedAtMs=when, validUntilMs=when + 10_000, **value)
+                    clockSynchronized=True, observedAtMs=now, validUntilMs=now + 10_000, **value)
 
-    def state(self, raw, _):
+    def state(self, raw):
         q = parse(raw)
         saved = self.plans.get((q['tenant'], q['subject'], q['commandKey']))
-        bound = saved is not None and saved['profileId'] == q['profileId'] and saved['assetId'] == q['assetId']
-        if q['action'] == 'dispatch' and q['attemptId'] == self.stale_attempt:
-            bound = False
+        bound = (saved is not None and all(saved[k] == q[k] for k in ('profileId', 'assetId', 'schemaHash'))
+                 and saved['analysisId'] == q['analysisId'])
         if not bound:
-            return self.envelope(raw, dict(bound=False))
-        return self.envelope(raw, dict(bound=True, analysisId=saved['analysisId'], policyEpoch=self.epoch,
-                                       phase=self.phase, workRef=hash_text(saved['analysisId'] + 'first-column')))
+            return self.envelope(raw, bound=False)
+        work_ref = hash_text(saved['analysisId'] + 'first-column')
+        return self.envelope(raw, bound=True, analysisId=saved['analysisId'], policyEpoch=self.epoch,
+                             phase=saved['phase'], workRef=work_ref, **self.discovery.get(saved['analysisId'], {}))
 
-    def rights(self, raw, bearer):
-        q = parse(raw)
-        action = q['action']
-        if action == 'clock':
-            return self.envelope(raw, {})
+    def receipt_context(self, raw):
+        return self.envelope(raw, active=True, allowed=True, policyEpoch=self.epoch, decisionRef=new_id(),
+                             acr='verified', scope=SCOPE, roles=['analyst'])
+
+
+class AuthorizationOwner:
+    """Private HTTPS peer, shared by all listeners but backed by neither local store."""
+    def __init__(self, clock, workload):
+        self.clock, self.workload = clock, workload
+        self.lock = threading.Lock()
+        self.keys, self.rows = {}, {}
+        self.calls, self.admissions = [], []
+        self.inactive = False
+        self.failure = None
+        self.lost_reply = None
+        self.admit_hook = None
+        self.corrupt_admit = None
+        self.epoch = hash_text('policy')
+
+    def view(self, ref):
+        view = self.rows[ref]
+        if view['state'] == 'ACTIVE' and self.clock.utc >= view['expiresAtMs']:
+            view.update(state='EXPIRED', version=2)
+        return dict(view)
+
+    def execute(self, action, payload, bearer):
+        self.calls.append((action, payload, bearer))
+        if self.failure:
+            raise Denied(*self.failure)
+        if action == 'admit' and self.admit_hook:
+            self.admit_hook()
+        with self.lock:
+            return self.decide(action, dict(payload), bearer)
+
+    def decide(self, action, q, bearer):
+        if action == 'issue':
+            proof = q.pop('proof', None)
+            key_used = tuple(q[k] for k in ('issuer', 'tenant', 'subject', 'issueKey'))
+            if key_used in self.keys:
+                ref, previous = self.keys[key_used]
+                if previous != q:
+                    raise Denied(409, 'ISSUE_KEY_CONFLICT')
+                return self.view(ref)
+            if proof is None:
+                raise Denied(403, 'HUMAN_PROOF_REQUIRED')
+            if self.inactive:
+                raise Denied(403, 'PRINCIPAL_INACTIVE')
+            ref = new_id()
+            self.rows[ref] = dict(mandateRef=ref, generation=1, version=1, state='ACTIVE',
+                                  analysisId=q['analysisId'], expiresAtMs=self.clock.utc + TTL_MS)
+            self.keys[key_used] = ref, q
+            return self.view(ref)
+        if q['mandateRef'] not in self.rows:
+            raise Denied(404, 'MANDATE_NOT_FOUND')
+        view = self.view(q['mandateRef'])
+        if view['generation'] != q['generation']:
+            raise Denied(409, 'MANDATE_GENERATION_CHANGED')
+        if action == 'read':
+            return view
+        if action == 'revoke' and bearer not in ('Bearer holder', 'Bearer authorized-ths'):
+            raise Denied(403, 'REVOCATION_DENIED')
+        if action == 'admit' and view['state'] != 'ACTIVE':
+            raise Denied(403, 'MANDATE_REVOKED' if view['state'] == 'REVOKED' else 'MANDATE_EXPIRED')
+        if action == 'expire' and view['state'] != 'ACTIVE':
+            return view
+        if q['expectedVersion'] != view['version']:
+            raise Denied(409, 'MANDATE_VERSION_CHANGED')
         if action == 'revoke':
-            if not bearer:
-                raise Denied(403, 'HUMAN_REQUIRED')
-            return self.envelope(raw, dict(active=True, allowed=True, actorType='HUMAN', issuer=q['issuer'],
-                                           subject=q['subject'], tenant=q['tenant'], client=q['client'],
-                                           operatorAuthorized=False) | (self.revoke_as or {}))
-        if action == 'dispatch':
-            self.dispatched_rights.append((q['subject'], q['tenant'], q['operation']))
-            if self.rights_hook is not None:
-                self.rights_hook()
-            if self.unavailable:
-                raise Denied(503, 'IAM_UNAVAILABLE')
-        return self.envelope(raw, dict(active=self.active, allowed=self.allowed, policyEpoch=self.epoch,
-                                       decisionRef=new_id(), acr='verified', scope=self.scope, roles=['analyst'],
-                                       grants=dict.fromkeys(OPERATIONS, self.grant)))
+            self.rows[q['mandateRef']].update(state='REVOKED', version=2)
+            return self.view(q['mandateRef'])
+        if q['analysisId'] != view['analysisId']:
+            raise Denied(403, 'MANDATE_BINDING_MISMATCH')
+        if action == 'expire':
+            self.rows[q['mandateRef']].update(state='EXPIRED', version=2)
+            return self.view(q['mandateRef'])
+        if q['workload'] != self.workload:
+            raise Denied(403, 'GATEWAY_WORKLOAD_DENIED')
+        if q['policyEpoch'] != self.epoch:
+            raise Denied(403, 'POLICY_EPOCH_CHANGED')
+        if self.inactive:
+            raise Denied(403, 'PRINCIPAL_INACTIVE')
+        self.admissions.append(q)
+        return self.corrupt_admit or view
+
+
+class AuthorizationHandler(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def do_POST(self):
+        cert = self.connection.getpeercert(binary_form=True)
+        action = self.path.removeprefix(AUTHORIZATION_PATH)
+        body = self.rfile.read(int(self.headers['Content-Length']))
+        bearer = self.headers.get('Authorization')
+        status, headers = 200, {}
+        try:
+            if not cert or self.server.pins.get(digest(cert)) != 'gateway':
+                raise Denied(403, 'GATEWAY_WORKLOAD_DENIED')
+            if action not in ('issue', 'admit', 'revoke', 'expire', 'read') or (bearer and action != 'revoke'):
+                raise Denied(400, 'INVALID_REQUEST')
+            result = self.server.owner.execute(action, parse(body), bearer)
+            if self.server.owner.lost_reply == action:
+                self.server.owner.lost_reply = None
+                return
+        except Denied as error:
+            status, result = error.status, {'code': error.code}
+            if error.retry_after:
+                headers['Retry-After'] = error.retry_after
+        raw = wire(result)
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(raw)))
+        self.send_header('Cache-Control', 'no-store')
+        for name, value in headers.items():
+            self.send_header(name, value)
+        try:
+            self.end_headers()
+            self.wfile.write(raw)
+        except OSError:
+            # The caller can time out after this simulated owner commits.
+            pass
+
 
 
 class Owner:
@@ -159,7 +254,7 @@ class TLSFixture:
         self.ca = directory / 'ca.pem'
         self.ca.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
         self.profiles, self.pins = {}, {}
-        for role in ('server', 'mcp', 'human', 'foreign'):
+        for role in ('server', 'mcp', 'human', 'foreign', 'gateway'):
             private = Ed25519PrivateKey.generate()
             subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, role)])
             cert = (certificate(subject, private.public_key())
@@ -170,7 +265,7 @@ class TLSFixture:
             key_file.write_bytes(private.private_bytes(serialization.Encoding.PEM,
                                                        serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
             self.profiles[role] = dict(caFile=str(self.ca), certFile=str(cert_file), keyFile=str(key_file))
-            if role in ('human', 'mcp'):
+            if role in ('human', 'mcp', 'gateway'):
                 self.pins[digest(cert.public_bytes(serialization.Encoding.DER))] = role
 
     def server(self, api):
@@ -185,82 +280,93 @@ class TLSFixture:
 class BatchMandatePET(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.certificates = tempfile.TemporaryDirectory()
-        cls.addClassCleanup(cls.certificates.cleanup)
-        cls.tls = TLSFixture(Path(cls.certificates.name))
+        certificates = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(certificates.cleanup)
+        cls.tls = TLSFixture(Path(certificates.name))
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.path = Path(directory.name) / 'operations.db'
-        SQLiteOperationalIncidentStore(self.path).close()
+        self.directory = Path(directory.name)
         self.time = Time()
-        self.authorities = Authorities(self.time)
-        self.owner = Owner()
+        self.work = WorkEvidence(self.time)
+        self.semantic = Owner()
         self.settings = SimpleNamespace(
             installation='install-one', issuer='test-issuer', audience='test-gateway', workload='test-mcp',
-            ths_client='test-ths', storage_epoch=hash_text('registry'), start_key=key(),
-            owner_keys={'read': key(), 'discovery': key()}, max_result_bytes=264192,
-            rates=dict.fromkeys(OPERATIONS, 20),
+            start_key=key(), binding_key=key(), owner_keys={'read': key(), 'discovery': key()},
+            max_result_bytes=264192,
         )
-        self.servers = [self.replica(), self.replica()]
+        self.authorization = AuthorizationOwner(self.time, self.settings.workload)
+        remote = ThreadingHTTPServer(self.tls.address, AuthorizationHandler)
+        remote.owner, remote.pins = self.authorization, self.tls.pins
+        remote.socket = tls_context(self.tls.profiles['server'], server=True).wrap_socket(remote.socket, server_side=True)
+        self.run_server(remote)
+        self.authorization_server = remote
+        self.servers = [self.replica('a'), self.replica('b')]
 
-    def replica(self, *, initialize=True):
-        store = BatchMandateStore(self.path, self.settings.installation, self.settings.storage_epoch,
-                                  initialize=initialize)
-        api = BatchMandates(self.settings, store, SimpleNamespace(evidence=self.authorities.rights),
-                            SimpleNamespace(evidence=self.authorities.state), self.owner, self.time.clock())
-        server = self.tls.server(api)
+    def run_server(self, server):
         thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.01})
         thread.start()
         self.addCleanup(thread.join)
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
+
+    def replica(self, name):
+        path = self.directory / (name + '.db')
+        SQLiteOperationalIncidentStore(path).close()
+        host, port = self.authorization_server.server_address
+        owner = Authorization(dict(url=f'https://{host}:{port}', **self.tls.profiles['gateway']), 1)
+        api = BatchMandates(self.settings, BatchMandateAudit(path, self.settings.installation), owner,
+                            SimpleNamespace(evidence=self.work.receipt_context), SimpleNamespace(evidence=self.work.state),
+                            self.semantic, self.time.clock())
+        server = self.tls.server(api)
+        self.run_server(server)
         return server
 
-    def call(self, replica, action, data, role='mcp', **extra):
+    def call(self, replica, action, data, role='mcp', *, with_headers=False, **extra):
         headers = {'Content-Type': 'application/json', **extra}
         connection = self.tls.client(self.servers[replica], role)
         try:
             connection.request('POST', BASE + action, wire(data), headers)
             with connection.getresponse() as response:
-                raw = response.read()
-                return response.status, parse(raw)
+                result = response.status, parse(response.read())
+                return (*result, response.headers) if with_headers else result
         finally:
             connection.close()
 
-    def plan(self, subject='human-one', tenant='tenant-one', start_key=None):
-        p = dict(mode='BATCH_V1', assetId=new_id(), profileId=new_id(), schemaHash=hash_text('schema'),
-                 commandKey=start_key or new_id())
+    def plan(self, tenant='tenant-one', command=None):
+        args = dict(mode='BATCH_V1', assetId=new_id(), profileId=new_id(), schemaHash=hash_text('schema'),
+                    commandKey=command or new_id())
+        iat = self.time.utc // 1000
         return dict(v=1, installation=self.settings.installation, issuer=self.settings.issuer,
                     audience=self.settings.audience, workload=self.settings.workload, tenant=tenant,
-                    subject=subject, client='same-oauth-client', actor='HUMAN', scope=SCOPE,
-                    iat=self.time.utc // 1000, exp=self.time.utc // 1000 + 60, plan=p)
+                    subject='human-one', client='same-oauth-client', actor='HUMAN', scope=SCOPE,
+                    authTime=iat - 2, iat=iat, exp=iat + 60, plan=args)
 
-    def prepare(self, plan, replica=0):
-        payload = b64(wire(plan))
-        proof = payload + '.' + mac(self.settings.start_key, START_DOMAIN, payload)
-        return self.call(replica, 'prepare', {'startProof': proof})
+    def prepare(self, plan):
+        proof = sign_binding(self.settings.start_key, START_DOMAIN, plan)
+        request = {'startProof': proof}
+        status, pending = self.call(0, 'prepare', request)
+        self.assertEqual((status, pending['state']), (200, 'PENDING'))
+        self.assertEqual(self.call(1, 'prepare', request), (200, pending))
+        args = plan['plan']
+        return dict(mandateRef=pending['mandateRef'], generation=1, startBinding=pending['startBinding'],
+                    commandKey=args['commandKey'], analysisId=hash_text(plan['tenant'] + args['profileId']),
+                    policyEpoch=self.work.epoch, startProof=proof)
 
-    def save_mcp(self, plan):
-        p = plan['plan']
-        self.authorities.plans[plan['tenant'], plan['subject'], p['commandKey']] = {
-            **p, 'analysisId': hash_text(plan['tenant'] + plan['subject'] + p['profileId']),
+    def save_mcp(self, plan, issue):
+        args = plan['plan']
+        self.work.plans[plan['tenant'], plan['subject'], args['commandKey']] = {
+            **args, 'analysisId': issue['analysisId'], 'phase': 'FIRST_ROUND',
         }
-
-    def issue(self, plan, view, replica=1):
-        return self.call(replica, 'issue', dict(mandateRef=view['mandateRef'], generation=view['generation'],
-                                                commandKey=plan['plan']['commandKey']))
 
     def active(self, plan=None):
         plan = plan or self.plan()
-        status, view = self.prepare(plan)
-        self.assertEqual(status, 200)
-        self.assertEqual(view['state'], 'PENDING')
-        self.save_mcp(plan)
-        status, view = self.issue(plan, view)
-        self.assertEqual(status, 200)
-        self.assertEqual(view['state'], 'ACTIVE')
+        issue = self.prepare(plan)
+        self.save_mcp(plan, issue)
+        status, view = self.call(1, 'issue', issue)
+        self.assertEqual((status, view['state']), (200, 'ACTIVE'))
+        self.assertNotEqual(view['mandateRef'], issue['mandateRef'])
         return view
 
     def dispatch_data(self, view, name=SEARCH, args=None):
@@ -269,270 +375,288 @@ class BatchMandatePET(unittest.TestCase):
                         intents=[dict(intentId='first', intent='private-column-label', preferredLanguages=['it'],
                                       requestedArtifactType='PROPERTY', context={})])
         return dict(mandateRef=view['mandateRef'], generation=view['generation'], analysisId=view['analysisId'],
-                    operation=name, arguments=args, correlationId=new_id(), attemptId=new_id())
+                    mandateBinding=view['mandateBinding'], operation=name, arguments=args,
+                    correlationId=new_id(), attemptId=new_id())
 
-    def terminal_data(self, view):
-        return dict(mandateRef=view['mandateRef'], generation=view['generation'], expectedVersion=view['version'])
+    def discovery_data(self, view, args=None):
+        args = args or dict(requestedArtifactType='PROPERTY', intent='private-discovery-intent',
+                            preferredLanguages=['it'], idempotencyKey=new_id())
+        self.work.discovery[view['analysisId']] = {'discoveryArgumentsHash': arguments(REQUEST, args)}
+        return self.dispatch_data(view, REQUEST, args)
 
-    def revoke(self, view, replica=1):
-        return self.call(replica, 'revoke', self.terminal_data(view), role='human',
-                         Authorization='Bearer ' + secrets.token_urlsafe(20))
+    def save_discovery_binding(self, view, headers):
+        self.work.discovery[view['analysisId']]['discoveryBinding'] = headers[DISCOVERY_BINDING_HEADER]
 
-    def denied(self, data, statuses, replica=1, role='mcp', **extra):
-        before = len(self.owner.calls)
-        status, body = self.call(replica, 'dispatch', data, role, **extra)
-        self.assertIn(status, statuses, body)
-        self.assertEqual(len(self.owner.calls), before)
-        return body['code']
+    def read(self, view, replica=1):
+        return self.call(replica, 'read', {k: view[k] for k in ('mandateRef', 'generation', 'mandateBinding')})
 
-    def events(self):
-        with self.servers[0].api.store.transaction() as db:
-            return [parse(row[0]) for row in db.execute('select event from analysis_batch_audit_v1 order by sequence')]
+    def revoke(self, view, bearer='Bearer holder'):
+        req = dict(mandateRef=view['mandateRef'], generation=view['generation'], expectedVersion=view['version'])
+        return self.call(0, 'revoke', req, role='human', Authorization=bearer)
 
-    def test_replay_after_restart_and_revoked_tombstone(self):
+    def denied(self, data, expected, replica=1, role='mcp'):
+        count = len(self.semantic.calls)
+        status, result = self.call(replica, 'dispatch', data, role)
+        self.assertEqual((status, result['code']), expected)
+        self.assertEqual(len(self.semantic.calls), count)
+
+    def events(self, name):
+        with closing(sqlite3.connect(self.directory / (name + '.db'))) as db:
+            return [parse(event) for event, in db.execute('select event from analysis_batch_audit_v1 order by sequence')]
+
+    def test_issue_attests_human_and_replays_after_lost_response_and_restart(self):
         plan = self.plan()
-        _, pending = self.prepare(plan)
-        self.assertEqual(self.prepare(plan, 1), (200, pending))
-        self.assertEqual(self.issue(plan, pending)[0], 403)
-        self.save_mcp(plan)
+        issue = self.prepare(plan)
+        self.assertEqual(self.call(1, 'issue', issue), (403, {'code': 'ANALYSIS_WORK_NOT_BOUND'}))
+        self.save_mcp(plan, issue)
+        replay = {k: v for k, v in issue.items() if k != 'startProof'}
+        self.assertEqual(self.call(1, 'issue', replay), (403, {'code': 'HUMAN_PROOF_REQUIRED'}))
+        self.authorization.lost_reply = 'issue'
+        self.assertEqual(self.call(0, 'issue', issue)[0], 503)
+        action, sent, bearer = self.authorization.calls[-1]
+        self.assertEqual((action, bearer), ('issue', None))
+        fields = ('analysisId assetId profileId schemaHash issuer tenant subject client workload startRef commandKey '
+                  'issueKey policyEpoch scope generation expectedVersion proof')
+        self.assertEqual(set(sent), set(fields.split()))
+        self.assertEqual((sent['startRef'], sent['issueKey']), (issue['mandateRef'], issue['commandKey']))
+        self.assertEqual((sent['generation'], sent['expectedVersion']), (1, 0))
+        self.assertEqual(sent['proof']['authenticatedAtMs'], plan['authTime'] * 1000)
+        self.assertEqual((sent['proof']['actorType'], sent['proof']['mode'], sent['proof']['phase']),
+                         ('HUMAN', 'BATCH_V1', 'FIRST_ROUND'))
+        self.assertTrue(0 < sent['proof']['validUntilMs'] - sent['proof']['observedAtMs'] <= 30_000)
         self.time.advance(61_000)
-        self.servers.append(self.replica())
-        status, active = self.issue(plan, pending, 2)
-        self.assertEqual(status, 200)
-        self.assertEqual(active['state'], 'ACTIVE')
-        self.assertEqual(active['expiresAtMs'], self.time.utc + TTL_MS)
-        self.assertEqual(self.issue(plan, pending, 0), (200, active))
+        self.servers.append(self.replica('restarted'))
+        status, active = self.call(2, 'issue', replay)
+        self.assertEqual((status, active['state']), (200, 'ACTIVE'))
+        self.assertEqual(active['expiresAtMs'], sent['proof']['observedAtMs'] + TTL_MS)
+        self.assertEqual(self.call(2, 'issue', issue), (403, {'code': 'ANALYSIS_START_PROOF_DENIED'}))
+        self.assertEqual(len(self.authorization.rows), 1)
         status, revoked = self.revoke(active)
-        self.assertEqual(status, 200)
-        self.assertEqual(revoked['state'], 'REVOKED')
-        self.assertEqual(self.issue(plan, pending, 2), (200, revoked))
-        self.denied(self.dispatch_data(active), (403,), 2)
-        self.assertEqual(sum(e['outcome'] == 'ISSUED' for e in self.events()), 1)
+        self.assertEqual((status, revoked['state']), (200, 'REVOKED'))
+        self.assertEqual(self.call(2, 'issue', replay), (200, revoked))
+        self.assertEqual(self.call(2, 'issue', {**replay, 'policyEpoch': hash_text('different policy')}),
+                         (409, {'code': 'ISSUE_KEY_CONFLICT'}))
 
-    def test_concurrent_issue_and_revoke_compare_and_swap(self):
-        plan = self.plan()
-        _, pending = self.prepare(plan)
-        self.save_mcp(plan)
-        with concurrent.futures.ThreadPoolExecutor(2) as pool:
-            first = pool.submit(self.issue, plan, pending, 0)
-            second = pool.submit(self.issue, plan, pending, 1)
-            self.assertEqual(first.result(), second.result())
-            _, active = first.result()
-            first = pool.submit(self.revoke, active, 0)
-            second = pool.submit(self.revoke, active, 1)
-            self.assertEqual(sorted([first.result()[0], second.result()[0]]), [200, 409])
-        self.denied(self.dispatch_data(active), (403,), 0)
-        self.denied(self.dispatch_data(active), (403,), 1)
-
-    def test_positive_all_four_operations_and_owner_receipts(self):
+    def test_positive_all_four_operations_and_receipts(self):
         active = self.active()
         self.assertEqual(self.call(0, 'dispatch', self.dispatch_data(active))[0], 200)
-        args = dict(requestedArtifactType='PROPERTY', intent='private-discovery-intent',
-                    preferredLanguages=['it'], idempotencyKey=new_id())
-        status, owner = self.call(1, 'dispatch', self.dispatch_data(active, REQUEST, args))
+        create = self.discovery_data(active)
+        status, job, headers = self.call(1, 'dispatch', create, with_headers=True)
         self.assertEqual(status, 200)
+        self.save_discovery_binding(active, headers)
         for name in (STATUS, CANDIDATES):
-            data = self.dispatch_data(active, name, {'requestId': owner['requestId']})
-            self.assertEqual(self.call(0, 'dispatch', data)[0], 200)
-        self.assertEqual(len(self.authorities.dispatched_rights), 4)
-        for (path, body, headers), op in zip(self.owner.calls, OPERATIONS.values()):
+            self.assertEqual(self.call(0, 'dispatch', self.dispatch_data(active, name, job))[0], 200)
+        self.assertEqual([q['operation'] for q in self.authorization.admissions], list(OPERATIONS))
+        self.assertEqual(self.authorization.admissions[1]['argumentsHash'], arguments(REQUEST, create['arguments']))
+        for q, (path, body, headers), op in zip(self.authorization.admissions, self.semantic.calls, OPERATIONS.values()):
             self.assertEqual(path, op.path)
+            fields = ('mandateRef generation expectedVersion analysisId workload policyEpoch operation '
+                      'argumentsHash attemptId correlationId')
+            if q['operation'] in (STATUS, CANDIDATES):
+                fields += ' requestId'
+                self.assertEqual(q['requestId'], job['requestId'])
+            self.assertEqual(set(q), set(fields.split()))
+            self.assertEqual((q['expectedVersion'], q['workload']), (active['version'], self.settings.workload))
             self.assertNotIn('Authorization', headers)
             proof = headers[f'X-OUF-Semantic-{op.family.title()}-Receipt']
             encoded, tag = proof.split('.')
             receipt = parse(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
             self.assertEqual(tag, mac(self.settings.owner_keys[op.family], f'ouf-semantic-{op.family}-owner-v1', encoded))
             self.assertEqual(receipt['bodyHash'], digest(body))
-            self.assertEqual(receipt['subject'], 'human-one')
-            self.assertEqual(receipt['tenant'], 'tenant-one')
+            self.assertEqual((receipt['subject'], receipt['tenant'], receipt['roles'], receipt['acr']),
+                             ('human-one', 'tenant-one', 'analyst', 'verified'))
             self.assertLessEqual(receipt['exp'] - receipt['iat'], 30)
-        audit = wire(self.events())
+        audit = wire(self.events('b'))
         self.assertNotIn(b'private-', audit)
-        self.assertNotIn(args['idempotencyKey'].encode(), audit)
-        self.assertNotIn(b'Receipt', audit)
+        self.assertNotIn(create['arguments']['idempotencyKey'].encode(), audit)
 
-    def test_cross_analysis_and_cross_tenant_with_same_client(self):
-        key_used = new_id()
-        first = self.active(self.plan(start_key=key_used))
-        second = self.active(self.plan(subject='human-two', start_key=key_used))
-        third = self.active(self.plan(subject='human-two', tenant='tenant-two', start_key=key_used))
-        self.assertEqual(len({view['analysisId'] for view in (first, second, third)}), 3)
-        args = dict(requestedArtifactType='PROPERTY', intent='first', preferredLanguages=['it'], idempotencyKey=new_id())
-        status, created = self.call(0, 'dispatch', self.dispatch_data(first, REQUEST, args))
+    def test_remote_revocation_with_distinct_stores_blocks_retries_and_reads(self):
+        self.assertNotEqual(self.servers[0].api.audit.uri, self.servers[1].api.audit.uri)
+        active = self.active()
+        search, create = self.dispatch_data(active), self.discovery_data(active)
+        self.assertEqual(self.call(1, 'dispatch', search)[0], 200)
+        status, job, headers = self.call(1, 'dispatch', create, with_headers=True)
         self.assertEqual(status, 200)
-        for replica, foreign in enumerate((second, third)):
-            swapped = self.dispatch_data(foreign)
-            swapped['mandateRef'] = first['mandateRef']
-            self.denied(swapped, (403,), replica)
-            for name in (STATUS, CANDIDATES):
-                data = self.dispatch_data(foreign, name, {'requestId': created['requestId']})
-                self.denied(data, (403,), replica)
-        self.assertEqual(self.call(1, 'dispatch', self.dispatch_data(second))[0], 200)
+        self.save_discovery_binding(active, headers)
+        status, revoked = self.revoke(active)
+        self.assertEqual((status, revoked['state']), (200, 'REVOKED'))
+        self.assertEqual(self.read(active), (200, revoked))
+        attempts = len(self.authorization.calls)
+        allowed, forwarded = len(self.authorization.admissions), len(self.semantic.calls)
+        for data in (search, create, *(self.dispatch_data(active, op, job) for op in (STATUS, CANDIDATES))):
+            self.denied(data, (403, 'MANDATE_REVOKED'))
+        self.assertEqual(len(self.authorization.admissions), allowed)
+        self.assertEqual(len(self.semantic.calls), forwarded)
+        self.assertEqual([action for action, _, _ in self.authorization.calls[attempts:]], ['admit'] * 4)
 
-    def test_stolen_reference_requires_the_pinned_tls_peer(self):
+    def test_unreachable_authorization_denies_repeated_attempt(self):
+        data = self.dispatch_data(self.active())
+        self.assertEqual(self.call(0, 'dispatch', data)[0], 200)
+        self.authorization_server.shutdown()
+        self.authorization_server.server_close()
+        self.denied(data, (503, 'ANALYSIS_AUTHORIZATION_UNAVAILABLE'))
+        self.assertEqual(len(self.authorization.admissions), 1)
+
+    def test_authorization_timeout_denies_without_forwarding(self):
+        active = self.active()
+        self.authorization.lost_reply = 'admit'
+        self.denied(self.dispatch_data(active), (503, 'ANALYSIS_AUTHORIZATION_UNAVAILABLE'))
+        self.assertEqual(len(self.authorization.admissions), 1)
+        unblock = threading.Event()
+        self.authorization.admit_hook = lambda: unblock.wait(4)
+        try:
+            self.denied(self.dispatch_data(active), (503, 'ANALYSIS_AUTHORIZATION_UNAVAILABLE'))
+        finally:
+            unblock.set()
+
+    def test_inactive_principal_denied_by_authorization_on_repeated_attempt(self):
         data = self.dispatch_data(self.active())
         for replica in (0, 1):
-            for role in (None, 'foreign', 'human'):
-                code = self.denied(data, (403,), replica, role, **{'X-OUF-Workload': self.settings.workload})
-                self.assertEqual(code, 'ANALYSIS_WORKLOAD_PROOF_REQUIRED')
-        self.assertEqual(len(self.events()), 7)
+            self.assertEqual(self.call(replica, 'dispatch', data)[0], 200)
+        self.assertEqual([q['attemptId'] for q in self.authorization.admissions], [data['attemptId']] * 2)
+        self.authorization.inactive = True
+        self.denied(data, (403, 'PRINCIPAL_INACTIVE'))
+        self.assertEqual(len(self.authorization.admissions), 2)
+        self.assertEqual(sum(action == 'admit' for action, *_ in self.authorization.calls), 3)
 
-    def test_current_state_denials_across_replicas(self):
+    def test_remote_outage_retry_after_restart_and_recovery(self):
         data = self.dispatch_data(self.active())
-        mutations = [('active', False), ('allowed', False), ('epoch', hash_text('new policy')),
-                     ('scope', 'ouf.semantic.search'), ('grant', hash_text('new grant')), ('stale', True),
-                     ('time_error', 2000), ('unavailable', True)]
-        for attr, value in mutations:
-            with self.subTest(attr=attr):
-                previous = getattr(self.authorities, attr)
-                setattr(self.authorities, attr, value)
-                for replica in (0, 1):
-                    self.denied(data, (403, 503), replica)
-                setattr(self.authorities, attr, previous)
-        self.denied({**data, 'generation': 2}, (403,), 0)
-        self.denied({**data, 'operation': 'semantic.discovery.adopt'}, (403,), 0)
-        self.authorities.stale_attempt = data['attemptId']
-        self.denied(data, (403,), 1)
-        self.assertEqual(len(self.owner.calls), 0)
+        self.authorization.failure = (503, 'CURRENT_RIGHTS_UNAVAILABLE', '300')
+        status, result, headers = self.call(0, 'dispatch', data, with_headers=True)
+        self.assertEqual((status, result['code'], headers['Retry-After']), (503, 'CURRENT_RIGHTS_UNAVAILABLE', '300'))
+        self.time.advance(3 * 60 * 60 * 1000)
+        self.servers.append(self.replica('restarted'))
+        self.denied(data, (503, 'CURRENT_RIGHTS_UNAVAILABLE'), replica=2)
+        self.authorization.failure = None
+        self.assertEqual(self.call(2, 'dispatch', data)[0], 200)
+        self.assertEqual(len(self.semantic.calls), 1)
 
-    def test_store_outage_clock_rollback_restart_and_recovery(self):
+    def test_local_audit_unavailable_cannot_decide_dispatch(self):
+        data = self.dispatch_data(self.active())
+        path = self.directory / 'b.db'
+        path.rename(self.directory / 'b.paused')
+        self.assertEqual(self.call(1, 'dispatch', data)[0], 200)
+        with self.assertLogs('tools.analysis_batch_mandate') as logs:
+            self.denied({**data, 'operation': 'semantic.discovery.adopt'}, (403, 'ANALYSIS_OPERATION_NOT_ALLOWED'))
+        self.assertIn('ANALYSIS_LOCAL_AUDIT_UNAVAILABLE', str(logs.output))
+        self.assertFalse(path.exists())
+
+    def test_mismatched_owner_success_does_not_authorize_dispatch(self):
         active = self.active()
-        data = self.dispatch_data(active)
-        self.time.advance(15_000)
-        self.assertEqual(self.call(0, 'dispatch', data)[0], 200)
-        self.time.offset = -500
-        self.denied(data, (503,), 0)
-        self.servers.append(self.replica())
-        self.denied(data, (503,), 2)
-        self.time.offset = 0
-        paused = self.path.with_suffix('.paused')
-        self.path.rename(paused)
-        try:
-            with self.assertLogs('tools.analysis_batch_mandate', level='WARNING') as logs:
-                self.denied(data, (503,), 0)
-                self.denied(data, (503,), 1)
-            self.assertNotIn('private-column-label', str(logs.output))
-            self.time.advance(3 * 60 * 60 * 1000)
-        finally:
-            paused.rename(self.path)
-        self.assertEqual(self.call(2, 'dispatch', data)[0], 200)
-        self.assertEqual(self.servers[1].api.store.get(active['mandateRef'])['expires_ms'], active['expiresAtMs'])
+        view = {k: v for k, v in active.items() if k != 'mandateBinding'}
+        for change in (dict(analysisId=hash_text('another analysis')), dict(generation=True),
+                       dict(state='REVOKED', version=2), dict(expiresAtMs=active['expiresAtMs'] + 1)):
+            with self.subTest(change=change):
+                self.authorization.corrupt_admit = {**view, **change}
+                self.denied(self.dispatch_data(active), (502, 'ANALYSIS_AUTHORIZATION_RESPONSE_INVALID'))
 
-    def test_new_listener_is_live_while_existing_registry_is_unavailable(self):
+    def test_cross_analysis_and_cross_tenant_reject_discovery_binding_swap(self):
+        command = new_id()
+        first = self.active(self.plan(command=command))
+        create = self.discovery_data(first)
+        _, first_job, first_headers = self.call(0, 'dispatch', create, with_headers=True)
+        for foreign in (self.active(self.plan(command=command, tenant='tenant-two')), self.active()):
+            self.denied({**self.dispatch_data(foreign), 'mandateBinding': first['mandateBinding']},
+                        (403, 'ANALYSIS_MANDATE_BINDING_MISMATCH'))
+            data = self.discovery_data(foreign, create['arguments'])
+            _, job, _ = self.call(1, 'dispatch', data, with_headers=True)
+            self.assertNotEqual(job['requestId'], first_job['requestId'])
+            self.save_discovery_binding(foreign, first_headers)
+            for op in (STATUS, CANDIDATES):
+                self.denied(self.dispatch_data(foreign, op, first_job), (403, 'ANALYSIS_DISCOVERY_REQUEST_NOT_BOUND'))
+
+    def test_pinned_workload_and_fresh_evidence_required(self):
         data = self.dispatch_data(self.active())
-        paused = self.path.with_suffix('.paused')
-        self.path.rename(paused)
-        try:
-            self.servers.append(self.replica(initialize=False))
-            for path, status in (('/health/live', 204), ('/health/ready', 503)):
-                connection = self.tls.client(self.servers[2], None)
-                try:
-                    connection.request('GET', path)
-                    with connection.getresponse() as response:
-                        self.assertEqual(response.status, status)
-                finally:
-                    connection.close()
-            with self.assertLogs('tools.analysis_batch_mandate', level='WARNING'):
-                self.denied(data, (503,), 2)
-            self.assertFalse(self.path.exists())
-        finally:
-            paused.rename(self.path)
-        self.servers[2].api.sweep()
-        self.assertEqual(self.call(2, 'dispatch', data)[0], 200)
+        for role in (None, 'foreign', 'human'):
+            self.denied(data, (403, 'ANALYSIS_WORKLOAD_PROOF_REQUIRED'), role=role)
+        self.denied({**data, 'mandateBinding': 'forged'}, (403, 'ANALYSIS_BINDING_PROOF_DENIED'))
+        self.work.stale = True
+        self.denied(data, (503, 'ANALYSIS_EVIDENCE_UNVERIFIED'))
+        self.assertEqual(self.authorization.admissions, [])
 
-    def test_expiry_at_deadline_and_owner_phase(self):
+    def test_expiry_for_closed_phase_and_at_deadline(self):
         for phase in ('FIRST_ROUND_COMPLETE', 'CLOSED', 'CANCELLED'):
             active = self.active()
-            self.authorities.phase = phase
-            self.denied(self.dispatch_data(active), (403,), 0)
-            self.denied(self.dispatch_data(active), (403,), 1)
-            self.assertEqual(self.servers[1].api.store.get(active['mandateRef'])['state'], 'EXPIRED')
-            self.authorities.phase = 'FIRST_ROUND'
+            saved = next(plan for plan in self.work.plans.values() if plan['analysisId'] == active['analysisId'])
+            saved['phase'] = phase
+            self.denied(self.dispatch_data(active), (403, 'ANALYSIS_MANDATE_EXPIRED'))
+            self.assertEqual(self.read(active)[1]['state'], 'EXPIRED')
+            action, payload, _ = self.authorization.calls[-2]
+            self.assertEqual((action, payload['reason']), ('expire', phase))
         active = self.active()
         self.time.advance(TTL_MS)
-        self.servers[0].api.sweep()
-        self.denied(self.dispatch_data(active), (403,), 1)
-        self.assertEqual(len([e for e in self.events() if e['outcome'] == 'EXPIRED']), 4)
+        self.denied(self.dispatch_data(active), (403, 'MANDATE_EXPIRED'))
+        self.assertEqual(self.read(active)[1]['state'], 'EXPIRED')
 
-    def test_revoke_after_fresh_check_and_before_admission(self):
+    def test_revocation_commit_wins_while_admission_is_pending(self):
         active = self.active()
-        entered, resume = threading.Event(), threading.Event()
-
-        def pause():
-            entered.set()
-            self.assertTrue(resume.wait(8))
-
-        self.authorities.rights_hook = pause
-        with concurrent.futures.ThreadPoolExecutor(1) as pool:
-            pending = pool.submit(self.call, 0, 'dispatch', self.dispatch_data(active))
-            try:
-                self.assertTrue(entered.wait(5))
-                self.assertEqual(self.revoke(active)[0], 200)
-            finally:
-                resume.set()
-            self.assertEqual(pending.result()[0], 409)
-        self.assertEqual(len(self.owner.calls), 0)
-
-    def test_ambiguous_create_reconciles_on_the_other_replica(self):
-        active = self.active()
-        args = dict(requestedArtifactType='PROPERTY', intent='first', preferredLanguages=['it'], idempotencyKey=new_id())
-        data = self.dispatch_data(active, REQUEST, args)
-        self.owner.lose_ack = True
-        self.assertEqual(self.call(0, 'dispatch', data)[0], 503)
-        self.denied({**data, 'arguments': {**args, 'intent': 'changed'}}, (409,), 1)
-        self.denied({**data, 'arguments': {**args, 'idempotencyKey': new_id()}}, (409,), 1)
-        status, recovered = self.call(1, 'dispatch', {**data, 'attemptId': new_id()})
-        self.assertEqual(status, 200)
-        self.assertEqual(list(self.owner.requests.values()), [recovered['requestId']])
-        read = self.dispatch_data(active, STATUS, recovered)
-        self.assertEqual(self.call(0, 'dispatch', read)[0], 200)
-
-    def test_already_admitted_owner_call_can_finish_after_revocation(self):
-        active = self.active()
-        args = dict(requestedArtifactType='PROPERTY', intent='first', preferredLanguages=['it'], idempotencyKey=new_id())
-        data = self.dispatch_data(active, REQUEST, args)
-        entered, resume = threading.Event(), threading.Event()
-
-        def pause():
-            entered.set()
-            self.assertTrue(resume.wait(8))
-
-        self.owner.hook = pause
-        with concurrent.futures.ThreadPoolExecutor(1) as pool:
-            pending = pool.submit(self.call, 0, 'dispatch', data)
-            try:
-                self.assertTrue(entered.wait(5))
-                self.assertEqual(self.revoke(active)[0], 200)
-                self.denied(data, (403,), 1)
-            finally:
-                resume.set()
-            status, result = pending.result()
-        self.assertEqual(status, 200)
-        self.denied(self.dispatch_data(active, STATUS, result), (403,), 0)
-        self.assertEqual(len(self.owner.calls), 1)
-
-    def test_revocation_requires_owner_or_authorized_ths_and_survives_clock_pause(self):
-        active = self.active()
-        self.authorities.revoke_as = dict(subject='other-human', operatorAuthorized=True)
-        self.assertEqual(self.revoke(active)[0], 403)
-        self.authorities.revoke_as = dict(subject='operator', client=self.settings.ths_client, operatorAuthorized=False)
-        self.assertEqual(self.revoke(active)[0], 403)
-        self.authorities.revoke_as = dict(subject='operator', client=self.settings.ths_client, operatorAuthorized=True)
-        self.time.offset = -5_000
-        self.assertEqual(self.revoke(active)[0], 200)
-        self.denied(self.dispatch_data(active), (403,), 0)
-
-    def test_quota_is_shared_and_start_key_cannot_change_intent(self):
-        plan = self.plan()
-        active = self.active(plan)
-        changed = {**plan, 'plan': {**plan['plan'], 'schemaHash': hash_text('different schema')}}
-        self.assertEqual(self.prepare(changed, 1)[0], 409)
-        self.settings.rates[SEARCH] = 1
         data = self.dispatch_data(active)
-        self.assertEqual(self.call(0, 'dispatch', data)[0], 200)
-        self.denied(data, (429,), 1)
-        self.time.advance(60_000)
-        self.assertEqual(self.call(1, 'dispatch', data)[0], 200)
+        entered, resume = threading.Event(), threading.Event()
+
+        def pause():
+            entered.set()
+            resume.wait(4)
+
+        self.authorization.admit_hook = pause
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(self.call, 1, 'dispatch', data)
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertEqual(self.revoke(active)[0], 200)
+            finally:
+                resume.set()
+            self.assertEqual(pending.result(), (403, {'code': 'MANDATE_REVOKED'}))
+        self.assertEqual(self.authorization.admissions, [])
+        self.assertEqual(self.semantic.calls, [])
+
+    def test_ambiguous_discovery_creation_reconciles_on_other_listener(self):
+        active = self.active()
+        data = self.discovery_data(active)
+        self.semantic.lose_ack = True
+        self.assertEqual(self.call(0, 'dispatch', data)[0], 503)
+        for change in (dict(intent='changed'), dict(idempotencyKey=new_id())):
+            self.denied({**data, 'arguments': {**data['arguments'], **change}}, (409, 'ANALYSIS_DISCOVERY_KEY_CONFLICT'))
+        status, job, headers = self.call(1, 'dispatch', {**data, 'attemptId': new_id()}, with_headers=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(list(self.semantic.requests.values()), [job['requestId']])
+        self.save_discovery_binding(active, headers)
+        self.assertEqual(self.call(0, 'dispatch', self.dispatch_data(active, STATUS, job))[0], 200)
+
+    def test_already_admitted_call_can_finish_after_revocation(self):
+        active = self.active()
+        data = self.discovery_data(active)
+        entered, resume = threading.Event(), threading.Event()
+
+        def pause():
+            entered.set()
+            resume.wait(4)
+
+        self.semantic.hook = pause
+        with concurrent.futures.ThreadPoolExecutor(1) as pool:
+            pending = pool.submit(self.call, 1, 'dispatch', data, with_headers=True)
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertEqual(self.revoke(active)[0], 200)
+                self.denied(data, (403, 'MANDATE_REVOKED'))
+            finally:
+                resume.set()
+            status, job, headers = pending.result()
+        self.assertEqual(status, 200)
+        self.save_discovery_binding(active, headers)
+        self.denied(self.dispatch_data(active, STATUS, job), (403, 'MANDATE_REVOKED'))
+
+    def test_revocation_forwards_bearer_and_reconciles_ambiguous_outcome(self):
+        active = self.active()
+        self.assertEqual(self.revoke(active, 'Bearer unauthorized'), (403, {'code': 'REVOCATION_DENIED'}))
+        self.authorization.lost_reply = 'revoke'
+        self.time.offset = -5000
+        self.assertEqual(self.revoke(active, 'Bearer authorized-ths'),
+                         (503, {'code': 'ANALYSIS_REVOCATION_OUTCOME_UNCERTAIN'}))
+        revoke, read = self.authorization.calls[-2:]
+        self.assertEqual((revoke[0], revoke[2]), ('revoke', 'Bearer authorized-ths'))
+        self.assertEqual((read[0], read[2]), ('read', None))
+        self.assertEqual(self.read(active)[1]['state'], 'REVOKED')
+        self.assertNotIn(b'authorized-ths', wire(self.events('a')))
 
 
 if __name__ == '__main__':

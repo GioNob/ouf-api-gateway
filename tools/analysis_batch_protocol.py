@@ -90,19 +90,29 @@ def signing_key(value):
     return value.encode('ascii')
 
 
+def sign_binding(key, domain, value):
+    payload = b64(wire(value))
+    return payload + '.' + mac(key, domain, payload)
+
+
+def verify_binding(proof, key, domain, code, limit=16384):
+    require(isinstance(proof, str) and len(proof) <= limit + 44
+            and token(proof, r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}'), 403, code)
+    payload, signature = proof.split('.')
+    require(len(payload) % 4 != 1 and hmac.compare_digest(mac(key, domain, payload), signature),
+            403, code)
+    return parse(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+
+
 def verify_start(proof, config, now_ms):
     code = 'ANALYSIS_START_PROOF_DENIED'
-    require(token(proof, r'[A-Za-z0-9_-]{1,8192}\.[A-Za-z0-9_-]{43}'), 403, code)
-    payload, signature = proof.split('.')
-    require(len(payload) % 4 != 1 and hmac.compare_digest(mac(config.start_key, START_DOMAIN, payload), signature),
-            403, code)
-    raw = base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4))
-    p = parse(raw)
-    require(exact(p, 'v installation issuer audience workload tenant subject client actor scope iat exp plan')
+    p = verify_binding(proof, config.start_key, START_DOMAIN, code, limit=8192)
+    require(exact(p, 'v installation issuer audience workload tenant subject client actor scope iat exp authTime plan')
             and type(p['v']) is int and p['v'] == 1 and p['installation'] == config.installation
             and p['issuer'] == config.issuer and p['audience'] == config.audience and p['workload'] == config.workload
             and p['actor'] == 'HUMAN' and all(identity_value(p[k]) for k in ('tenant', 'subject', 'client'))
             and type(p['iat']) is int and type(p['exp']) is int
+            and type(p['authTime']) is int and 0 < p['authTime'] <= p['iat']
             and 0 < p['exp'] - p['iat'] <= 60 and p['iat'] <= now_ms // 1000 < p['exp'], 403, code)
     p['scope'] = scopes(p['scope'], 403, code)
     plan = p['plan']
@@ -152,7 +162,6 @@ OPERATIONS = {
     'semantic.discovery.status': Operation('ouf.semantic.discovery.status', 'ouf.semantic.discovery', 'READ', 'discovery', 'status'),
     'semantic.discovery.candidates': Operation('ouf.semantic.discovery.candidates', 'ouf.semantic.discovery', 'READ', 'discovery', 'candidates'),
 }
-OPERATIONS_WIRE = wire(list(OPERATIONS))
 
 
 @cache

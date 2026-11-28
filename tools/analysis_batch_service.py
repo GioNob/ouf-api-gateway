@@ -4,7 +4,6 @@ import http.client
 import logging
 import os
 import socket
-import sqlite3
 import ssl
 import threading
 import time
@@ -14,21 +13,39 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
-from tools.analysis_batch_mandate import BatchMandates, Clock, UNAVAILABLE
-from tools.analysis_batch_protocol import (
-    Denied, MAX_REQUEST, OPERATIONS, digest, exact, hash_ref, identity_value, parse, require,
-    signing_key, token, wire,
+from tools.analysis_batch_mandate import (
+    AUTHORIZATION_INVALID, AUTHORIZATION_TLS, AUTHORIZATION_UNAVAILABLE, DISCOVERY_BINDING_HEADER,
+    UNAVAILABLE, BatchMandates, Clock,
 )
-from tools.analysis_batch_store import BatchMandateStore
+from tools.analysis_batch_protocol import (
+    Denied, MAX_REQUEST, digest, exact, hash_ref, identity_value, parse, require,
+    signing_key, token, uuid_ref, wire,
+)
+from tools.analysis_batch_store import BatchMandateAudit
 
 BASE = '/internal/analysis-batch/v1/'
 LOG = logging.getLogger(__name__)
-ROUTES = {BASE + action: action for action in ('prepare', 'issue', 'dispatch', 'expire', 'revoke')}
+ROUTES = {BASE + action: action for action in ('prepare', 'issue', 'dispatch', 'expire', 'revoke', 'read')}
+AUTHORIZATION_PATH = '/api/internal/v1/authorization/analysis-mandates/'
+AUTHORIZATION_LIMIT = 16_384
+AUTHORIZATION_ERRORS = {
+    400: {'INVALID_REQUEST'},
+    401: {'GATEWAY_AUTHENTICATION_REQUIRED', 'HUMAN_AUTHENTICATION_REQUIRED'},
+    403: {'GATEWAY_WORKLOAD_DENIED', 'MANDATE_BINDING_MISMATCH', 'HUMAN_PROOF_REQUIRED',
+          'HUMAN_PROOF_INVALID', 'REAUTHENTICATION_REQUIRED', 'OPERATION_DENIED', 'PRINCIPAL_INACTIVE',
+          'CURRENT_RIGHTS_DENIED', 'RIGHTS_CHANGED', 'POLICY_EPOCH_CHANGED', 'POLICY_CHANGED',
+          'MANDATE_REVOKED', 'MANDATE_EXPIRED', 'REVOCATION_DENIED'},
+    404: {'MANDATE_NOT_FOUND'},
+    409: {'ISSUE_KEY_CONFLICT', 'MANDATE_VERSION_CHANGED', 'MANDATE_GENERATION_CHANGED',
+          'MANDATE_NOT_RENEWABLE', 'DEADLINE_NOT_REACHED'},
+    500: {'REGISTRY_FAILURE'},
+    503: {'CURRENT_RIGHTS_UNAVAILABLE', 'RIGHTS_EVIDENCE_INVALID', 'CLOCK_UNVERIFIED', 'REGISTRY_UNAVAILABLE'},
+}
 
 
 class HTTPS:
     def __init__(self, config, timeout, *, origin=False):
-        if not exact(config, 'url caFile certFile keyFile'):
+        if not exact(config, 'url caFile certFile keyFile') or not all(isinstance(v, str) and v for v in config.values()):
             raise ValueError('explicit HTTPS trust and client certificate required')
         url = urlsplit(config['url'])
         if (url.scheme != 'https' or not url.hostname or url.username is not None or url.password is not None
@@ -38,8 +55,18 @@ class HTTPS:
         self.timeout = timeout
         self.context = tls_context(config, server=False)
 
-    def post(self, path, body, headers, limit, failure):
-        connection = http.client.HTTPSConnection(self.host, self.port, timeout=self.timeout, context=self.context)
+    def connection(self):
+        return http.client.HTTPSConnection(self.host, self.port, timeout=self.timeout, context=self.context)
+
+    def reachable(self):
+        connection = self.connection()
+        try:
+            connection.connect()
+        finally:
+            connection.close()
+
+    def post(self, path, body, headers, limit, failure, *, invalid=None, tls_failure=None):
+        connection = self.connection()
         started = time.monotonic()
         timer = None
         try:
@@ -62,13 +89,16 @@ class HTTPS:
             connection.request('POST', path, body, headers)
             with connection.getresponse() as response:
                 data = response.read(limit + 1)
-                require(len(data) <= limit and time.monotonic() - started < self.timeout
-                        and not 300 <= response.status < 400, 503, failure)
+                require(time.monotonic() - started < self.timeout, 503, failure)
+                require(len(data) <= limit and response.length in (0, None)
+                        and not 300 <= response.status < 400, 502 if invalid else 503, invalid or failure)
                 safe = {}
                 retry = response.getheader('Retry-After')
                 if token(retry, r'(?:[0-9]{1,9}|[A-Za-z0-9, :]{10,40})'):
                     safe['Retry-After'] = retry
                 return response.status, data, safe
+        except ssl.SSLError as exc:
+            raise Denied(502 if tls_failure else 503, tls_failure or failure) from exc
         except (OSError, http.client.HTTPException) as exc:
             raise Denied(503, failure) from exc
         finally:
@@ -76,10 +106,8 @@ class HTTPS:
                 timer.cancel()
             connection.close()
 
-    def evidence(self, body, bearer=None):
+    def evidence(self, body):
         headers = {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}
-        if bearer is not None:
-            headers['Authorization'] = bearer
         status, raw, headers = self.post(self.path or '/', body, headers, MAX_REQUEST, UNAVAILABLE)
         if status in (429, 503):
             raise Denied(status, UNAVAILABLE, headers.get('Retry-After'))
@@ -93,6 +121,42 @@ class HTTPS:
 
     def send(self, path, body, headers, limit):
         return self.post(path, body, headers, limit, 'ANALYSIS_OWNER_OUTCOME_UNCERTAIN')
+
+
+class Authorization(HTTPS):
+    def __init__(self, config, timeout):
+        super().__init__(config, timeout, origin=True)
+
+    def command(self, action, payload, bearer=None):
+        body = wire(payload)
+        require(len(body) <= AUTHORIZATION_LIMIT, 413, 'ANALYSIS_AUTHORIZATION_REQUEST_TOO_LARGE')
+        headers = {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}
+        if action == 'revoke' and bearer is not None:
+            headers['Authorization'] = bearer
+        status, raw, response_headers = self.post(AUTHORIZATION_PATH + action, body, headers,
+                                                  AUTHORIZATION_LIMIT, AUTHORIZATION_UNAVAILABLE,
+                                                  invalid=AUTHORIZATION_INVALID, tls_failure=AUTHORIZATION_TLS)
+        try:
+            view = parse(raw)
+        except Denied as exc:
+            raise Denied(502, AUTHORIZATION_INVALID) from exc
+        if status != 200:
+            require(exact(view, 'code') and isinstance(view['code'], str)
+                    and view['code'] in AUTHORIZATION_ERRORS.get(status, ()), 502, AUTHORIZATION_INVALID)
+            raise Denied(status, view['code'], response_headers.get('Retry-After') if status == 503 else None)
+        require(exact(view, 'mandateRef generation version state analysisId expiresAtMs')
+                and uuid_ref(view['mandateRef'], v4=True) and hash_ref(view['analysisId'])
+                and type(view['generation']) is int and view['generation'] == payload['generation']
+                and type(view['version']) is int and type(view['expiresAtMs']) is int
+                and 0 < view['expiresAtMs'] <= 2**63 - 1
+                and view['state'] in ('ACTIVE', 'REVOKED', 'EXPIRED')
+                and view['version'] == (1 if view['state'] == 'ACTIVE' else 2)
+                and all(view[k] == payload[k] for k in ('mandateRef', 'analysisId') if k in payload)
+                and (action != 'admit' or (view['state'] == 'ACTIVE' and view['version'] == payload['expectedVersion']))
+                and (action != 'revoke' or view['state'] == 'REVOKED')
+                and (action != 'expire' or view['state'] in ('REVOKED', 'EXPIRED')),
+                502, AUTHORIZATION_INVALID)
+        return view
 
 
 def tls_context(config, *, server):
@@ -117,7 +181,7 @@ class Listener(ThreadingHTTPServer):
         self.api, self.tls, self.pins, self.timeout = api, tls, pins, timeout
         self.workers = threading.BoundedSemaphore(capacity + 4)
         self.data = threading.BoundedSemaphore(capacity)
-        self.sweep_ready_until = 0
+        self.ready_until = 0
 
     def process_request(self, request, client_address):
         if not self.workers.acquire(blocking=False):
@@ -155,8 +219,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
-        if headers and 'Retry-After' in headers:
-            self.send_header('Retry-After', headers['Retry-After'])
+        for name in ('Retry-After', DISCOVERY_BINDING_HEADER):
+            if headers and name in headers:
+                self.send_header(name, headers[name])
         self.end_headers()
         if body:
             self.wfile.write(body)
@@ -171,9 +236,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == '/health/ready':
             try:
                 clock = self.server.api.clock
-                now = clock.checked()
-                ready = clock.monotonic() < self.server.sweep_ready_until and self.server.api.store.check(now)
-            except (sqlite3.Error, Denied):
+                clock.checked()
+                ready = clock.monotonic() < self.server.ready_until
+            except Denied:
                 ready = False
             self.reply(204 if ready else 503)
         else:
@@ -222,8 +287,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(status, result, headers)
 
     def reject(self, action, error):
-        self.server.api.denial(dict(action=action, record=None, actor=None, operation=None,
-                                    correlation=str(uuid.uuid4())), error)
+        self.server.api.record_event(dict(action=action, correlationId=str(uuid.uuid4())), 'DENIED', error.code)
         self.problem(error)
 
 
@@ -235,20 +299,14 @@ def positive_int(config, field, lower, upper):
 
 
 def application(config):
-    fields = ('contract installationId storageEpoch store issuer audience workload thsClient startKeyEnv '
-              'semanticReadKeyEnv semanticDiscoveryKeyEnv rights mcpState semantic clockSkewMs '
-              'timeoutSeconds sweepSeconds maxResultBytes dispatchCapacity ratePerMinute listen')
-    if not exact(config, fields) or config['contract'] != 'ouf.analysis.batch.installation.v1':
+    fields = ('contract installationId issuer audience workload startKeyEnv bindingKeyEnv '
+              'semanticReadKeyEnv semanticDiscoveryKeyEnv authorization rights mcpState semantic clockSkewMs '
+              'timeoutSeconds readinessSeconds maxResultBytes dispatchCapacity listen')
+    if not (exact(config, fields) or exact(config, fields + ' store')) or config['contract'] != 'ouf.analysis.batch.installation.v2':
         raise ValueError('closed installation profile required')
-    if not all(identity_value(config[k]) for k in ('installationId', 'issuer', 'audience', 'workload', 'thsClient')):
+    if not all(identity_value(config[k]) for k in ('installationId', 'issuer', 'audience', 'workload')):
         raise ValueError('installation identities required')
-    if not hash_ref(config['storageEpoch']):
-        raise ValueError('storage epoch required')
-    rates = config['ratePerMinute']
-    if (not isinstance(rates, dict) or rates.keys() != OPERATIONS.keys()
-            or not all(type(v) is int and 0 < v <= 100_000 for v in rates.values())):
-        raise ValueError('an installation rate limit per operation is required')
-    names = [config[k] for k in ('startKeyEnv', 'semanticReadKeyEnv', 'semanticDiscoveryKeyEnv')]
+    names = [config[k] for k in ('startKeyEnv', 'bindingKeyEnv', 'semanticReadKeyEnv', 'semanticDiscoveryKeyEnv')]
     if not all(token(name, r'[A-Z][A-Z0-9_]{0,127}') for name in names):
         raise ValueError('signing keys must be supplied through installation environment references')
     keys = [signing_key(os.environ[name]) for name in names]
@@ -262,33 +320,36 @@ def application(config):
     port = positive_int(listener, 'port', 1, 65535)
     timeout = positive_int(config, 'timeoutSeconds', 1, 10)
     capacity = positive_int(config, 'dispatchCapacity', 1, 64)
-    settings = SimpleNamespace(installation=config['installationId'], storage_epoch=config['storageEpoch'],
+    settings = SimpleNamespace(installation=config['installationId'],
                                issuer=config['issuer'], audience=config['audience'], workload=config['workload'],
-                               ths_client=config['thsClient'], start_key=keys[0], rates=rates,
-                               owner_keys={'read': keys[1], 'discovery': keys[2]},
+                               start_key=keys[0], binding_key=keys[1],
+                               owner_keys={'read': keys[2], 'discovery': keys[3]},
                                max_result_bytes=positive_int(config, 'maxResultBytes', 1, 264192))
-    store = BatchMandateStore(config['store'], settings.installation, settings.storage_epoch, initialize=False)
-    api = BatchMandates(settings, store, HTTPS(config['rights'], timeout), HTTPS(config['mcpState'], timeout),
+    audit = BatchMandateAudit(config['store'], settings.installation) if 'store' in config else None
+    api = BatchMandates(settings, audit, Authorization(config['authorization'], timeout),
+                        HTTPS(config['rights'], timeout), HTTPS(config['mcpState'], timeout),
                         HTTPS(config['semantic'], timeout, origin=True),
                         Clock(positive_int(config, 'clockSkewMs', 100, 10_000)))
     server = Listener((listener['host'], port), api, tls_context(listener, server=True),
                       {listener['mcpCertSha256']: 'mcp', listener['humanRelayCertSha256']: 'human'}, timeout, capacity)
-    return server, positive_int(config, 'sweepSeconds', 1, 300)
+    return server, positive_int(config, 'readinessSeconds', 1, 300)
 
 
-def sweep(server, interval, stop):
+def monitor_readiness(server, interval, stop):
     paused = False
     while not stop.is_set():
         try:
-            server.api.sweep()
-        except (Denied, sqlite3.Error):
+            api = server.api
+            api.authorization.reachable()
+            api.clock.evidence(api.receipt_context, dict(action='clock', installation=api.config.installation))
+        except (Denied, OSError):
             if not paused:
-                LOG.warning('ANALYSIS_EXPIRATION_SWEEP_PAUSED')
+                LOG.warning('ANALYSIS_DEPENDENCY_READINESS_UNVERIFIED')
             paused = True
-            server.sweep_ready_until = 0
+            server.ready_until = 0
         else:
             paused = False
-            server.sweep_ready_until = server.api.clock.monotonic() + 2000 * interval
+            server.ready_until = api.clock.monotonic() + 2000 * interval
         stop.wait(interval)
 
 
@@ -299,7 +360,7 @@ def main():
     logging.basicConfig(level=logging.INFO)
     server, interval = application(parse(args.profile.read_bytes()))
     stop = threading.Event()
-    thread = threading.Thread(target=sweep, args=(server, interval, stop), daemon=True)
+    thread = threading.Thread(target=monitor_readiness, args=(server, interval, stop), daemon=True)
     with server:
         thread.start()
         try:

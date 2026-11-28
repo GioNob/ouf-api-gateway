@@ -16,6 +16,9 @@ local claims = jwt_claims()
 local now = ngx.time()
 if type(claims) ~= 'table' or claims.iss ~= ISSUER or not audience_has(claims.aud, AUDIENCE)
     or claims.ouf_actor_type ~= 'HUMAN' or type(claims.exp) ~= 'number' or claims.exp <= now then return fail(403) end
+local authenticated_at = claims.auth_time
+if type(authenticated_at) ~= 'number' or authenticated_at % 1 ~= 0
+    or authenticated_at <= 0 or authenticated_at > now then return fail(403) end
 local client = claims.azp or claims.client_id
 if not text(client) or #client > 512 or not text(claims.sub) or #claims.sub > 512
     or not text(claims.tenant_id) or #claims.tenant_id > 512 or not text(claims.scope) then return fail(403) end
@@ -24,7 +27,7 @@ if type(key) ~= 'string' or #key ~= 64 or key:find('[^0-9a-fA-F]') then return f
 local raw = cjson.encode({
     v=1, installation=INSTALLATION, issuer=ISSUER, audience=AUDIENCE, workload=MCP_WORKLOAD,
     tenant=claims.tenant_id, subject=claims.sub, client=client, actor='HUMAN', scope=claims.scope,
-    iat=now, exp=math.min(claims.exp, now+60), plan=a,
+    iat=now, exp=math.min(claims.exp, now+60), authTime=authenticated_at, plan=a,
 })
 if not raw then return fail(503) end
 local encoded = encode64(raw)
