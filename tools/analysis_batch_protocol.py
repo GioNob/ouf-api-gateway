@@ -142,16 +142,16 @@ class Operation:
         channel = 'consultation' if self.family == 'read' else self.family
         return f'/api/internal/v1/semantic/{channel}/{self.action}'
 
-    def receipt(self, key, config, record, rights, body, now_ms, expires_ms):
+    def receipt(self, key, audience, claims, body, now_ms, expires_ms):
         issued_at = now_ms // 1000
         exp = min(expires_ms // 1000, issued_at + 30)
         require(exp > issued_at, 403, 'ANALYSIS_EVIDENCE_EXPIRED')
         purpose = f'semantic-{self.family}-owner'
         payload = b64(wire(dict(v=1, purpose=purpose, method='POST', path=self.path,
                                 bodyHash=digest(body), capability=self.capability, iat=issued_at, exp=exp,
-                                issuer=record['issuer'], audience=config.audience, workload=record['workload'],
-                                subject=record['subject'], tenant=record['tenant'], acr=rights['acr'],
-                                scope=' '.join(rights['scope']), roles=' '.join(rights['roles']))))
+                                issuer=claims['issuer'], audience=audience, workload=claims['workload'],
+                                subject=claims['subject'], tenant=claims['tenant'], acr=claims['acr'],
+                                scope=' '.join(claims['scope']), roles=' '.join(claims['roles']))))
         return (f'X-OUF-Semantic-{self.family.title()}-Receipt',
                 payload + '.' + mac(key, f'ouf-{purpose}-v1', payload))
 

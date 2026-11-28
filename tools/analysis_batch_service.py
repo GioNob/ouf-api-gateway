@@ -144,7 +144,10 @@ class Authorization(HTTPS):
             require(exact(view, 'code') and isinstance(view['code'], str)
                     and view['code'] in AUTHORIZATION_ERRORS.get(status, ()), 502, AUTHORIZATION_INVALID)
             raise Denied(status, view['code'], response_headers.get('Retry-After') if status == 503 else None)
-        require(exact(view, 'mandateRef generation version state analysisId expiresAtMs')
+        fields = 'mandateRef generation version state analysisId expiresAtMs'
+        if action == 'admit':
+            fields += ' receiptContext'
+        require(exact(view, fields)
                 and uuid_ref(view['mandateRef'], v4=True) and hash_ref(view['analysisId'])
                 and type(view['generation']) is int and view['generation'] == payload['generation']
                 and type(view['version']) is int and type(view['expiresAtMs']) is int

@@ -71,6 +71,7 @@ class WorkEvidence:
         self.plans = {}
         self.discovery = {}
         self.stale = False
+        self.receipt_queries = []
 
     def envelope(self, raw, **value):
         now = self.clock.utc
@@ -89,6 +90,7 @@ class WorkEvidence:
                              phase=saved['phase'], workRef=work_ref, **self.discovery.get(saved['analysisId'], {}))
 
     def receipt_context(self, raw):
+        self.receipt_queries.append(parse(raw))
         return self.envelope(raw, active=True, allowed=True, policyEpoch=self.epoch, decisionRef=new_id(),
                              acr='verified', scope=SCOPE, roles=['analyst'])
 
@@ -100,6 +102,7 @@ class AuthorizationOwner:
         self.lock = threading.Lock()
         self.keys, self.rows = {}, {}
         self.calls, self.admissions = [], []
+        self.receipt_claims = []
         self.inactive = False
         self.failure = None
         self.lost_reply = None
@@ -170,7 +173,12 @@ class AuthorizationOwner:
         if self.inactive:
             raise Denied(403, 'PRINCIPAL_INACTIVE')
         self.admissions.append(q)
-        return self.corrupt_admit or view
+        binding = next(saved for ref, saved in self.keys.values() if ref == q['mandateRef'])
+        claims = {k: binding[k] for k in ('issuer', 'tenant', 'subject', 'client', 'workload', 'scope')}
+        claims.update(actorType='HUMAN', decisionRef=new_id(), acr='admitted-acr',
+                      roles=['reviewer', 'analyst'], validUntilMs=self.clock.utc + 5_000)
+        self.receipt_claims.append(claims)
+        return self.corrupt_admit or dict(view, receiptContext=claims)
 
 
 class AuthorizationHandler(BaseHTTPRequestHandler):
@@ -244,13 +252,20 @@ class TLSFixture:
         issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'mandate-test-ca')])
         ca_key = Ed25519PrivateKey.generate()
 
-        def certificate(subject, public_key):
+        def certificate(subject, public_key, *, ca=False):
             return (x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(public_key)
                     .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(days=1))
-                    .not_valid_after(now + timedelta(days=1)))
+                    .not_valid_after(now + timedelta(days=1))
+                    .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
+                    .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
+                                   critical=False)
+                    .add_extension(x509.BasicConstraints(ca=ca, path_length=0 if ca else None), critical=True)
+                    .add_extension(x509.KeyUsage(digital_signature=not ca, content_commitment=False,
+                                                key_encipherment=False, data_encipherment=False, key_agreement=False,
+                                                key_cert_sign=ca, crl_sign=ca, encipher_only=False, decipher_only=False),
+                                   critical=True))
 
-        ca = certificate(issuer, ca_key.public_key()).add_extension(x509.BasicConstraints(ca=True, path_length=0),
-                                                                     critical=True).sign(ca_key, None)
+        ca = certificate(issuer, ca_key.public_key(), ca=True).sign(ca_key, None)
         self.ca = directory / 'ca.pem'
         self.ca.write_bytes(ca.public_bytes(serialization.Encoding.PEM))
         self.profiles, self.pins = {}, {}
@@ -447,8 +462,8 @@ class BatchMandatePET(unittest.TestCase):
         for name in (STATUS, CANDIDATES):
             self.assertEqual(self.call(0, 'dispatch', self.dispatch_data(active, name, job))[0], 200)
         self.assertEqual([q['operation'] for q in self.authorization.admissions], list(OPERATIONS))
-        self.assertEqual(self.authorization.admissions[1]['argumentsHash'], arguments(REQUEST, create['arguments']))
-        for q, (path, body, headers), op in zip(self.authorization.admissions, self.semantic.calls, OPERATIONS.values()):
+        for q, (path, body, headers), op in zip(self.authorization.admissions, self.semantic.calls,
+                                               OPERATIONS.values(), strict=True):
             self.assertEqual(path, op.path)
             fields = ('mandateRef generation expectedVersion analysisId workload policyEpoch operation '
                       'argumentsHash attemptId correlationId')
@@ -463,12 +478,43 @@ class BatchMandatePET(unittest.TestCase):
             receipt = parse(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
             self.assertEqual(tag, mac(self.settings.owner_keys[op.family], f'ouf-semantic-{op.family}-owner-v1', encoded))
             self.assertEqual(receipt['bodyHash'], digest(body))
-            self.assertEqual((receipt['subject'], receipt['tenant'], receipt['roles'], receipt['acr']),
-                             ('human-one', 'tenant-one', 'analyst', 'verified'))
             self.assertLessEqual(receipt['exp'] - receipt['iat'], 30)
         audit = wire(self.events('b'))
         self.assertNotIn(b'private-', audit)
         self.assertNotIn(create['arguments']['idempotencyKey'].encode(), audit)
+
+    def test_semantic_receipt_uses_claims_from_each_admit(self):
+        data = self.dispatch_data(self.active(self.plan(tenant='tenant-two')))
+        for replica in (0, 1):
+            self.assertEqual(self.call(replica, 'dispatch', data)[0], 200)
+            claims = self.authorization.receipt_claims[-1]
+            _, body, headers = self.semantic.calls[-1]
+            encoded, _ = headers['X-OUF-Semantic-Read-Receipt'].split('.')
+            receipt = parse(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
+            self.assertEqual(receipt['bodyHash'], digest(body))
+            self.assertEqual({k: receipt[k] for k in ('issuer', 'tenant', 'subject', 'workload', 'acr')},
+                             {k: claims[k] for k in ('issuer', 'tenant', 'subject', 'workload', 'acr')})
+            self.assertEqual(receipt['roles'].split(), claims['roles'])
+            self.assertEqual(receipt['scope'].split(), claims['scope'])
+            envelope = parse(body)
+            self.assertEqual(envelope['AuthorizationDecisionRef'], claims['decisionRef'])
+            self.assertEqual(envelope['Identity'], dict(ServicePrincipalID=claims['client'],
+                                                       PrincipalID=claims['subject'], TenantID=claims['tenant'],
+                                                       ActorType=claims['actorType'], AuthenticationContextRef=claims['acr']))
+            self.assertLessEqual(receipt['exp'] * 1000, claims['validUntilMs'])
+        self.assertEqual(self.work.receipt_queries, [])
+
+    def test_discovery_admit_hash_covers_rewritten_idempotency_key(self):
+        create = self.discovery_data(self.active())
+        self.assertEqual(self.call(1, 'dispatch', create)[0], 200)
+        _, body, headers = self.semantic.calls[-1]
+        envelope = parse(body)
+        forwarded_args = envelope['Arguments']
+        self.assertNotEqual(forwarded_args['idempotencyKey'], create['arguments']['idempotencyKey'])
+        self.assertEqual(forwarded_args['idempotencyKey'], envelope['IdempotencyKey'])
+        self.assertEqual(forwarded_args['idempotencyKey'], headers['Idempotency-Key'])
+        self.assertEqual(self.authorization.admissions[-1]['argumentsHash'], digest(wire(forwarded_args)))
+        self.assertEqual(envelope['RequestHash'], self.authorization.admissions[-1]['argumentsHash'])
 
     def test_remote_revocation_with_distinct_stores_blocks_retries_and_reads(self):
         self.assertNotEqual(self.servers[0].api.audit.uri, self.servers[1].api.audit.uri)
@@ -544,11 +590,22 @@ class BatchMandatePET(unittest.TestCase):
     def test_mismatched_owner_success_does_not_authorize_dispatch(self):
         active = self.active()
         view = {k: v for k, v in active.items() if k != 'mandateBinding'}
+        data = self.dispatch_data(active)
+        self.assertEqual(self.call(1, 'dispatch', data)[0], 200)
+        claims = self.authorization.receipt_claims[-1]
+        view['receiptContext'] = claims
         for change in (dict(analysisId=hash_text('another analysis')), dict(generation=True),
-                       dict(state='REVOKED', version=2), dict(expiresAtMs=active['expiresAtMs'] + 1)):
+                       dict(state='REVOKED', version=2), dict(expiresAtMs=active['expiresAtMs'] + 1),
+                       dict(receiptContext={**claims, 'subject': 'another-human'}),
+                       dict(receiptContext={**claims, 'acr': None})):
             with self.subTest(change=change):
                 self.authorization.corrupt_admit = {**view, **change}
-                self.denied(self.dispatch_data(active), (502, 'ANALYSIS_AUTHORIZATION_RESPONSE_INVALID'))
+                self.denied(data, (502, 'ANALYSIS_AUTHORIZATION_RESPONSE_INVALID'))
+        view.pop('receiptContext')
+        self.authorization.corrupt_admit = view
+        self.denied(data, (502, 'ANALYSIS_AUTHORIZATION_RESPONSE_INVALID'))
+        self.authorization.corrupt_admit = dict(view, receiptContext={**claims, 'validUntilMs': self.time.utc})
+        self.denied(data, (403, 'ANALYSIS_EVIDENCE_EXPIRED'))
 
     def test_cross_analysis_and_cross_tenant_reject_discovery_binding_swap(self):
         command = new_id()

@@ -7,7 +7,7 @@ import uuid
 
 from tools.analysis_batch_protocol import (
     Denied, MAX_REQUEST, OPERATIONS, arguments, b64, digest, exact, hash_ref, identity_value,
-    mac, parse, require, scopes, sign_binding, token, uuid_ref, verify_binding, verify_start, wire,
+    mac, parse, require, sign_binding, token, uuid_ref, verify_binding, verify_start, wire,
 )
 
 LOG = logging.getLogger(__name__)
@@ -234,21 +234,21 @@ class BatchMandates:
         return self.authorization.command('expire', dict(payload, expectedVersion=version, reason=reason,
                                                          correlationId=correlation))
 
-    def receipt_proof(self, binding, **extra):
-        # The private mandate view carries no receipt claims. Obtain the same
-        # short-lived context as the interactive bridge before final admission.
-        query = {**self.context(binding, 'dispatch'), 'policyEpoch': binding['policyEpoch'], **extra}
-        proof = self.clock.evidence(self.receipt_context, query)
-        e = proof.value
-        require(type(e.get('active')) is bool and type(e.get('allowed')) is bool, 503, EVIDENCE)
-        require(e['active'] and e['allowed'], 403, 'ANALYSIS_RECEIPT_CONTEXT_DENIED')
-        scope = scopes(e.get('scope'), 503, EVIDENCE)
-        roles = e.get('roles')
-        require(token(e.get('decisionRef')) and identity_value(e.get('acr')) and isinstance(roles, list)
-                and len(roles) <= 32 and all(token(r, r'[A-Za-z0-9_:./-]{1,128}') for r in roles), 503, EVIDENCE)
-        require(e.get('policyEpoch') == binding['policyEpoch'] and scope == binding['scope'],
-                403, 'ANALYSIS_RECEIPT_CONTEXT_CHANGED')
-        return proof, dict(acr=e['acr'], roles=sorted(set(roles)), scope=scope)
+    def admitted_claims(self, admitted, binding):
+        claims = admitted['receiptContext']
+        identity = ('issuer', 'tenant', 'subject', 'client', 'workload')
+        require(admitted['expiresAtMs'] == binding['expiresAtMs']
+                and exact(claims, 'issuer tenant subject client workload actorType decisionRef acr scope roles validUntilMs')
+                and all(claims[k] == binding[k] for k in identity) and claims['actorType'] == 'HUMAN'
+                and token(claims['decisionRef']) and identity_value(claims['acr'])
+                and isinstance(claims['scope'], list) and all(identity_value(s) for s in claims['scope'])
+                and sorted(claims['scope']) == binding['scope']
+                and isinstance(claims['roles'], list) and len(claims['roles']) <= 32
+                and all(token(r, r'[A-Za-z0-9_:./-]{1,128}') for r in claims['roles'])
+                and len(set(claims['roles'])) == len(claims['roles'])
+                and type(claims['validUntilMs']) is int and 0 < claims['validUntilMs'] <= 2**63 - 1,
+                502, AUTHORIZATION_INVALID)
+        return claims
 
     def discovery_work(self, binding, state, name, bound):
         work_ref = state.get('workRef')
@@ -287,18 +287,24 @@ class BatchMandates:
             raise Denied(403, 'ANALYSIS_MANDATE_EXPIRED')
         require(state.value['policyEpoch'] == binding['policyEpoch'], 403, 'ANALYSIS_POLICY_EPOCH_CHANGED')
         work = self.discovery_work(binding, state.value, name, bound) if op.family == 'discovery' else None
-        proof, claims = self.receipt_proof(binding, **bound)
-        body, headers = self.owner_call(request, binding, proof.value, claims, work)
+        idem = request['attemptId']
+        owner_arguments_hash = bound['argumentsHash']
+        if name == DISCOVERY_REQUEST:
+            # Namespace Semantic deduplication by admitted analysis/work.
+            namespace = [work[k] for k in ('installation', 'analysisId', 'mandateRef', 'workRef')]
+            idem = 'analysis-batch-v1:' + mac(self.config.binding_key, 'ouf-analysis-discovery-key-v1', b64(wire(namespace)))
+            args = dict(args, idempotencyKey=idem)
+            owner_arguments_hash = digest(wire(args))
         admission = {k: binding[k] for k in ('mandateRef', 'generation', 'analysisId', 'workload', 'policyEpoch')}
-        admission.update(bound, expectedVersion=binding['version'], correlationId=request['correlationId'])
-        now = self.clock.checked()
-        state.check(self.clock, now)
-        proof.check(self.clock, now)
+        admission.update(bound, argumentsHash=owner_arguments_hash,
+                         expectedVersion=binding['version'], correlationId=request['correlationId'])
+        state.check(self.clock, self.clock.checked())
         admitted = self.authorization.command('admit', admission)
-        require(admitted['expiresAtMs'] == binding['expiresAtMs'], 502, AUTHORIZATION_INVALID)
+        claims = self.admitted_claims(admitted, binding)
+        body, headers = self.owner_call(op, args, idem, admission, claims)
         now = self.clock.checked()
-        expires = min(admitted['expiresAtMs'], state.check(self.clock, now), proof.check(self.clock, now))
-        header, value = op.receipt(self.config.owner_keys[op.family], self.config, binding, claims, body, now, expires)
+        expires = min(admitted['expiresAtMs'], state.check(self.clock, now), claims['validUntilMs'])
+        header, value = op.receipt(self.config.owner_keys[op.family], self.config.audience, claims, body, now, expires)
         headers[header] = value
         status, data, headers = self.semantic.send(op.path, body, headers, self.config.max_result_bytes)
         if name == DISCOVERY_REQUEST and 200 <= status < 300:
@@ -312,24 +318,15 @@ class BatchMandates:
                                                                      dict(work, requestId=result['requestId']))}
         return status, data, headers
 
-    def owner_call(self, request, binding, decision, claims, work):
-        op = OPERATIONS[request['operation']]
-        args = request['arguments']
-        correlation, attempt = request['correlationId'], request['attemptId']
-        if request['operation'] == DISCOVERY_REQUEST:
-            # Namespace Semantic deduplication by admitted analysis/work.
-            namespace = [work[k] for k in ('installation', 'analysisId', 'mandateRef', 'workRef')]
-            idem = 'analysis-batch-v1:' + mac(self.config.binding_key, 'ouf-analysis-discovery-key-v1', b64(wire(namespace)))
-            args = dict(args, idempotencyKey=idem)
-        else:
-            idem = attempt
+    def owner_call(self, op, args, idem, admission, claims):
+        correlation, attempt = admission['correlationId'], admission['attemptId']
         body = wire(dict(
             GatewayBindingRef='capability://' + op.capability, CapabilityID=op.capability, Owner='semantic',
-            OperationClass=op.operation_class, Arguments=args, AuthorizationDecisionRef=decision['decisionRef'],
-            Identity=dict(ServicePrincipalID=binding['client'], PrincipalID=binding['subject'], TenantID=binding['tenant'],
-                          ActorType='HUMAN', AuthenticationContextRef=claims['acr']),
+            OperationClass=op.operation_class, Arguments=args, AuthorizationDecisionRef=claims['decisionRef'],
+            Identity=dict(ServicePrincipalID=claims['client'], PrincipalID=claims['subject'], TenantID=claims['tenant'],
+                          ActorType=claims['actorType'], AuthenticationContextRef=claims['acr']),
             CorrelationID=correlation, IdempotencyKey=idem, AttemptID=attempt,
-            RequestHash=digest(wire(args)), MaxResultBytes=self.config.max_result_bytes,
+            RequestHash=admission['argumentsHash'], MaxResultBytes=self.config.max_result_bytes,
         ))
         require(len(body) <= MAX_REQUEST, 413, 'ANALYSIS_OWNER_REQUEST_TOO_LARGE')
         headers = {'Content-Type': 'application/json', 'X-Correlation-ID': correlation,
