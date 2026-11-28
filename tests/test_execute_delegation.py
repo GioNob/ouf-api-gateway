@@ -4,12 +4,15 @@ import hashlib
 import hmac
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from jsonschema import Draft7Validator, FormatChecker
 from lupa.lua54 import LuaRuntime
 
 from tools.delegation_functions import function
+from tools.analysis_batch_protocol import verify_start
 from tools.materialize_apisix_execute_runtime import materialize
 from tools.compile_config import compile_config
 from tools.apply_installation_projection import apply_projection
@@ -188,3 +191,41 @@ def test_missing_or_malformed_delegation_rejected(value):
     headers={} if value is None else {'X-OUF-Delegation':value}
     with pytest.raises(Denied) as denied:Engine(workload(),headers).run('execute_status')
     assert denied.value.args==(403,)
+
+
+def test_analysis_start_is_opt_in_and_only_a_human_batch_plan_gets_a_proof():
+    resolved = runtime()
+    installation = resolved['x-ouf-installation']
+    baseline = materialize(resolved, '$ENV://OIDC', 'DELEGATION_KEY')
+    enabled = materialize(resolved, '$ENV://OIDC', 'DELEGATION_KEY', analysis_start_key_env='START_KEY')
+    before, = (row for row in baseline['routes'] if row['uri'] == '/mcp')
+    ingress, = (row for row in enabled['routes'] if row['uri'] == '/mcp')
+    access = ingress['plugins']['serverless-post-function']['functions']
+    assert access[:1] + access[2:] == before['plugins']['serverless-post-function']['functions']
+    hook = access[1].encode()
+    strip = ingress['plugins']['serverless-pre-function']['functions'][-1].encode()
+    claims = dict(human(), iss=installation['issuerUrl'], aud=installation['gatewayAudience'])
+    plan = dict(mode='BATCH_V1', assetId=str(uuid4()), profileId=str(uuid4()),
+                schemaHash=hashlib.sha256(b'profile').hexdigest(), commandKey=str(uuid4()))
+    header = b'x-ouf-analysis-batch-start'
+
+    for name, arguments in [('source.analysis.plan', {**plan, 'mode': 'INTERACTIVE'}), ('source.analysis.read', plan)]:
+        engine = Engine(claims, {header.decode(): 'forged'},
+                        dict(method='tools/call', params=dict(name=name, arguments=arguments)))
+        engine.lua.execute(strip)(None, None)
+        engine.lua.execute(hook)(None, None)
+        assert header not in engine.headers
+
+    rpc = dict(method='tools/call', params=dict(name='source.analysis.plan', arguments=plan))
+    engine = Engine(claims, body=rpc)
+    engine.lua.execute(hook)(None, None)
+    settings = SimpleNamespace(start_key=KEY.encode(), installation=installation['installationId'],
+                               issuer=claims['iss'], audience=claims['aud'], workload=installation['mcpServiceIdentity'])
+    result = verify_start(engine.headers[header].decode(), settings, 1_000_000)
+    assert result['plan'] == plan
+    assert result['subject'] == claims['sub']
+    assert result['exp'] == 1060
+    service = Engine(dict(claims, ouf_actor_type='SERVICE'), body=rpc)
+    with pytest.raises(Denied) as denied:
+        service.lua.execute(hook)(None, None)
+    assert denied.value.args == (403,)
